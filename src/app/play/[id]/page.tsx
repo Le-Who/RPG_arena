@@ -148,9 +148,9 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
 
       // Авто-компакция: если Memory House переполнен и компакция уже не идёт —
       // запускаем фоново после небольшой задержки (UI успевает отрисовать новый ход).
-      // Guard: busy сбрасывается в finally ДО setTimeout, поэтому compacting — единственная
-      // защита от двойного запуска.
-      if (j.needsCompaction && !compacting) {
+      // Guard: используем compactingRef.current (не stale state!) — compacting-state
+      // в замыкании act() не обновится до следующего рендера, ref обновляется синхронно.
+      if (j.needsCompaction && !compactingRef.current) {
         setCompacting(true);
         setTimeout(async () => {
           try {
