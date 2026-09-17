@@ -8,6 +8,7 @@ import {
   timestamp,
   real,
   type AnyPgColumn,
+  index,
 } from "drizzle-orm/pg-core";
 
 // ── Игровые сессии (кампании) ─────────────────────────────
@@ -75,7 +76,11 @@ export const gameTurns = pgTable("game_turns", {
   promptTokens: integer("prompt_tokens").default(0),
   completionTokens: integer("completion_tokens").default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  index("idx_game_turns_session_id").on(t.sessionId),
+  index("idx_game_turns_session_role_turn").on(t.sessionId, t.role, t.turnNumber),
+  index("idx_game_turns_session_turn_desc").on(t.sessionId, t.turnNumber),
+]);
 
 export type DiceResult = {
   d20: number;
@@ -109,7 +114,10 @@ export const memoryNodes = pgTable("memory_nodes", {
   accessCount: integer("access_count").notNull().default(0),
   lastAccessedAt: timestamp("last_accessed_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  index("idx_memory_nodes_session_importance").on(t.sessionId, t.importance),
+  index("idx_memory_nodes_session_turnto").on(t.sessionId, t.turnTo),
+]);
 
 // memoryLinks: граф связей между нодами памяти (зарезервировано для будущего графового поиска).
 // В текущей версии таблица создаётся, но не используется в запросах.
@@ -138,7 +146,9 @@ export const inventoryItems = pgTable("inventory_items", {
   equipped: boolean("equipped").notNull().default(false),
   power: integer("power").notNull().default(0),
   icon: text("icon").notNull().default("🎒"),
-});
+}, (t) => [
+  index("idx_inventory_items_session_id").on(t.sessionId),
+]);
 
 // ── Карта мира ────────────────────────────────────────────
 export const worldLocations = pgTable("world_locations", {
@@ -155,7 +165,9 @@ export const worldLocations = pgTable("world_locations", {
   danger: integer("danger").notNull().default(10),
   icon: text("icon").notNull().default("📍"),
   connectedTo: jsonb("connected_to").$type<string[]>().default([]),
-});
+}, (t) => [
+  index("idx_world_locations_session_id").on(t.sessionId),
+]);
 
 // ── Настройки ИИ (ключи, маршрутизация) ───────────────────
 export const aiSettings = pgTable("ai_settings", {
@@ -192,4 +204,7 @@ export const tokenLogs = pgTable("token_logs", {
   error: text("error").default(""),
   keyIndex: integer("key_index").default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  index("idx_token_logs_session_id").on(t.sessionId),
+  index("idx_token_logs_created_at").on(t.createdAt),
+]);
