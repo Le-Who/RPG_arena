@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Chronicle Engine — процедурная D&D-квест игра",
-  description: "Текстовый RPG-квест с древом памяти Memory House, d20, картой мира и маршрутизацией Gemini Flash.",
+  title: "Chronicle Engine — интерактивная новелла со свободой действия",
+  description: "Текстовые истории любого жанра: ИИ-мастер, серверная валидация изменений мира, память с provenance и семантическим поиском, профили механик d20 / rules-light / narrative.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -20,25 +20,24 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-40 border-b border-white/10 bg-[#0b0e1a]/80 backdrop-blur">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
             <a href="/" className="flex items-center gap-2.5">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-amber-300 to-violet-600 text-lg shadow-lg">🎲</span>
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-amber-300 to-violet-600 text-lg shadow-lg">📖</span>
               <span>
                 <span className="block text-[15px] font-bold tracking-wide text-amber-100">CHRONICLE ENGINE</span>
-                <span className="block text-[11px] uppercase tracking-[0.2em] text-violet-300/80">procedural d&amp;d quest</span>
+                <span className="block text-[11px] uppercase tracking-[0.2em] text-violet-300/80">interactive fiction engine</span>
               </span>
             </a>
             <nav className="flex items-center gap-1 text-sm">
-              <a href="/" className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 hover:text-white">Приключения</a>
+              <a href="/" className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 hover:text-white">Истории</a>
+              <a href="/blueprint" className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 hover:text-white">Архитектура</a>
               <a href="/settings" className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 hover:text-white">⚙️ Настройки</a>
             </nav>
           </div>
         </header>
         <main className="mx-auto max-w-6xl px-4 pb-20">{children}</main>
         <footer className="border-t border-white/10 py-6 text-center text-xs text-slate-500">
-          Chronicle Engine · Процедурный D&amp;D-квест с живым миром и бросками d20
+          Chronicle Engine · интерактивная новелла любого жанра · память с provenance · сервер как источник истины
           <span className="mx-2 text-slate-600">·</span>
-          <a href="/settings" className="hover:text-slate-400 underline underline-offset-2">Настройки</a>
-          <span className="mx-2 text-slate-600">·</span>
-          <a href="/blueprint" className="hover:text-slate-400 underline underline-offset-2">Архитектура проекта (Blueprint)</a>
+          <a href="/blueprint" className="underline underline-offset-2 hover:text-slate-400">Blueprint</a>
         </footer>
       </body>
     </html>

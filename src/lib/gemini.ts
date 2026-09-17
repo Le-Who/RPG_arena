@@ -1,9 +1,10 @@
-// ── Каталог моделей, квоты, роутинг задач, ротация ключей ──
-// Квоты: flash 20 req/day на каждую модель (3.8, 3.7, 3.6), lite 500 req/day.
-// Стратегия: lite берет на себя рутину и стандартные ходы нарратива (500 лимита!),
-// а flash 3.8/3.7/3.6 сберегаются для сжатия памяти и сложных свободных действий.
-// CONTEXT_BUDGET и TOTAL_CONTEXT_BUDGET определены в memory.ts.
+// ── Каталог моделей, роутинг задач, промпты, ротация ключей ──
+// Квоты 20/500 — ориентиры бесплатного тарифа AI Studio на ключ; сервер учитывает их
+// как лимиты (aiSettings.dailyFlashLimit/dailyLiteLimit × число ключей) при enforceLimits.
 
+import { RESOLUTION_RESPONSE_SCHEMA } from "./resolution";
+
+export { RESOLUTION_RESPONSE_SCHEMA };
 
 export const MODEL_CATALOG = [
   {
@@ -12,8 +13,8 @@ export const MODEL_CATALOG = [
     family: "lite" as const,
     tier: "fast-economy",
     dailyLimit: 500,
-    role: "Обычный нарратив, стандартные ходы, извлечение фактов, инвентарь",
-    badge: "500 запросов / день",
+    role: "Обычные ходы, извлечение фактов, быстрые задачи",
+    badge: "≈500 запросов / день / ключ",
     strength: 80,
   },
   {
@@ -22,8 +23,8 @@ export const MODEL_CATALOG = [
     family: "flash" as const,
     tier: "flagship",
     dailyLimit: 20,
-    role: "Сложные свободные действия игрока, Memory House компакция, босс-файты",
-    badge: "20 запросов / день",
+    role: "Свободные действия, компакция памяти, ключевые сцены",
+    badge: "≈20 запросов / день / ключ",
     strength: 100,
   },
   {
@@ -32,8 +33,8 @@ export const MODEL_CATALOG = [
     family: "flash" as const,
     tier: "fallback-1",
     dailyLimit: 20,
-    role: "Фолбэк-1 для сложных задач и балансировки нагрузки",
-    badge: "20 запросов / день",
+    role: "Фолбэк-1 для сложных задач",
+    badge: "≈20 запросов / день / ключ",
     strength: 92,
   },
   {
@@ -43,18 +44,12 @@ export const MODEL_CATALOG = [
     tier: "fallback-2",
     dailyLimit: 20,
     role: "Фолбэк-2 для сложных задач",
-    badge: "20 запросов / день",
+    badge: "≈20 запросов / день / ключ",
     strength: 85,
   },
 ] as const;
 
-export type TaskType =
-  | "narration" // стандартный ход по выбранному варианту 1/2/3
-  | "resolution" // свободное действие игрока (free-form action)
-  | "compaction" // сжатие памяти Memory House
-  | "fast" // извлечение фактов / NPC / лута
-  | "chapter_milestone"; // поворот сюжета / рубеж главы
-
+export type TaskType = "narration" | "resolution" | "compaction" | "fast" | "embedding";
 export type RoutingProfile = "balanced" | "economy" | "flagship" | "custom";
 
 export type RoutingConfig = {
@@ -68,85 +63,67 @@ export type RoutingConfig = {
 export const ROUTING_PROFILES: Record<RoutingProfile, { title: string; desc: string; config: Omit<RoutingConfig, "profile"> }> = {
   balanced: {
     title: "⚡ Баланс & Экономия (Рекомендуемый)",
-    desc: "Lite 3.5 для нарратива и обычных ходов (до 500 ходов/день!). Flash 3.8 только для свободных действий и компакции памяти.",
-    config: {
-      narrationModel: "gemini-3.5-flash-lite",
-      customActionModel: "gemini-3.8-flash",
-      compactionModel: "gemini-3.8-flash",
-      fastTaskModel: "gemini-3.5-flash-lite",
-    },
+    desc: "Lite для обычных ходов и извлечения фактов. Flash 3.8 для свободных действий и компакции памяти.",
+    config: { narrationModel: "gemini-3.5-flash-lite", customActionModel: "gemini-3.8-flash", compactionModel: "gemini-3.8-flash", fastTaskModel: "gemini-3.5-flash-lite" },
   },
   economy: {
     title: "🌿 Максимальная Экономия",
-    desc: "Lite 3.5 для всех видов ходов (обычных и свободных). Flash привлекается исключительно для сжатия памяти.",
-    config: {
-      narrationModel: "gemini-3.5-flash-lite",
-      customActionModel: "gemini-3.5-flash-lite",
-      compactionModel: "gemini-3.8-flash",
-      fastTaskModel: "gemini-3.5-flash-lite",
-    },
+    desc: "Lite для всех ходов. Flash — только для сжатия памяти.",
+    config: { narrationModel: "gemini-3.5-flash-lite", customActionModel: "gemini-3.5-flash-lite", compactionModel: "gemini-3.8-flash", fastTaskModel: "gemini-3.5-flash-lite" },
   },
   flagship: {
     title: "👑 Флагманский (Максимум деталей)",
-    desc: "Flash 3.8 для всех операций. Самое богатое повествование, но расходует 20 запросов/день.",
-    config: {
-      narrationModel: "gemini-3.8-flash",
-      customActionModel: "gemini-3.8-flash",
-      compactionModel: "gemini-3.8-flash",
-      fastTaskModel: "gemini-3.5-flash-lite",
-    },
+    desc: "Flash 3.8 для всех ходов и компакции. Самое богатое повествование, быстро расходует дневной лимит.",
+    config: { narrationModel: "gemini-3.8-flash", customActionModel: "gemini-3.8-flash", compactionModel: "gemini-3.8-flash", fastTaskModel: "gemini-3.5-flash-lite" },
   },
   custom: {
     title: "⚙️ Кастомная настройка",
-    desc: "Пользователь вручную назначает модель для каждой конкретной задачи.",
-    config: {
-      narrationModel: "gemini-3.5-flash-lite",
-      customActionModel: "gemini-3.8-flash",
-      compactionModel: "gemini-3.8-flash",
-      fastTaskModel: "gemini-3.5-flash-lite",
-    },
+    desc: "Ручное назначение модели на каждую задачу.",
+    config: { narrationModel: "gemini-3.5-flash-lite", customActionModel: "gemini-3.8-flash", compactionModel: "gemini-3.8-flash", fastTaskModel: "gemini-3.5-flash-lite" },
   },
 };
 
-/** Какая задача — какой пул моделей с учётом пользовательской конфигурации */
+const uniq = (arr: string[]) => arr.filter((m, i) => arr.indexOf(m) === i);
+
+/** Какая задача — какой пул моделей с учётом пользовательской конфигурации. */
 export function routeModelsFor(task: TaskType, config?: Partial<RoutingConfig>): string[] {
   const profile = config?.profile ?? "balanced";
   const defaults = ROUTING_PROFILES[profile]?.config ?? ROUTING_PROFILES.balanced.config;
-
   const narrationTarget = config?.narrationModel || defaults.narrationModel;
   const customTarget = config?.customActionModel || defaults.customActionModel;
   const compactionTarget = config?.compactionModel || defaults.compactionModel;
   const fastTarget = config?.fastTaskModel || defaults.fastTaskModel;
 
-  if (task === "compaction") {
-    // Компакция памяти требует старших моделей, lite как крайний фолбэк
-    return [compactionTarget, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"].filter(
-      (m, i, arr) => arr.indexOf(m) === i,
-    );
-  }
-
-  if (task === "resolution") {
-    // Свободное действие игрока
-    return [customTarget, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"].filter(
-      (m, i, arr) => arr.indexOf(m) === i,
-    );
-  }
-
-  if (task === "fast") {
-    // Быстрые задачи / извлечение фактов
-    return [fastTarget, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"].filter(
-      (m, i, arr) => arr.indexOf(m) === i,
-    );
-  }
-
-  // Обычный нарратив (выбор готового варианта 1/2/3)
-  return [narrationTarget, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"].filter(
-    (m, i, arr) => arr.indexOf(m) === i,
-  );
+  if (task === "compaction") return uniq([compactionTarget, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]);
+  if (task === "resolution") return uniq([customTarget, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]);
+  if (task === "fast") return uniq([fastTarget, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"]);
+  if (task === "embedding") return ["gemini-embedding-2"];
+  return uniq([narrationTarget, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"]);
 }
 
 export function isLite(model: string) {
   return model.includes("lite");
+}
+
+/**
+ * DATA-1d: отфильтровать модели, исчерпавшие дневной лимит.
+ * usage — число вызовов сегодня по модели; лимит умножается на число ключей (квота на ключ).
+ */
+export function filterByDailyLimits(
+  models: string[],
+  usage: Record<string, number>,
+  limits: { flash: number; lite: number },
+  keyCount: number,
+): { allowed: string[]; skipped: string[] } {
+  const k = Math.max(1, keyCount);
+  const allowed: string[] = [];
+  const skipped: string[] = [];
+  for (const m of models) {
+    const cap = (isLite(m) ? limits.lite : limits.flash) * k;
+    if ((usage[m] ?? 0) >= cap) skipped.push(m);
+    else allowed.push(m);
+  }
+  return { allowed, skipped };
 }
 
 /** Грубая оценка токенов: ~3.6 символа = 1 токен (RU/EN смесь). */
@@ -155,200 +132,197 @@ export function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 3.6));
 }
 
-// ── Промпты ───────────────────────────────────────────────
-export function buildNarrationSystemPrompt(opts: {
-  character: string;
-  worldDigest: string;
-  memoryDigest: string;
-  recentTurns: string;
+/** Ключи из окружения (GEMINI_API_KEYS="k1,k2") объединяются с ключами из БД. */
+export function envKeys(): string[] {
+  const raw = process.env.GEMINI_API_KEYS ?? process.env.GEMINI_API_KEY ?? "";
+  return raw.split(/[\n,;]+/).map((k) => k.trim()).filter((k) => k.length > 10);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Промпты
+// ─────────────────────────────────────────────────────────────
+export type TurnPromptContext = {
+  mode: "choice" | "free";
+  campaignMode: "preset" | "free";
+  profileCanon: string;
+  tone: string;
+  worldName: string;
+  scenarioPrompt: string;
+  characterLine: string;
+  worldLine: string;
   location: string;
-  tone: string; // тон/жанр мира — передаётся явно, чтобы не форсировать D&D-регистр
-}): string {
-  // Bookending: ключевые инструкции продублированы в начале и в конце промпта.
-  // Это нейтрализует U-образный спад внимания ("lost in the middle") при расширенных контекстах.
-  const header = `Ты — Гейм-мастер текстовой RPG (русский язык, второе лицо, кинематографично: 110–200 слов).
-Тон и жанр истории: ${opts.tone}. Строго соблюдай атмосферу — не уходи в фэнтези, если мир современный; не уходи в бытовое, если мир эпический.
-Персонаж: ${opts.character}
-Мир и квест: ${opts.worldDigest}
-Локация: ${opts.location}`;
-  const memory = `ПАМЯТЬ КАНА (строго соблюдай факты, имена, предметы, HP и статусы): ${opts.memoryDigest}`;
-  const recent = `Последние события: ${opts.recentTurns}`;
-  // Повтор-заземление в хвосте (recency zone) — модель «видит» правила непосредственно перед генерацией
-  const footer = `НАПОМИНАНИЕ — финальные правила:
-· Тон: ${opts.tone}
-· Персонаж: ${opts.character.slice(0, 120)}
-· Локация: ${opts.location}
-· Не противоречь канону памяти выше. Русский язык. Второе лицо.
-· Обязательно заверши ответ вариантами в формате: ВАРИАНТЫ: 1) … | 2) … | 3) …`;
-  return [header, memory, recent, footer].join("\n");
+  inventoryDigest: string;
+  questsDigest: string;
+  npcsDigest: string;
+  sceneDigest: string;
+  memoryDigest: string;
+  retrievedDigest: string;
+  recentTurns: string;
+  diceBlock: string;
+  playerAction: string;
+};
+
+/**
+ * Единый системный промпт хода (narration и resolution). Bookending: ключевые правила
+ * повторены в хвосте — против U-образного провала внимания на длинных контекстах.
+ */
+export function buildTurnSystemPrompt(c: TurnPromptContext): string {
+  const role =
+    c.mode === "free"
+      ? "Ты — ведущий интерактивной истории и движок разрешения свободных действий."
+      : "Ты — ведущий интерактивной истории; игрок выбрал один из предложенных вариантов.";
+  const freeRules =
+    c.mode === "free"
+      ? `Игрок совершает свободное действие. Оцени его правдоподобие в рамках сеттинга, канона, состояния героя, инвентаря и сцены.
+· Игрок может взаимодействовать с любым объектом, который логично существует в сцене; невозможное или противоречащее канону — проваливай логично.
+· Использовать можно ТОЛЬКО предметы из списка инвентаря (ссылайся на них через ref «#id»). Новый предмет допустим только если он правдоподобно появился в этой сцене (op "add").`
+      : `Развивай сцену по выбранному варианту: последствия должны быть конкретными и продвигать историю.`;
+
+  return `${role} Язык — русский, второе лицо, живой кинематографичный стиль, 120–220 слов нарратива.
+Тон и жанр: ${c.tone}. Мир: ${c.worldName}. Строго держи атмосферу и лексикон жанра — никаких фэнтезийных клише в современном или научно-фантастическом мире и наоборот.
+${c.profileCanon}
+Режим кампании: ${c.campaignMode === "preset" ? "авторский пресет — держись заданной истории, фракций и мест" : "свободная кампания — мир строится вокруг канона игрока; не навязывай чужие тропы"}.
+
+ПЕРСОНАЖ: ${c.characterLine}
+МИР: ${c.worldLine}
+ПРЕДЫСТОРИЯ/КАНОН МИРА: ${c.scenarioPrompt}
+ЛОКАЦИЯ СЕЙЧАС: ${c.location}
+ИНВЕНТАРЬ (единственный источник предметов героя): ${c.inventoryDigest}
+ЦЕЛИ/КВЕСТЫ: ${c.questsDigest}
+ИЗВЕСТНЫЕ ПЕРСОНАЖИ (NPC): ${c.npcsDigest}
+ОБЪЕКТЫ СЦЕНЫ: ${c.sceneDigest}
+
+ПАМЯТЬ КАНОНА (не противоречь): ${c.memoryDigest}
+${c.retrievedDigest ? `РЕЛЕВАНТНЫЕ ВОСПОМИНАНИЯ ДЛЯ ЭТОГО ДЕЙСТВИЯ: ${c.retrievedDigest}` : ""}
+
+${freeRules}
+${c.diceBlock}
+
+ФОРМАТ ОТВЕТА — строго JSON по схеме. Правила заполнения:
+· narration — художественный текст последствий; не пиши в нём цифры механики и не перечисляй изменения списком.
+· outcome — success | partial | failure | neutral (при наличии результата проверки — согласуй с ним).
+· effects — целые числа; в профилях без HP/опыта/золота ставь 0. danger — изменение накала сцены.
+· stateChanges.location — action "move" только если герой РЕАЛЬНО переместился в другое место; "discover" — если узнал о новом месте; иначе "none".
+· stateChanges.quests — обновляй существующие по ref (key), новые цели — с пустым ref. Не завершай квест без реального выполнения.
+· stateChanges.npcs — ref = key известного NPC; relationDelta −30…+30; новых персонажей вводи только если они появились в сцене.
+· stateChanges.inventory — op consume/remove/equip/unequip только с ref из инвентаря; op add — с описанием и kind (weapon, armor, consumable, quest, tool, document, tech, misc).
+· stateChanges.sceneObjects — объекты окружения, чьё состояние изменилось или которые стали значимы.
+· stateChanges.conditions — состояния героя (ранен, измотан, разоблачён, воодушевлён…), до 4 за ход.
+· choices — ровно 3 коротких, разных по духу варианта следующего действия (риск / осторожность / общение).
+
+НАПОМИНАНИЕ: тон «${c.tone}», локация «${c.location}», не противоречь памяти и списку инвентаря, ${c.diceBlock ? "нарратив обязан соответствовать результату проверки, " : ""}ответ — только JSON.`;
 }
 
-export function buildResolutionSystemPrompt(opts?: {
-  tone?: string;
-  worldName?: string;
-  diceContext?: {
-    skill: string;
-    d20: number;
-    modifier: number;
-    total: number;
-    dc: number;
-    success: boolean;
-    critical: string | null;
-  };
-}): string {
-  const ctx = opts?.tone
-    ? `Тон: ${opts.tone}. Мир: ${opts.worldName ?? "авторский"}.`
-    : "";
+export function buildTurnUserPrompt(c: TurnPromptContext): string {
+  return `Последние события:\n${c.recentTurns}\n\n${c.mode === "free" ? "Свободное действие игрока" : "Выбранный вариант"}: ${c.playerAction}`;
+}
 
-  // Если передан результат предварительного броска — вставляем его как факт.
-  // AI ОБЯЗАН писать нарратив под этот исход, не может его изменить.
-  const diceBlock = opts?.diceContext
-    ? (() => {
-        const d = opts.diceContext!;
-        const outcomeRu =
-          d.critical === "crit"
-            ? "КРИТИЧЕСКИЙ УСПЕХ (d20=20)"
-            : d.critical === "fumble"
-              ? "КРИТИЧЕСКАЯ НЕУДАЧА (d20=1)"
-              : d.success
-                ? `УСПЕХ (${d.total} ≥ DC ${d.dc})`
-                : `НЕУДАЧА (${d.total} < DC ${d.dc})`;
-        return `\nРЕЗУЛЬТАТ БРОСКА (факт, не меняй):\n· Навык: ${d.skill}\n· d20=${d.d20}${d.modifier >= 0 ? "+" : ""}${d.modifier} = ${d.total} vs DC ${d.dc}\n· Исход: ${outcomeRu}\n\nНарратив ОБЯЗАН соответствовать исходу выше. Если УСПЕХ — герой добивается цели (полностью или частично). Если НЕУДАЧА — цель не достигнута, возникают последствия. Не противоречь факту броска.`;
-      })()
-    : "";
+export function buildDiceBlock(d: { kind?: string; skill: string; d20: number; modifier: number; total: number; dc: number; success: boolean; critical: string | null; band?: string } | null): string {
+  if (!d) return "";
+  if (d.kind === "2d6") {
+    const a = Math.floor(d.d20 / 10);
+    const b = d.d20 % 10;
+    const bandRu = d.band === "full" ? "ПОЛНЫЙ УСПЕХ" : d.band === "cost" ? "УСПЕХ С ЦЕНОЙ (цель достигнута, но есть осложнение или потеря)" : "ПРОВАЛ (цель не достигнута, ситуация ухудшается)";
+    return `\nРЕЗУЛЬТАТ РИСК-ПРОВЕРКИ (факт сервера, не меняй): ${d.skill}: 2d6 = ${a}+${b}${d.modifier ? (d.modifier > 0 ? `+${d.modifier}` : d.modifier) : ""} → ${bandRu}. Нарратив ОБЯЗАН соответствовать этому исходу.`;
+  }
+  const outcomeRu =
+    d.critical === "crit"
+      ? "КРИТИЧЕСКИЙ УСПЕХ (d20=20) — герой добивается большего, чем хотел"
+      : d.critical === "fumble"
+        ? "КРИТИЧЕСКАЯ НЕУДАЧА (d20=1) — провал с осложнением"
+        : d.success
+          ? `УСПЕХ (${d.total} ≥ DC ${d.dc})`
+          : `НЕУДАЧА (${d.total} < DC ${d.dc})`;
+  return `\nРЕЗУЛЬТАТ БРОСКА (факт сервера, не меняй): навык «${d.skill}», d20=${d.d20}${d.modifier >= 0 ? "+" : ""}${d.modifier} = ${d.total} vs DC ${d.dc} → ${outcomeRu}. Если УСПЕХ — цель достигнута (полностью или в основном); если НЕУДАЧА — цель не достигнута и есть последствия. Нарратив ОБЯЗАН соответствовать.`;
+}
 
-  return `Ты — движок разрешения свободных действий (Action Resolution Engine). ${ctx}
-Игрок совершает свободное авторское действие.${diceBlock}
-
-Оцени реалистичность с учётом сеттинга, статов персонажа, инвентаря, сложности (DC) и памяти.
-
-ВАЖНО о предметах:
-· Игрок может взаимодействовать с ЛЮБЫМ объектом, который логично существует в сцене или мире.
-· Предметы не ограничены заранее сгенерированным списком — если игрок подбирает камень, разбирает мышку, покупает семена, это всё валидно.
-· Лут генерируй строго под сеттинг (современность → бытовые вещи; фэнтези → артефакты; sci-fi → техника).
-· Если действие физически невозможно или нарушает канон — логично проваливай.
-
-Верни СТРОГО валидный JSON:
+export function buildCompactionSystemPrompt(profileCanon: string): string {
+  return `Ты — модуль Memory House интерактивной истории. Сожми блок ходов в структурированную память БЕЗ потери канона.
+${profileCanon}
+Верни СТРОГО валидный JSON без текста вне него:
 {
-  "outcome": "success" | "partial" | "failure",
-  "dc": ${opts?.diceContext?.dc ?? 12},
-  "roll_reason": "навык",
-  "narration": "120-200 слов художественного описания последствий на русском во втором лице",
-  "effects": {
-    "hp": 0,
-    "xp": 25,
-    "gold": 0,
-    "flags": {}
-  },
-  "loot": [
-    { "name": "Название предмета", "kind": "misc", "description": "Краткое описание" }
-  ],
-  "choices": ["Вариант 1", "Вариант 2", "Вариант 3"]
+  "episodic": [ { "title": "...", "content": "Событие с причиной и следствием", "importance": 0-100, "entityKey": "quest:key | npc:key | location:slug | event" } ],
+  "semantic": [ { "title": "...", "content": "Устойчивый факт о мире, NPC, месте или предмете", "importance": 0-100, "entityKey": "npc:key | location:slug | item:slug | world" } ],
+  "chronicle": "3-5 предложений: ключевые события главы, причинно-следственные связи, потери, обязательства"
 }
-Никакого текста вне JSON.`;
+Правила важности: ≥85 — смерти, клятвы/долги, уникальные предметы, потеря союзников; ≥70 — квесты, именные NPC, смена сторон, тяжёлые раны; ≥55 — новые предметы, места, переговоры; <40 — антураж, отбрасывай.
+Канон: не меняй имена, не противоречь существующей памяти, НЕ дублируй уже зафиксированные факты — только новое и изменившееся. Русский язык.`;
 }
 
-/** JSON Schema для structured output ответа resolution-задачи. */
-export const RESOLUTION_RESPONSE_SCHEMA: Record<string, unknown> = {
+// ─────────────────────────────────────────────────────────────
+//  MEM-1: schema-constrained semantic extractor (fastTaskModel)
+// ─────────────────────────────────────────────────────────────
+export const EXTRACTION_RESPONSE_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
-    outcome: { type: "string", enum: ["success", "partial", "failure"] },
-    dc: { type: "number" },
-    roll_reason: { type: "string" },
-    narration: { type: "string" },
-    effects: {
-      type: "object",
-      properties: {
-        hp: { type: "number" },
-        xp: { type: "number" },
-        gold: { type: "number" },
-        flags: { type: "object" },
-      },
-      required: ["hp", "xp", "gold"],
-    },
-    loot: {
+    facts: {
       type: "array",
       items: {
         type: "object",
         properties: {
-          name: { type: "string" },
-          kind: { type: "string" },
-          description: { type: "string" },
+          type: { type: "string", enum: ["npc", "world", "character", "relationship", "promise", "secret", "event"] },
+          entityKey: { type: "string", description: "npc:<имя-slug> | location:<slug> | character:<аспект> | world:<тема> | пусто" },
+          title: { type: "string" },
+          content: { type: "string", description: "Один самодостаточный факт, 1–2 предложения" },
+          evidence: { type: "string", description: "Короткая цитата из текста хода, подтверждающая факт" },
+          importance: { type: "integer" },
+          confidence: { type: "number", description: "0..1" },
         },
-        required: ["name", "kind", "description"],
+        required: ["type", "entityKey", "title", "content", "evidence", "importance", "confidence"],
       },
     },
-    choices: {
-      type: "array",
-      items: { type: "string" },
-    },
   },
-  required: ["outcome", "narration", "effects", "choices"],
+  required: ["facts"],
 };
 
-export function buildCompactionSystemPrompt(): string {
-  return `Ты — модуль Memory House для текстовой RPG. Сожми блок ходов в структурированную память БЕЗ потери канона.
-Верни СТРОГО валидный JSON без текста вне него:
-{
-  "episodic": [
-    { "title": "...", "content": "Полное описание события с причиной и следствием", "importance": 0-100 }
-  ],
-  "semantic": [
-    { "title": "...", "content": "Факт о персонаже, мире, NPC или предмете", "importance": 0-100 }
-  ],
-  "chronicle": "3-5 предложений: ключевые события главы, причинно-следственные связи, потери, обязательства, артефакты"
-}
-Правила важности (importance):
-· ≥ 85: смерти, критические клятвы/долги, уникальные артефакты, потеря союзников
-· ≥ 70: квесты, встречи с именными NPC, смена фракции, изменение HP > 20%
-· ≥ 55: новые предметы, изученные локации, переговоры
-· < 40: антураж и атмосфера — отбрасывается
-Канон: не изменяй имена, не противоречь фактам уже существующей памяти (она передана в промпте).
-НЕ дублируй факты, которые уже есть в существующей памяти — только новое и обновлённое.
-Русский язык.`;
+export function buildExtractionSystemPrompt(profileCanon: string, alreadyKnown: string): string {
+  return `Ты — извлекатель канонических фактов для памяти интерактивной истории.
+${profileCanon}
+Из текста хода извлеки ТОЛЬКО факты, которых ещё нет в состоянии игры и в известной памяти: имена и роли персонажей, мотивы, обещания и долги, секреты, устойчивые сведения о мире, изменившиеся отношения, важные события.
+НЕ извлекай: изменения HP/опыта/золота, полученные или использованные предметы, переходы между локациями, статусы квестов — эти факты сервер уже записал из состояния.
+Каждый факт: тип, entityKey (если есть сущность), заголовок, содержание, дословная цитата-доказательство из текста, importance 40–95, confidence 0–1. Не выдумывай. Если новых фактов нет — верни пустой массив.
+УЖЕ ИЗВЕСТНО (не дублируй): ${alreadyKnown}
+Русский язык. Ответ — только JSON по схеме.`;
 }
 
-/**
- * @unused Зарезервировано для будущего lite-извлечения фактов через отдельный /fast эндпоинт.
- * В текущей версии извлечение ведётся эвристически через extractMemoryCandidates (memory.ts).
- */
-export function buildFastSystemPrompt(): string {
-  return `Ты — быстрый RPG-ассистент (lite). Извлеки факты из последнего хода в JSON: {"facts":[],"items":[],"npcs":[],"hp_delta":0,"gold_delta":0}. Без прозы.`;
-}
+// ─────────────────────────────────────────────────────────────
+//  Вызов Gemini REST (v1beta) с ротацией ключей и цепочкой моделей
+// ─────────────────────────────────────────────────────────────
+export type AttemptInfo = { model: string; keyIndex: number; ok: boolean; latencyMs: number; error?: string; promptTokens?: number; completionTokens?: number };
 
-// ── Вызов Gemini REST (v1beta) с ротацией ключей ──────────
 export async function callGeminiWithRotation(opts: {
   keys: string[];
   models: string[];
   system: string;
   user: string;
   maxTokens?: number;
+  temperature?: number;
   responseSchema?: Record<string, unknown>;
-  onAttempt?: (info: { model: string; keyIndex: number; ok: boolean; latencyMs: number; error?: string }) => Promise<void> | void;
-}): Promise<{ text: string; model: string; keyIndex: number; latencyMs: number }> {
+  timeoutMs?: number;
+  onAttempt?: (info: AttemptInfo) => Promise<void> | void;
+}): Promise<{ text: string; model: string; keyIndex: number; latencyMs: number; promptTokens: number; completionTokens: number }> {
   const { keys, models, system, user } = opts;
   if (!keys.length) throw new Error("NO_KEYS");
+  if (!models.length) throw new Error("NO_MODELS_AVAILABLE");
   let lastErr = "unknown";
   for (const model of models) {
     for (let ki = 0; ki < keys.length; ki++) {
       const started = Date.now();
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 45_000);
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(keys[ki])}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
         const res = await fetch(url, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-goog-api-key": keys[ki] },
+          signal: ctrl.signal,
           body: JSON.stringify({
             system_instruction: { parts: [{ text: system }] },
             contents: [{ role: "user", parts: [{ text: user }] }],
             generationConfig: {
-              temperature: 0.85,
-              maxOutputTokens: opts.maxTokens ?? 1200,
-              ...(opts.responseSchema
-                ? {
-                    responseMimeType: "application/json",
-                    responseSchema: opts.responseSchema,
-                  }
-                : {}),
+              temperature: opts.temperature ?? 0.85,
+              maxOutputTokens: opts.maxTokens ?? 1600,
+              ...(opts.responseSchema ? { responseMimeType: "application/json", responseSchema: opts.responseSchema } : {}),
             },
           }),
         });
@@ -357,23 +331,27 @@ export async function callGeminiWithRotation(opts: {
           const t = await res.text();
           lastErr = `HTTP ${res.status}: ${t.slice(0, 300)}`;
           await opts.onAttempt?.({ model, keyIndex: ki, ok: false, latencyMs, error: lastErr });
-          // 429 / quota limit — пробуем следующий ключ или модель в цепочке
+          // 400 на конкретную модель (например, неизвестная модель) — нет смысла перебирать ключи
+          if (res.status === 400 || res.status === 404) break;
           continue;
         }
         const data = await res.json();
-        const text =
-          data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
+        const text = data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
+        const promptTokens = Number(data?.usageMetadata?.promptTokenCount ?? 0) || estimateTokens(system + user);
+        const completionTokens = Number(data?.usageMetadata?.candidatesTokenCount ?? 0) || estimateTokens(text);
         if (!text) {
-          lastErr = "EMPTY_RESPONSE";
+          lastErr = `EMPTY_RESPONSE${data?.candidates?.[0]?.finishReason ? ` (${data.candidates[0].finishReason})` : ""}`;
           await opts.onAttempt?.({ model, keyIndex: ki, ok: false, latencyMs, error: lastErr });
           continue;
         }
-        await opts.onAttempt?.({ model, keyIndex: ki, ok: true, latencyMs });
-        return { text, model, keyIndex: ki, latencyMs };
+        await opts.onAttempt?.({ model, keyIndex: ki, ok: true, latencyMs, promptTokens, completionTokens });
+        return { text, model, keyIndex: ki, latencyMs, promptTokens, completionTokens };
       } catch (e) {
         const latencyMs = Date.now() - started;
-        lastErr = e instanceof Error ? e.message : String(e);
+        lastErr = e instanceof Error ? (e.name === "AbortError" ? "TIMEOUT" : e.message) : String(e);
         await opts.onAttempt?.({ model, keyIndex: ki, ok: false, latencyMs, error: lastErr });
+      } finally {
+        clearTimeout(timer);
       }
     }
   }

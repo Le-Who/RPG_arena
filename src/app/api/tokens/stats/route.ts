@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { tokenLogs } from "@/db/schema";
-import { desc, gte, sql } from "drizzle-orm";
+import { desc, gte } from "drizzle-orm";
+import { getAIConfig } from "@/lib/ai-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -13,52 +14,53 @@ function dayStart() {
 
 export async function GET() {
   try {
-  const since = dayStart();
-  const today = await db.select().from(tokenLogs).where(gte(tokenLogs.createdAt, since)).orderBy(desc(tokenLogs.createdAt)).limit(500);
-
-  const byModel: Record<string, { requests: number; tokens: number; errors: number }> = {};
-  const byTask: Record<string, { requests: number; tokens: number }> = {};
-  let totalTokens = 0;
-  let totalReq = 0;
-  let errors = 0;
-  for (const l of today) {
-    totalReq++;
-    totalTokens += l.totalTokens ?? 0;
-    if (!l.success) errors++;
-    byModel[l.model] ??= { requests: 0, tokens: 0, errors: 0 };
-    byModel[l.model].requests++;
-    byModel[l.model].tokens += l.totalTokens ?? 0;
-    if (!l.success) byModel[l.model].errors++;
-    byTask[l.taskType] ??= { requests: 0, tokens: 0 };
-    byTask[l.taskType].requests++;
-    byTask[l.taskType].tokens += l.totalTokens ?? 0;
-  }
-
-  // счётчики по семействам для отображения квот 20 / 500
-  const flashReq = Object.entries(byModel).filter(([k]) => !k.includes("lite") && !k.includes("offline") && !k.includes("player") && !k.includes("d20")).reduce((a, [, v]) => a + v.requests, 0);
-  const perFlashModel: Record<string, number> = {};
-  for (const [k, v] of Object.entries(byModel)) {
-    if (k.includes("3.8") || k.includes("3.7") || k.includes("3.6")) perFlashModel[k] = v.requests;
-  }
-  const liteReq = Object.entries(byModel).filter(([k]) => k.includes("lite")).reduce((a, [, v]) => a + v.requests, 0);
-
-  const recent = await db.select().from(tokenLogs).orderBy(desc(tokenLogs.createdAt)).limit(20);
-
-  return NextResponse.json({
-    today: { totalReq, totalTokens, errors, byModel, byTask, flashReq, liteReq, perFlashModel },
-    quotas: {
-      flashPerModel: 20,
-      liteTotal: 500,
-      flashModels: ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"],
-      note: "20 запросов/день на каждую flash-модель, 500 — на lite. Маршрутизация бережёт старшие модели для нарратива и компакции.",
-    },
-    recent,
-  });
+    const since = dayStart();
+    const [today, cfg, recent] = await Promise.all([
+      db.select().from(tokenLogs).where(gte(tokenLogs.createdAt, since)).orderBy(desc(tokenLogs.createdAt)).limit(2000),
+      getAIConfig(),
+      db.select().from(tokenLogs).orderBy(desc(tokenLogs.createdAt)).limit(20),
+    ]);
+    const byModel: Record<string, { requests: number; tokens: number; errors: number; avgLatencyMs: number }> = {};
+    const byTask: Record<string, { requests: number; tokens: number }> = {};
+    let totalTokens = 0;
+    let totalReq = 0;
+    let errors = 0;
+    for (const l of today) {
+      totalReq++;
+      totalTokens += l.totalTokens ?? 0;
+      if (!l.success) errors++;
+      byModel[l.model] ??= { requests: 0, tokens: 0, errors: 0, avgLatencyMs: 0 };
+      const m = byModel[l.model];
+      m.avgLatencyMs = Math.round((m.avgLatencyMs * m.requests + (l.latencyMs ?? 0)) / (m.requests + 1));
+      m.requests++;
+      m.tokens += l.totalTokens ?? 0;
+      if (!l.success) m.errors++;
+      byTask[l.taskType] ??= { requests: 0, tokens: 0 };
+      byTask[l.taskType].requests++;
+      byTask[l.taskType].tokens += l.totalTokens ?? 0;
+    }
+    const keyCount = Math.max(1, cfg.keys.length);
+    const perFlashModel: Record<string, { used: number; cap: number }> = {};
+    for (const id of ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]) perFlashModel[id] = { used: byModel[id]?.requests ?? 0, cap: cfg.limits.flash * keyCount };
+    const liteReq = Object.entries(byModel).filter(([k]) => k.includes("lite")).reduce((a, [, v]) => a + v.requests, 0);
+    const flashReq = Object.values(perFlashModel).reduce((a, v) => a + v.used, 0);
+    const embeddingReq = Object.entries(byModel).filter(([k]) => k.includes("embedding")).reduce((a, [, v]) => a + v.requests, 0);
+    return NextResponse.json({
+      today: { totalReq, totalTokens, errors, byModel, byTask, flashReq, liteReq, embeddingReq, perFlashModel, liteCap: cfg.limits.lite * keyCount },
+      quotas: {
+        flashPerModel: cfg.limits.flash,
+        liteTotal: cfg.limits.lite,
+        keyCount: cfg.keys.length,
+        enforced: cfg.enforceLimits,
+        flashModels: ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"],
+        note: cfg.enforceLimits
+          ? `Лимиты применяются сервером: ${cfg.limits.flash}/день на flash-модель и ${cfg.limits.lite}/день на lite — на каждый ключ (${keyCount}).`
+          : "Лимиты только отображаются (enforceLimits выключен). Фактические квоты определяет Gemini.",
+      },
+      recent,
+    });
   } catch (err) {
     console.error("[tokens/stats GET]", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }

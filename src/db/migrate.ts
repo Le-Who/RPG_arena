@@ -1,75 +1,32 @@
 /**
- * Модуль автоматического применения SQL-миграций при старте сервера.
- *
- * Логика:
- * 1. Читает все .sql файлы из drizzle/ в алфавитном порядке.
- * 2. Выполняет каждый в одной транзакции через pg напрямую (без drizzle-kit).
- * 3. Все файлы содержат IF NOT EXISTS → идемпотентно, безопасно перезапускать.
- * 4. Ошибки логируются, но НЕ прерывают старт сервера (fail-open):
- *    если БД временно недоступна при деплое — сервер всё равно поднимается.
- *
- * Порядок: 0000_foamy_slapstick.sql → patch_indexes.sql → patch_memory_fixes.sql
- * (лексикографический, что совпадает с хронологией создания файлов).
+ * DATA-1a: versioned-миграции через drizzle migrator.
+ * · Ledger: таблица __drizzle_migrations — каждый файл применяется ровно один раз.
+ * · SQL-файлы в drizzle/ написаны идемпотентно (IF NOT EXISTS / ADD COLUMN IF NOT EXISTS / guarded FK),
+ *   поэтому безопасны и для чистой БД, и для апгрейда с v1, и при параллельном `drizzle-kit push`.
+ * · Ошибка миграции логируется и пробрасывается вызывающему (instrumentation решает, ронять ли процесс).
  */
-
-import fs from "fs";
 import path from "path";
 import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
 
-export async function runMigrations() {
+export async function runMigrations(): Promise<{ ok: boolean; error?: string }> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     console.warn("[migrate] DATABASE_URL not set — skipping migrations");
-    return;
+    return { ok: false, error: "DATABASE_URL not set" };
   }
-
-  // Используем отдельный пул с коротким таймаутом — не мешаем основному app-пулу.
-  const pool = new Pool({
-    connectionString: databaseUrl,
-    max: 1,
-    connectionTimeoutMillis: 10000,
-  });
-
+  const pool = new Pool({ connectionString: databaseUrl, max: 1, connectionTimeoutMillis: 10_000 });
   try {
-    const migrationsDir = path.join(process.cwd(), "drizzle");
-
-    // Читаем все .sql файлы, сортируем лексикографически
-    const files = fs
-      .readdirSync(migrationsDir)
-      .filter((f) => f.endsWith(".sql"))
-      .sort();
-
-    if (files.length === 0) {
-      console.log("[migrate] No .sql files found in drizzle/");
-      return;
-    }
-
-    console.log(`[migrate] Applying ${files.length} migration file(s)...`);
-
-    for (const file of files) {
-      const filePath = path.join(migrationsDir, file);
-      const sql = fs.readFileSync(filePath, "utf-8");
-
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        await client.query(sql);
-        await client.query("COMMIT");
-        console.log(`[migrate] ✓ ${file}`);
-      } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
-        // Логируем ошибку конкретного файла, но продолжаем остальные.
-        // Типичный сценарий: индекс уже существует под другим именем — не фатально.
-        console.error(`[migrate] ✗ ${file}:`, err instanceof Error ? err.message : err);
-      } finally {
-        client.release();
-      }
-    }
-
-    console.log("[migrate] Done.");
+    const db = drizzle(pool);
+    const migrationsFolder = path.join(process.cwd(), "drizzle");
+    await migrate(db, { migrationsFolder });
+    console.log("[migrate] ✓ schema is up to date");
+    return { ok: true };
   } catch (err) {
-    // Fail-open: не роняем сервер если migrationsDir не найден или pg недоступен.
-    console.error("[migrate] Migration runner error:", err instanceof Error ? err.message : err);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[migrate] ✗", msg);
+    return { ok: false, error: msg };
   } finally {
     await pool.end().catch(() => {});
   }

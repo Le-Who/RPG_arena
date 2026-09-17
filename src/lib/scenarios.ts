@@ -1,4 +1,5 @@
 // ── Пресеты сценариев и персонажей ──
+import type { RulesProfile } from "@/db/schema";
 export type ScenarioPreset = {
   id: string;
   title: string;
@@ -11,6 +12,12 @@ export type ScenarioPreset = {
   startLocation: string;
   factions: string[];
   danger: number;
+  /** MECH-1: профиль механик — часть спецификации пресета */
+  rulesProfile: RulesProfile;
+  /** Стартовый инвентарь под жанр */
+  startInventory: { name: string; kind: string; description: string; quantity: number; equipped?: boolean; icon: string; power: number }[];
+  /** INV-1e: авторский лут-пул пресета для офлайн-фолбэка */
+  lootPool: { name: string; kind: string; description: string; icon: string }[];
   intro: string;
   locations: { name: string; description: string; x: number; y: number; danger: number; icon: string }[];
   characters: { name: string; archetype: string; backstory: string; stats: Record<string, number>; skills: string[]; traits: string[] }[];
@@ -29,6 +36,18 @@ export const SCENARIOS: ScenarioPreset[] = [
     startLocation: "Таверна «Хромой грифон»",
     factions: ["Дом Корвусов", "Сестёр Пепла", "Вольный Совет"],
     danger: 35,
+    rulesProfile: "d20",
+    startInventory: [
+      { name: "Дорожный паёк", kind: "consumable", description: "+10 HP вне боя", quantity: 2, icon: "🍞", power: 10 },
+      { name: "Простой клинок", kind: "weapon", description: "Верный спутник", quantity: 1, equipped: true, icon: "🗡️", power: 3 },
+      { name: "Обгоревший пергамент", kind: "quest", description: "«Корона — не власть. Корона — замок»", quantity: 1, icon: "📜", power: 0 },
+    ],
+    lootPool: [
+      { name: "Зелье берёзового света", kind: "consumable", description: "Восстанавливает 25 HP, пахнет весной.", icon: "🧪" },
+      { name: "Кинжал шёпота", kind: "weapon", description: "+2 к Скрытности, иногда подсказывает.", icon: "🗡️" },
+      { name: "Плащ из тумана", kind: "armor", description: "+1 к уклонению в темноте.", icon: "🧥" },
+      { name: "Печать Дома Корвусов", kind: "quest", description: "Открывает двери, которые лучше не открывать.", icon: "🔏" },
+    ],
     intro:
       "Дождь из пепла стучит по ставням таверны «Хромой грифон». На столе перед тобой — карта с тремя метками и обгоревший пергамент: «Корона — не власть. Корона — замок. Не дай ему открыться». Дверь скрипит — внутрь входят сразу двое: ворона на плече у незнакомца каркает твоё имя.",
     locations: [
@@ -56,6 +75,17 @@ export const SCENARIOS: ScenarioPreset[] = [
     startLocation: "Капсула 9, уровень −3",
     factions: ["Синдикат «Гелиос»", "Культ Тихого Сервера", "Свободные раннеры"],
     danger: 40,
+    rulesProfile: "d20",
+    startInventory: [
+      { name: "Стим-инъектор", kind: "consumable", description: "+12 HP, побочка — дрожь в руках", quantity: 2, icon: "💉", power: 12 },
+      { name: "Дека «Сверчок»", kind: "tech", description: "Портативная дека для взлома", quantity: 1, equipped: true, icon: "💾", power: 3 },
+      { name: "Контракт Пакта", kind: "document", description: "44 000 кредитов долга мелким шрифтом", quantity: 1, icon: "📄", power: 0 },
+    ],
+    lootPool: [
+      { name: "Чип-призрак", kind: "tech", description: "Одноразовая маскировка сигнатуры.", icon: "👻" },
+      { name: "Кредстик с чужим именем", kind: "misc", description: "На нём 900 кредитов и чей-то долг.", icon: "💳" },
+      { name: "Моноволоконный шнур", kind: "tool", description: "Режет замки и алиби.", icon: "🧵" },
+    ],
     intro:
       "Ты просыпаешься в капсуле — на сетчатке мигает долг: 44 000 кредитов и строка мелким шрифтом: «оплата — воспоминаниями». За стенкой гудят серверы, а в зеркале вместо отражения — строка кода, которая улыбается.",
     locations: [
@@ -81,6 +111,17 @@ export const SCENARIOS: ScenarioPreset[] = [
     startLocation: "Теплица на спине кита",
     factions: ["Садовники", "Собиратели росы", "Пыльные пираты"],
     danger: 20,
+    rulesProfile: "rules-light",
+    startInventory: [
+      { name: "Флакон росы", kind: "consumable", description: "Восстанавливает силы", quantity: 2, icon: "💧", power: 8 },
+      { name: "Садовые ножницы деда", kind: "tool", description: "Режут даже лунный стебель", quantity: 1, equipped: true, icon: "✂️", power: 2 },
+      { name: "Первое звёздное семя", kind: "quest", description: "Пульсирует в стеклянной колбе", quantity: 1, icon: "🌰", power: 0 },
+    ],
+    lootPool: [
+      { name: "Семя-компас", kind: "quest", description: "Тянется ростком к следующему острову.", icon: "🧭" },
+      { name: "Кофе из желудей", kind: "consumable", description: "Бодрит и пахнет домом.", icon: "☕" },
+      { name: "Мох-парус", kind: "misc", description: "Лоскут пиратского паруса, ещё живой.", icon: "🍃" },
+    ],
     intro:
       "Кит-остров мерно дышит под теплицей. В стеклянной колбе пульсирует первое семя, а за бортом проплывает остров-пират с чёрными парусами из мха. Дедова карта шепчет: «Сад ждёт того, кто не срывает, а сажает».",
     locations: [
@@ -106,6 +147,16 @@ export const SCENARIOS: ScenarioPreset[] = [
     startLocation: "Причал деревни Крюк",
     factions: ["Ловцы", "Смотрители маяка", "Тихая паства"],
     danger: 50,
+    rulesProfile: "narrative",
+    startInventory: [
+      { name: "Кружка горячего чая", kind: "consumable", description: "Ещё тёплая. Кто её налил?", quantity: 1, icon: "🍵", power: 0 },
+      { name: "Записка твоим почерком", kind: "quest", description: "«Не слушай колокол. Слушай меня»", quantity: 1, icon: "📝", power: 0 },
+      { name: "Штормовой фонарь", kind: "tool", description: "Масла хватит на одну ночь", quantity: 1, equipped: true, icon: "🏮", power: 0 },
+    ],
+    lootPool: [
+      { name: "Мокрый судовой журнал", kind: "document", description: "Записи обрываются на полуслове.", icon: "📓" },
+      { name: "Колокольный язычок", kind: "misc", description: "Холодный. Звонит без колокола.", icon: "🔔" },
+    ],
     intro:
       "Туман стоит так плотно, что весло входит в него как в тесто. На причале тебя ждёт пустой баркас с горячим чаем в кружке — и записка твоим почерком, которую ты не писал: «Не слушай колокол. Слушай меня».",
     locations: [
@@ -130,6 +181,16 @@ export const SCENARIOS: ScenarioPreset[] = [
     startLocation: "Контора «Перо и Шестерня»",
     factions: ["Трибунал", "Гильдия часовщиков", "Подполье истцов"],
     danger: 30,
+    rulesProfile: "rules-light",
+    startInventory: [
+      { name: "Латунная повестка", kind: "document", description: "Дело о големе с сердцем", quantity: 1, icon: "📜", power: 0 },
+      { name: "Перо-самописец", kind: "tool", description: "Пишет само — иногда правду", quantity: 1, equipped: true, icon: "🖋️", power: 0 },
+      { name: "Досье на присяжных", kind: "document", description: "Кому какой ключ заводит спину", quantity: 1, icon: "🗂️", power: 0 },
+    ],
+    lootPool: [
+      { name: "Прецедент №0", kind: "document", description: "Закон, которого никто не писал — но он есть.", icon: "⚖️" },
+      { name: "Ключ присяжного", kind: "key", description: "Заводит одного из двенадцати.", icon: "🗝️" },
+    ],
     intro:
       "Заводной пристав вручает тебе повестку из латуни: твой клиент — голем, обвиняемый в том, что у него появилось сердце. За окном маршируют присяжные с ключами в спинах, а чернильница на столе пишет сама: «беги».",
     locations: [
@@ -154,6 +215,17 @@ export const SCENARIOS: ScenarioPreset[] = [
     startLocation: "Оазис Трёх Лун",
     factions: ["Караван-бароны", "Песочные монахи", "Безликие"],
     danger: 45,
+    rulesProfile: "d20",
+    startInventory: [
+      { name: "Бурдюк с водой", kind: "consumable", description: "+10 HP, последняя вода перед дюнами", quantity: 2, icon: "🥤", power: 10 },
+      { name: "Караванный ятаган", kind: "weapon", description: "Изогнут, как линия судьбы", quantity: 1, equipped: true, icon: "⚔️", power: 3 },
+      { name: "Карта на ладони", kind: "quest", description: "Линии складываются в путь к Оракулу", quantity: 1, icon: "🖐️", power: 0 },
+    ],
+    lootPool: [
+      { name: "Песочные часы без песка", kind: "misc", description: "Отсчитывают чужое время.", icon: "⏳" },
+      { name: "Мазь от солнца", kind: "consumable", description: "+15 HP, пахнет мятой и медью.", icon: "🧴" },
+      { name: "Слово джинна", kind: "quest", description: "Одно. Потратить с умом.", icon: "🪔" },
+    ],
     intro:
       "Песок скрипит под сандалиями, а над оазисом висят сразу три луны — так бывает только перед смертью кого-то важного. Старуха-гадальщица смотрит на твою ладонь и бледнеет: линии складываются в карту к Оракулу. «Иди, — шепчет она. — Или беги. Это одно и то же».",
     locations: [
@@ -168,4 +240,8 @@ export const SCENARIOS: ScenarioPreset[] = [
   },
 ];
 
-export const ARCHETYPES = ["Воин", "Следопыт", "Плут", "Маг", "Клирик", "Бармен-авантюрист", "Свой вариант"];
+/** Жанронейтральные архетипы для свободной кампании (ARCH-1e) */
+export const ARCHETYPES = ["Следователь", "Наёмник", "Учёный", "Дипломат", "Странник", "Инженер", "Врач", "Журналист", "Свой вариант"];
+
+/** Подсказки по тону для свободной кампании */
+export const TONE_PRESETS = ["мрачный нуар", "тёплый и уютный", "напряжённый триллер", "ироничный", "эпический", "бытовая драма", "хоррор", "научная фантастика"];

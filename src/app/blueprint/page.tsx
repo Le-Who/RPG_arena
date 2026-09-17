@@ -1,212 +1,94 @@
-export const dynamic = "force-dynamic";
+import { PROFILE_SPECS, RULES_PROFILE_IDS } from "@/lib/profiles";
+import { LAYER_INFO, SOURCE_INFO } from "@/lib/memory-ui";
 
-const SECTIONS = [
-  {
-    id: "directions",
-    icon: "🧭",
-    title: "I. Направления — на чём основывается проект",
-    intro: "8 фундаментальных направлений, обеспечивающих бесконечную реиграбельность, сохранение контекста и экономию квот.",
-    cards: [
-      {
-        t: "1. Процедурный нарратив (Story Engine)",
-        d: "Сюжет не пишется заранее, а генерируется шаг за шагом: сцена → выбор или свободное действие игрока → D&D-разрешение → последствия в мире. Пресеты задают стартовый канон, дальше вступает эмерджентность.",
-      },
-      {
-        t: "2. Двухуровневая модель генерации (Lite для ходов, Flash для сложности)",
-        d: "Обычные ходы и выбор из вариантов генерируются через экономичный Gemini Flash-Lite (лимит 500 запросов/день). Это позволяет играть сотни ходов в день без страха исчерпать лимиты. Флагманы 3.8/3.7 привлекаются для свободных авторских действий и сжатия памяти.",
-      },
-      {
-        t: "3. D&D-механика как арбитр честности",
-        d: "d20 + модификатор характеристик vs DC. Кости бросает серверный генератор, а не модель. Это исключает галлюцинации лёгкой победы и даёт настоящую RPG-драму. DC динамически масштабируется от накала опасности.",
-      },
-      {
-        t: "4. Контекстная память Memory House (5 слоёв)",
-        d: "Вместо бесконечного лога контекста — структурированное древо: рабочая (дословно) → эпизодическая (события) → семантическая (факты/NPC) → процедурная (правила) → хроника глав. Важное всплывает по salience, старое затухает по Эббингаузу.",
-      },
-      {
-        t: "5. Интеллектуальная маршрутизация & пользовательский контроль",
-        d: "Пользователь может в любой момент выбрать профиль: «Баланс & Экономия» (Lite для ходов + Flash 3.8 для ввода и памяти), «Макс. Экономия», «Флагманский» или настроить каждую модель вручную.",
-      },
-      {
-        t: "6. Экономика токенов и прозрачный мониторинг",
-        d: "Каждый сетевой запрос логируется с фиксацией модели, задачи, токенов промпта/ответа, латентности и индекса ключа. Дашборд наглядно предупреждает о приближении к лимитам 20/60/500.",
-      },
-      {
-        t: "7. Состояние мира и инвентарь как граф в БД",
-        d: "Локации, туман войны, предметы, экипировка, золото, HP, флаги — хранятся в PostgreSQL через Drizzle ORM. Модель не выдумывает инвентарь с нуля, а получает строгий дайджест.",
-      },
-      {
-        t: "8. Автономность и офлайн-устойчивость",
-        d: "При отсутствии API-ключей, сетевых сбоях или исчерпании квот автоматически подключается процедурный офлайн-движок на шаблонах и d20. Игра никогда не падает.",
-      },
-    ],
-  },
-  {
-    id: "mechanisms",
-    icon: "⚙️",
-    title: "II. Механизмы — реализация в коде",
-    intro: "Конкретные алгоритмы и архитектурные решения, реализованные в Chronicle Engine.",
-    cards: [
-      {
-        t: "M1. Роутинг задач (routeModelsFor)",
-        d: "Стандартный нарратив (выбор 1/2/3) → Gemini 3.5 Flash-Lite (500/д). Свободный авторский ввод (Custom Action) → Gemini 3.8 Flash (20/д). Компакция памяти → ТОЛЬКО 3.8 / 3.7 / 3.6 Flash. Извлечение фактов → Lite.",
-      },
-      {
-        t: "M2. Разрешение свободного ввода (Action Resolution Engine)",
-        d: "Когда игрок вводит своё действие, системный промпт требует строгий JSON: outcome, dc, roll_reason, narration, effects (HP/XP/gold/flags), loot, choices. Сервер проводит бросок d20 и проверяет исход.",
-      },
-      {
-        t: "M3. Контекстный бюджет 17 000 токенов (защита от 250k+)",
-        d: "Вместо раздувания контекста до опасных 250k+ токенов, где модели деградируют и 'плывут', сборщик контекста упаковывает дайджест памяти (хроника + семантика + эпизодика) в компактные 1.5–3k токенов. Бюджет жестко контролируется.",
-      },
-      {
-        t: "M4. Компакция памяти старшими моделями",
-        d: "Триггер: каждые 14 ходов или переполнение рабочей памяти. Задействуются только старшие Flash (3.8→3.7→3.6). Извлекаются ключевые факты персонажа/мира и формируется бессмертная летопись главы.",
-      },
-      {
-        t: "M5. Пул ключей Google AI Studio с ротацией",
-        d: "Поддержка массива до 10 ключей. При ошибке 429/ResourceExhausted движок мгновенно пробует следующий ключ, а затем переходит на следующую модель по цепочке (3.8 → 3.7 → 3.6 → lite).",
-      },
-      {
-        t: "M6. Серверный d20-движок",
-        d: "Модификатор = floor((stat-10)/2). DC = min(20, 10 + danger/25 + turn/8). Критический успех (20) и критический провал (1). Смерть активирует воскрешение за штраф золота с 1 HP.",
-      },
-      {
-        t: "M7. Инвентарь и интерактивная карта",
-        d: "SVG-сетка 12×10 с туманом войны и индикатором опасности (☠). Предметы имеют типы (weapon, armor, consumable, quest), состояние экипировки и модификаторы.",
-      },
-      {
-        t: "M8. Детальное токен-логирование",
-        d: "Таблица token_logs сохраняет каждый вызов. API /api/tokens/stats отдаёт агрегаты по моделям и задачам за текущие сутки, сравнивая с дневными лимитами.",
-      },
-    ],
-  },
-  {
-    id: "factors",
-    icon: "🎯",
-    title: "III. Факторы и оптимизации",
-    intro: "Учтённые ограничения и компромиссы:",
-    cards: [
-      {
-        t: "F1. Лимиты 20 vs 500 запросов",
-        d: "20 запросов на Flash-модель расходуются за полчаса активной игры, если тратить их на каждый ход. Назначив Flash-Lite на обычные ходы (500 запросов!), мы обеспечиваем часы непрерывного геймплея, сберегая Flash для кульминаций.",
-      },
-      {
-        t: "F2. Качество Flash-Lite на рутине",
-        d: "Flash-Lite отлично справляется с развитием готовых сюжетных развилок, описанием локаций и извлечением сущностей. Разницу с 3.8 на простых ходах заметить сложно, а экономия квоты — в 25 раз.",
-      },
-      {
-        t: "F3. Сохранение канона при сжатии",
-        d: "Компакция памяти — самая чувствительная операция. Если сжать наивно, сотрутся имена, долги и раны. Поэтому на компакцию жестко назначены старшие модели 3.8/3.7 с JSON-схемой.",
-      },
-      {
-        t: "F4. Свобода игрока vs целостность сюжета",
-        d: "Игрок может писать абсолютно любое действие. D&D-механика (DC + бросок + статы) гарантирует, что нелепое действие провалится логично, а умный план принесёт плоды.",
-      },
-    ],
-  },
-];
+export const metadata = { title: "Blueprint — архитектура Chronicle Engine" };
 
-const ROUTING_TABLE = [
-  { task: "Обычный ход (выбор 1/2/3)", defaultModel: "gemini-3.5-flash-lite", limit: "500 / день", why: "Быстро, атмосферно, не тратит ценную квоту флагмана" },
-  { task: "Свободный авторский ввод (Custom Action)", defaultModel: "gemini-3.8-flash (фолбэк 3.7 → 3.6)", limit: "20 / день на каждую", why: "Глубокая оценка замысла, расчет DC, генерация JSON-эффектов" },
-  { task: "Сжатие памяти Memory House", defaultModel: "ТОЛЬКО 3.8 → 3.7 → 3.6 Flash", limit: "20 / день на каждую", why: "Критическая важность: потеря канона необратима" },
-  { task: "Извлечение фактов / лута / NPC", defaultModel: "gemini-3.5-flash-lite", limit: "500 / день", why: "Чистая структуризация, Lite справляется идеально" },
-  { task: "Фолбэк при отсутствии сети/ключей", defaultModel: "offline-engine", limit: "Безлимитно", why: "Процедурная генерация на клиенте/сервере без задержек" },
+const PIPELINE = [
+  { n: "1", t: "Контекст", d: "Параллельно: последние ходы, top-60 нод памяти, инвентарь (#ref), квесты (key), NPC (key), объекты сцены, локации." },
+  { n: "2", t: "Семантический поиск", d: "Запрос = действие + локация + последняя сцена → gemini-embedding-2 → cosine по нодам сессии → hybrid-rerank (similarity 0.55, importance 0.2, recency 0.1, salience 0.05, provenance 0.1) → до 8 нод, ≤4 на слой." },
+  { n: "3", t: "Проверка по профилю", d: "d20: серверный бросок vs DC; rules-light: оценка риска + 2d6 (полный успех / успех с ценой / провал); narrative: без броска. Результат — факт в промпте, до вызова ИИ." },
+  { n: "4", t: "Единый контракт", d: "Оба типа хода возвращают JSON: narration, outcome, choices, effects, stateChanges{location, quests, npcs, inventory, sceneObjects, conditions, flags}. responseSchema у провайдера + runtime-парсер на сервере." },
+  { n: "5", t: "Reducers", d: "Чистые функции по профилю: клампы ресурсов, согласование outcome с броском, проверка владения предметом и количества, терминальные квесты, мёртвые NPC, лимиты новых сущностей, единый источник истины для локации." },
+  { n: "6", t: "Транзакция", d: "pg_advisory_xact_lock(session) → player-ход (requestId, уникальный индекс) → сессия → narrator-ход (stateChanges, contextMeta) → операции по таблицам → канонические ноды памяти (source=state)." },
+  { n: "7", t: "Фон (after)", d: "Semantic-extractor (fastTaskModel, schema, цитата-доказательство, идемпотентен по ходу) → outbox эмбеддингов → batchEmbedContents." },
 ];
 
 export default function BlueprintPage() {
   return (
-    <div className="space-y-8 pt-8">
-      {/* HERO */}
-      <div className="card fade-up p-6 md:p-10">
-        <p className="text-xs uppercase tracking-[0.25em] text-amber-300/90">Архитектурный манифест проекта</p>
-        <h1 className="mt-2 text-3xl font-black leading-tight text-white md:text-5xl">
-          Полный разбор архитектуры:<br />
-          <span className="bg-gradient-to-r from-amber-300 via-violet-300 to-emerald-400 bg-clip-text text-transparent">
-            направления · механизмы · факторы & оптимизация квот
-          </span>
-        </h1>
-        <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-slate-300">
-          Проект объединяет <b className="text-white">D&D-механику, древо памяти Memory House, процедурный нарратив</b> и
-          умную двухуровневую маршрутизацию: <b className="text-emerald-300">Flash-Lite (500 req/day)</b> для основных ходов и
-          повествования + <b className="text-amber-300">Flash 3.8/3.7/3.6 (20 req/day)</b> для свободных авторских действий и сжатия памяти.
+    <div className="space-y-6 pt-8">
+      <div className="card p-6 md:p-8">
+        <p className="text-xs uppercase tracking-[0.25em] text-amber-300">Архитектурный манифест</p>
+        <h1 className="mt-1 text-3xl font-black text-white">Blueprint: как устроен Chronicle Engine v2</h1>
+        <p className="mt-3 max-w-3xl text-[14px] leading-relaxed text-slate-300">
+          Принцип: <b className="text-white">модель предлагает, сервер решает</b>. ИИ даёт художественную интерпретацию и структурированные изменения мира; сервер валидирует их по профилю механик, применяет в одной транзакции и только из подтверждённого состояния строит каноническую память. Свободные кампании — AI-first; офлайн-фолбэк остаётся исключительно у пресетов.
         </p>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <a href="/" className="btn-primary text-sm">🎲 Начать игру</a>
-          <a href="/settings" className="btn-ghost text-sm">⚙️ Настроить профили & ключи</a>
+      </div>
+
+      <div className="card p-6">
+        <h2 className="text-lg font-extrabold text-white">🔁 Конвейер хода</h2>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {PIPELINE.map((p) => (
+            <div key={p.n} className="rounded-xl bg-white/5 p-3">
+              <b className="text-amber-200">{p.n}. {p.t}</b>
+              <p className="mt-1 text-[12.5px] text-slate-300">{p.d}</p>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* MATRIX TABLE */}
-      <section className="card space-y-4 p-6 md:p-8">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-xl font-extrabold text-white">📊 Матрица «Задача → Модель → Квота»</h2>
-          <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300 border border-emerald-500/20">
-            Экономия квоты до 25×
-          </span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-400">
-                <th className="py-2.5 pr-4">Игровая задача</th>
-                <th className="py-2.5 pr-4">Назначенная модель</th>
-                <th className="py-2.5 pr-4">Дневной лимит</th>
-                <th className="py-2.5">Обоснование</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ROUTING_TABLE.map((r) => (
-                <tr key={r.task} className="border-b border-white/5 align-top">
-                  <td className="py-3 pr-4 font-semibold text-white">{r.task}</td>
-                  <td className="py-3 pr-4 font-mono text-[12.5px] text-emerald-300">{r.defaultModel}</td>
-                  <td className="py-3 pr-4 font-mono text-xs text-amber-200">{r.limit}</td>
-                  <td className="py-3 text-slate-300 text-xs leading-relaxed">{r.why}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* SECTIONS */}
-      {SECTIONS.map((s) => (
-        <section key={s.id} className="space-y-4">
-          <div>
-            <h2 className="text-2xl font-extrabold text-white">{s.icon} {s.title}</h2>
-            <p className="mt-1 max-w-3xl text-sm text-slate-400">{s.intro}</p>
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="card p-6">
+          <h2 className="text-lg font-extrabold text-white">🎛 Профили механик</h2>
+          <div className="mt-3 space-y-2">
+            {RULES_PROFILE_IDS.map((id) => {
+              const p = PROFILE_SPECS[id];
+              return (
+                <div key={id} className="rounded-xl bg-white/5 p-3 text-[12.5px]">
+                  <b className="text-white">{p.label}</b>
+                  <p className="text-slate-300">{p.description}</p>
+                  <p className="mt-1 font-mono text-[11px] text-slate-500">
+                    проверка: {p.check} · лимиты/ход: hp ±{p.limits.hp}, xp ≤{p.limits.xp}, средства ±{p.limits.gold}, отношение ±{p.limits.relation}
+                  </p>
+                </div>
+              );
+            })}
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {s.cards.map((c) => (
-              <article key={c.t} className="card fade-up p-5">
-                <h3 className="text-[15px] font-bold text-amber-100">{c.t}</h3>
-                <p className="mt-2 text-[13.5px] leading-relaxed text-slate-300">{c.d}</p>
-              </article>
+        </div>
+        <div className="card p-6">
+          <h2 className="text-lg font-extrabold text-white">🧠 Memory House: слои и происхождение</h2>
+          <div className="mt-3 grid gap-1.5 text-[12.5px]">
+            {Object.entries(LAYER_INFO).map(([k, v]) => (
+              <div key={k} className="flex justify-between rounded-lg bg-white/5 px-3 py-1.5"><span className="text-slate-100">{v.icon} {v.label}</span><span className="text-slate-500">{v.hint}</span></div>
             ))}
           </div>
-        </section>
-      ))}
+          <p className="mt-3 text-xs uppercase tracking-widest text-slate-400">Источники (provenance)</p>
+          <div className="mt-1 grid gap-1.5 text-[12.5px]">
+            {Object.entries(SOURCE_INFO).map(([k, v]) => (
+              <div key={k} className="flex justify-between rounded-lg bg-white/5 px-3 py-1.5"><span className="text-slate-100">{v.icon} {v.label}</span><span className="text-slate-500">{v.hint}</span></div>
+            ))}
+          </div>
+          <p className="mt-3 text-[12px] text-slate-400">Дедупликация: upsert по entityKey (npc:key, quest:key, item:slug, location:slug) для эволюционирующих фактов; append по contentHash для событий. Compaction сжимает, но не меняет игровое состояние.</p>
+        </div>
+      </div>
 
-      {/* MEMORY HOUSE SCHEME */}
-      <section className="card space-y-3 p-6 md:p-8">
-        <h2 className="text-2xl font-extrabold text-white">🧠 Схема Memory House & Бюджетирование контекста</h2>
-        <pre className="overflow-x-auto rounded-xl bg-black/50 p-4 font-mono text-[12px] leading-relaxed text-violet-200">
-{`┌────────────────────────────────────────────────────────────────────────┐
-│                        MEMORY HOUSE (5 СЛОЕВ)                          │
-├────────────────────────────────────────────────────────────────────────┤
-│ 📜 ХРОНИКА (imp 90+)    ── Летописи глав (не удаляются никогда)        │
-│ 🧠 СЕМАНТИКА (imp 60-80) ── NPC, локации, артефакты, клятвы           │
-│ 📖 ЭПИЗОДИКА (imp 65-85) ── Ключевые события, раны, выборы             │
-│ ⚙️ ПРОЦЕДУРНАЯ          ── Правила d20, DC, модификаторы статов        │
-│ ⚡ РАБОЧАЯ              ── Последние 6 ходов дословно (бюджет 6k)       │
-└────────────────────────────────────────────────────────────────────────┘
+      <div className="card p-6">
+        <h2 className="text-lg font-extrabold text-white">🧭 Эмбеддинги без pgvector — и с ним</h2>
+        <p className="mt-2 text-[13px] text-slate-300">
+          Векторы хранятся в <code>memory_embeddings.vector real[]</code> с моделью, размерностью, хешем контента и статусом outbox (pending → ready/failed, до 3 попыток). Поиск всегда ограничен sessionId, поэтому cosine на стороне приложения по сотням нод занимает миллисекунды и работает на любом PostgreSQL. Для больших инсталляций путь апгрейда: расширение <code>vector</code>, колонка <code>vector(768)</code>, HNSW-индекс и замена ранжирования на SQL-оператор <code>&lt;=&gt;</code> — интерфейс <code>searchMemory()</code> не меняется. Запросы форматируются по документации Embeddings 2: <code>task: search result | query: …</code> для запроса и <code>title: … | text: …</code> для документов.
+        </p>
+      </div>
 
-  Сборка промпта: [Хроника] + [Семантика] + [Эпизодика] + [Рабочие ходы]
-  Итоговый размер контекста: ~1.5k – 3k токенов (жесткий кап 17 000 токенов).
-  Результат: модель никогда не приближается к порогу деградации (250 000 токенов).`}
-        </pre>
-      </section>
+      <div className="card p-6">
+        <h2 className="text-lg font-extrabold text-white">🛡 Надёжность и наблюдаемость</h2>
+        <ul className="mt-2 space-y-1.5 text-[13px] text-slate-300">
+          <li>· Идемпотентность хода: requestId + уникальный индекс; повтор возвращает применённый результат.</li>
+          <li>· Сериализация ходов одной кампании через advisory-lock — двойной клик и параллельные вкладки безопасны.</li>
+          <li>· Дневные лимиты моделей соблюдаются сервером (лимит × ключи), пропуски видны в contextMeta.skippedModels.</li>
+          <li>· Каждый narrator-ход хранит применённые stateChanges и retrievedIds — можно объяснить любое изменение мира.</li>
+          <li>· Миграции: versioned ledger (drizzle migrator) + идемпотентный SQL; безопасен апгрейд с v1.</li>
+          <li>· Тесты: reducers, парсер контракта, кости, лимиты, фильтр экстрактора — <code>npm test</code>.</li>
+        </ul>
+      </div>
     </div>
   );
 }

@@ -6,58 +6,60 @@ import { MODEL_CATALOG, ROUTING_PROFILES, RoutingProfile } from "@/lib/gemini";
 type SettingsState = {
   keysMasked: string[];
   keysCount: number;
+  envKeysCount: number;
   routingProfile: RoutingProfile;
   narrationModel: string;
   customActionModel: string;
   compactionModel: string;
   fastTaskModel: string;
-  primaryModel: string;
-  fallbackChain: string[];
   useLiveAI: boolean;
   dailyFlashLimit: number;
   dailyLiteLimit: number;
+  enforceLimits: boolean;
+  embeddingsEnabled: boolean;
+  embeddingModel: string;
+  embeddingDims: number;
+  semanticExtractionEnabled: boolean;
+  embeddingModels: string[];
 };
+type Stats = {
+  today?: { totalReq: number; totalTokens: number; errors: number; byModel: Record<string, { requests: number; tokens: number; errors: number; avgLatencyMs: number }>; byTask: Record<string, { requests: number; tokens: number }>; flashReq: number; liteReq: number; embeddingReq: number; perFlashModel: Record<string, { used: number; cap: number }>; liteCap: number };
+  quotas?: { flashPerModel: number; liteTotal: number; keyCount: number; enforced: boolean; note: string };
+  recent?: { model: string; taskType: string; totalTokens: number; success: boolean; createdAt: string; error: string; latencyMs: number }[];
+};
+
+const TASKS: { key: "narrationModel" | "customActionModel" | "compactionModel" | "fastTaskModel"; label: string; hint: string }[] = [
+  { key: "narrationModel", label: "Обычный ход (вариант 1/2/3)", hint: "Структурированный ответ с изменениями мира; Lite достаточно" },
+  { key: "customActionModel", label: "Свободное действие", hint: "Проверка по профилю до вызова + строгий JSON-контракт" },
+  { key: "compactionModel", label: "Компакция памяти", hint: "Сжатие ходов в летопись; старшие модели держат канон" },
+  { key: "fastTaskModel", label: "Извлечение фактов (semantic-extractor)", hint: "Асинхронно после хода; факты только с цитатой-доказательством" },
+];
 
 export default function SettingsPage() {
   const [s, setS] = useState<SettingsState | null>(null);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [keysText, setKeysText] = useState("");
-  const [stats, setStats] = useState<{
-    today?: {
-      totalReq: number;
-      totalTokens: number;
-      byModel: Record<string, { requests: number; tokens: number; errors: number }>;
-      byTask: Record<string, { requests: number; tokens: number }>;
-      flashReq: number;
-      liteReq: number;
-      perFlashModel: Record<string, number>;
-    };
-    quotas?: { flashPerModel: number; liteTotal: number };
-    recent?: { model: string; taskType: string; totalTokens: number; success: boolean; createdAt: string; error: string }[];
-  } | null>(null);
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
+  const [limits, setLimits] = useState({ flash: 20, lite: 500 });
 
   async function refresh() {
-    const [a, b] = await Promise.all([
-      fetch("/api/settings").then((r) => r.json()),
-      fetch("/api/tokens/stats").then((r) => r.json()).catch(() => null),
-    ]);
+    const [a, b] = await Promise.all([fetch("/api/settings").then((r) => r.json()), fetch("/api/tokens/stats").then((r) => r.json()).catch(() => null)]);
     setS(a);
     setStats(b);
+    setLimits({ flash: a.dailyFlashLimit, lite: a.dailyLiteLimit });
   }
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    refresh();
+  }, []);
 
   async function save(patch: Record<string, unknown>) {
     setSaving(true);
     setMsg("Сохраняем…");
     try {
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-      });
+      const res = await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
       const data = await res.json();
-      setMsg(data.ok ? `✅ Настройки сохранены (ключей: ${data.keysCount})` : "Ошибка при сохранении");
+      setMsg(data.ok ? `✅ Сохранено (ключей в БД: ${data.keysCount}, из окружения: ${data.envKeysCount})` : `Ошибка: ${data.error ?? "?"}`);
       setKeysText("");
       await refresh();
     } finally {
@@ -65,273 +67,171 @@ export default function SettingsPage() {
     }
   }
 
+  if (!s) return <p className="pt-16 text-center text-slate-400">Загружаем настройки…</p>;
+  const totalKeys = s.keysCount + s.envKeysCount;
+  const liveOn = s.useLiveAI && totalKeys > 0;
+
   return (
     <div className="space-y-6 pt-8">
-      {/* HEADER */}
       <div className="card fade-up p-6 md:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-amber-300">Маршрутизация Gemini · Квоты 20 / 500</p>
-            <h1 className="mt-1 text-2xl font-black text-white md:text-3xl">⚙️ Настройки моделей и ключей AI Studio</h1>
+            <p className="text-xs uppercase tracking-[0.25em] text-amber-300">Gemini · роутинг · лимиты · память</p>
+            <h1 className="mt-1 text-2xl font-black text-white md:text-3xl">⚙️ Центр управления ИИ</h1>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-400">Live Gemini:</span>
-            <button
-              onClick={() => save({ useLiveAI: !s?.useLiveAI })}
-              className={`rounded-full px-4 py-1.5 text-xs font-bold transition ${
-                s?.useLiveAI ? "bg-emerald-400 text-black shadow-lg shadow-emerald-500/20" : "bg-white/10 text-slate-300"
-              }`}
-            >
-              {s?.useLiveAI ? "● LIVE ВКЛ" : "○ ОФЛАЙН"}
+            <button onClick={() => save({ useLiveAI: !s.useLiveAI })} disabled={saving || (!s.useLiveAI && totalKeys === 0)} className={`rounded-full px-4 py-2 text-sm font-bold ${liveOn ? "bg-emerald-400 text-black" : "bg-white/10 text-slate-300"}`} title={totalKeys === 0 ? "Сначала добавьте ключ" : ""}>
+              {liveOn ? "ВКЛ" : "ВЫКЛ"}
             </button>
           </div>
         </div>
-        <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-300">
-          Управляйте распределением нагрузки: используйте <b className="text-emerald-300">Flash-Lite (500 запросов/день)</b> для
-          нарратива и рутинных ходов, сохраняя драгоценный лимит <b className="text-amber-300">Flash 3.8 (20 запросов/день)</b> для
-          глубокого сжатия памяти (Memory House) и свободных действий игрока.
+        {msg && <p className="mt-3 text-xs text-amber-200">{msg}</p>}
+        <p className="mt-3 text-[13px] text-slate-400">
+          Без Live работают только пресеты (офлайн-движок). Свободные кампании, семантический поиск и извлечение фактов требуют ключ. Ключи можно также передать через переменную окружения <code className="text-slate-200">GEMINI_API_KEYS</code> (через запятую) — сейчас из окружения: <b className="text-white">{s.envKeysCount}</b>.
         </p>
-        {msg && <p className="mt-3 rounded-lg bg-emerald-400/10 px-3 py-2 text-xs font-medium text-emerald-300">{msg}</p>}
       </div>
 
-      {/* STRATEGY PROFILES */}
-      <div className="card fade-up p-6 md:p-8">
-        <h2 className="text-lg font-extrabold text-white">🎯 Профили маршрутизации моделей</h2>
-        <p className="mt-1 text-xs text-slate-400">Выберите готовый пресет или настройте каждую модель вручную:</p>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {(["balanced", "economy", "flagship"] as RoutingProfile[]).map((pKey) => {
-            const p = ROUTING_PROFILES[pKey];
-            const active = s?.routingProfile === pKey;
-            return (
-              <button
-                key={pKey}
-                onClick={() => save({ routingProfile: pKey })}
-                disabled={saving}
-                className={`rounded-2xl border p-4 text-left transition ${
-                  active
-                    ? "border-amber-300/80 bg-gradient-to-b from-amber-300/15 to-violet-500/10 shadow-lg"
-                    : "border-white/10 bg-white/5 hover:bg-white/10"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <b className="text-sm text-white">{p.title}</b>
-                  {active && <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-black">АКТИВЕН</span>}
-                </div>
-                <p className="mt-2 text-[12.5px] leading-relaxed text-slate-300">{p.desc}</p>
-                <div className="mt-3 space-y-1 rounded-xl bg-black/30 p-2.5 font-mono text-[11px]">
-                  <div className="flex justify-between text-slate-300">
-                    <span className="text-slate-400">Нарратив (ходы 1/2/3):</span>
-                    <span className="text-emerald-300">{p.config.narrationModel.replace("gemini-", "")}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span className="text-slate-400">Свободный ввод:</span>
-                    <span className="text-amber-200">{p.config.customActionModel.replace("gemini-", "")}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span className="text-slate-400">Компакция памяти:</span>
-                    <span className="text-violet-300">{p.config.compactionModel.replace("gemini-", "")}</span>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* CUSTOM MATRIX ACCORDION */}
-        <div className="mt-5 rounded-2xl border border-white/10 bg-black/30 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <b className="text-sm text-white">⚙️ Ручное назначение моделей (Custom)</b>
-              <p className="text-xs text-slate-400">Точечно выберите модель для каждого типа игровой задачи:</p>
-            </div>
-            {s?.routingProfile === "custom" && (
-              <span className="rounded-full bg-violet-400/20 px-2.5 py-1 text-[11px] font-bold text-violet-200">Режим Custom</span>
-            )}
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* KEYS */}
+        <div className="card p-6">
+          <h2 className="text-lg font-extrabold text-white">🔑 Пул ключей AI Studio ({s.keysCount}/10)</h2>
+          <p className="mt-1 text-[12.5px] text-slate-400">При ошибке 429/5xx движок пробует следующий ключ, затем следующую модель цепочки. Квоты бесплатного тарифа считаются на ключ.</p>
+          <textarea className="input mt-3 min-h-24 font-mono text-xs" placeholder="AIza… (по одному в строке или через запятую)" value={keysText} onChange={(e) => setKeysText(e.target.value)} />
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button onClick={() => save({ keysText, append: true })} disabled={saving || !keysText.trim()} className="btn-primary text-xs">＋ Добавить</button>
+            <button onClick={() => save({ clearKeys: true })} disabled={saving || !s.keysCount} className="btn-ghost text-xs">Очистить все</button>
           </div>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
-            {/* Narration model */}
-            <div className="space-y-1.5 rounded-xl border border-white/5 bg-white/5 p-3">
-              <span className="font-semibold text-slate-200">📖 Обычный нарратив (варианты 1/2/3)</span>
-              <p className="text-[11px] text-slate-400">Рекомендуется Lite (500/день)</p>
-              <select
-                value={s?.narrationModel ?? "gemini-3.5-flash-lite"}
-                onChange={(e) => save({ routingProfile: "custom", narrationModel: e.target.value })}
-                className="input py-1.5 text-xs"
-              >
-                {MODEL_CATALOG.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name} ({m.family === "lite" ? "500/д" : "20/д"})</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Custom action model */}
-            <div className="space-y-1.5 rounded-xl border border-white/5 bg-white/5 p-3">
-              <span className="font-semibold text-slate-200">🖐️ Свободный ввод (Custom Action)</span>
-              <p className="text-[11px] text-slate-400">Рекомендуется 3.8 / 3.7 Flash</p>
-              <select
-                value={s?.customActionModel ?? "gemini-3.8-flash"}
-                onChange={(e) => save({ routingProfile: "custom", customActionModel: e.target.value })}
-                className="input py-1.5 text-xs"
-              >
-                {MODEL_CATALOG.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name} ({m.family === "lite" ? "500/д" : "20/д"})</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Compaction model */}
-            <div className="space-y-1.5 rounded-xl border border-white/5 bg-white/5 p-3">
-              <span className="font-semibold text-slate-200">🧠 Компакция Memory House</span>
-              <p className="text-[11px] text-slate-400">Флагманы 3.8 / 3.7 (сохранение канона)</p>
-              <select
-                value={s?.compactionModel ?? "gemini-3.8-flash"}
-                onChange={(e) => save({ routingProfile: "custom", compactionModel: e.target.value })}
-                className="input py-1.5 text-xs"
-              >
-                {MODEL_CATALOG.filter((m) => m.family === "flash").map((m) => (
-                  <option key={m.id} value={m.id}>{m.name} (20/д)</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Fast task model */}
-            <div className="space-y-1.5 rounded-xl border border-white/5 bg-white/5 p-3">
-              <span className="font-semibold text-slate-200">⚡ Извлечение фактов и лута</span>
-              <p className="text-[11px] text-slate-400">Быстрый Lite 3.5</p>
-              <select
-                value={s?.fastTaskModel ?? "gemini-3.5-flash-lite"}
-                onChange={(e) => save({ routingProfile: "custom", fastTaskModel: e.target.value })}
-                className="input py-1.5 text-xs"
-              >
-                {MODEL_CATALOG.map((m) => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </select>
-            </div>
+          <div className="mt-3 space-y-1">
+            {s.keysMasked.map((k, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-1.5 font-mono text-xs text-slate-300">
+                <span>#{i + 1} {k}</span>
+                <button onClick={() => save({ removeIndex: [i] })} className="text-slate-500 hover:text-red-300">✕</button>
+              </div>
+            ))}
+            {!s.keysCount && <p className="text-xs text-slate-500">Ключей в БД нет.</p>}
           </div>
         </div>
-      </div>
 
-      {/* KEYS MANAGEMENT */}
-      <div className="card fade-up p-6 md:p-8">
-        <h2 className="text-lg font-extrabold text-white">🔑 Ключи Google AI Studio</h2>
-        <p className="mt-1 text-xs text-slate-400">
-          Вставьте 1 или несколько ключей (через запятую или новую строку). При 429/исчерпании квоты движок автоматически
-          переключается на следующий ключ или модель в цепочке:
-        </p>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div>
-            <textarea
-              className="input min-h-24 font-mono text-xs"
-              placeholder="AIzaSy...key1, AIzaSy...key2"
-              value={keysText}
-              onChange={(e) => setKeysText(e.target.value)}
-            />
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button onClick={() => save({ keysText, append: true })} disabled={saving || !keysText.trim()} className="btn-primary text-xs">
-                ＋ Добавить к списку
+        {/* ROUTING */}
+        <div className="card p-6">
+          <h2 className="text-lg font-extrabold text-white">🧭 Профиль маршрутизации</h2>
+          <div className="mt-3 grid gap-2">
+            {(Object.keys(ROUTING_PROFILES) as RoutingProfile[]).map((p) => (
+              <button key={p} onClick={() => save({ routingProfile: p })} className={`rounded-xl border p-3 text-left ${s.routingProfile === p ? "border-amber-300/60 bg-amber-300/10" : "border-white/10 bg-white/5 hover:bg-white/10"}`}>
+                <b className="text-white">{ROUTING_PROFILES[p].title}</b>
+                <p className="text-[12px] text-slate-300">{ROUTING_PROFILES[p].desc}</p>
               </button>
-              <button onClick={() => save({ keysText, append: false })} disabled={saving || !keysText.trim()} className="btn-ghost text-xs">
-                ⟲ Заменить все
-              </button>
-              <button onClick={() => save({ clearKeys: true })} disabled={saving || !s?.keysCount} className="btn-ghost text-xs text-red-300">
-                🗑 Очистить ключи
-              </button>
-            </div>
+            ))}
           </div>
+          <div className="mt-4 space-y-2">
+            <p className="text-xs uppercase tracking-widest text-slate-400">Матрица задач {s.routingProfile !== "custom" && <span className="normal-case text-slate-500">(редактируется в профиле Custom)</span>}</p>
+            {TASKS.map((t) => (
+              <div key={t.key} className="grid grid-cols-[1fr_auto] items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
+                <div>
+                  <b className="text-[13px] text-slate-100">{t.label}</b>
+                  <span className="block text-[11px] text-slate-500">{t.hint}</span>
+                </div>
+                <select className="input w-auto py-1 text-xs" value={s[t.key]} disabled={s.routingProfile !== "custom" || saving} onChange={(e) => save({ routingProfile: "custom", [t.key]: e.target.value })}>
+                  {MODEL_CATALOG.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
 
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            <p className="text-xs uppercase tracking-widest text-slate-400">Активные ключи ({s?.keysCount ?? 0})</p>
-            <div className="mt-2 max-h-36 space-y-1.5 overflow-y-auto scroll-thin">
-              {(s?.keysMasked ?? []).map((k, i) => (
-                <div key={i} className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-1.5 font-mono text-xs text-slate-300">
-                  <span>🔑 Ключ #{i + 1}: <span className="text-amber-200">{k}</span></span>
-                  <button onClick={() => save({ removeIndex: [i] })} className="text-[11px] text-red-400 hover:text-red-300">
-                    Удалить
-                  </button>
+        {/* MEMORY */}
+        <div className="card p-6">
+          <h2 className="text-lg font-extrabold text-white">🧠 Память: эмбеддинги и извлечение фактов</h2>
+          <div className="mt-3 space-y-3 text-[13px]">
+            <label className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2">
+              <span>
+                <b className="text-slate-100">Семантический поиск (gemini-embedding-2)</b>
+                <span className="block text-[11px] text-slate-500">Перед каждым ходом ищутся релевантные воспоминания; новые ноды индексируются в фоне</span>
+              </span>
+              <input type="checkbox" checked={s.embeddingsEnabled} onChange={(e) => save({ embeddingsEnabled: e.target.checked })} />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="rounded-lg bg-white/5 px-3 py-2 text-[12px] text-slate-400">
+                Модель
+                <select className="input mt-1 py-1 text-xs" value={s.embeddingModel} onChange={(e) => save({ embeddingModel: e.target.value })}>
+                  {s.embeddingModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="rounded-lg bg-white/5 px-3 py-2 text-[12px] text-slate-400">
+                Размерность (MRL)
+                <select className="input mt-1 py-1 text-xs" value={s.embeddingDims} onChange={(e) => save({ embeddingDims: Number(e.target.value) })}>
+                  {[768, 1536, 3072].map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="text-[11px] text-slate-500">Смена модели/размерности не ломает старую память: эмбеддинги версионируются по модели и хешу контента; кнопка «переиндексировать» на странице кампании выполнит backfill.</p>
+            <label className="flex items-center justify-between rounded-lg bg-white/5 px-3 py-2">
+              <span>
+                <b className="text-slate-100">Semantic-extractor после хода</b>
+                <span className="block text-[11px] text-slate-500">Модель «{s.fastTaskModel}» извлекает факты об NPC, мотивах, обещаниях — только с цитатой из текста</span>
+              </span>
+              <input type="checkbox" checked={s.semanticExtractionEnabled} onChange={(e) => save({ semanticExtractionEnabled: e.target.checked })} />
+            </label>
+          </div>
+        </div>
+
+        {/* LIMITS */}
+        <div className="card p-6">
+          <h2 className="text-lg font-extrabold text-white">📊 Лимиты и расход за сегодня</h2>
+          <label className="mt-3 flex items-center justify-between rounded-lg bg-white/5 px-3 py-2 text-[13px]">
+            <span>
+              <b className="text-slate-100">Соблюдать лимиты на сервере</b>
+              <span className="block text-[11px] text-slate-500">Исчерпанные модели пропускаются в цепочке; лимит × число ключей</span>
+            </span>
+            <input type="checkbox" checked={s.enforceLimits} onChange={(e) => save({ enforceLimits: e.target.checked })} />
+          </label>
+          <div className="mt-2 grid grid-cols-[1fr_1fr_auto] items-end gap-2 text-[12px] text-slate-400">
+            <label>
+              Flash / день / ключ
+              <input type="number" className="input mt-1 py-1 text-xs" value={limits.flash} onChange={(e) => setLimits({ ...limits, flash: Number(e.target.value) })} />
+            </label>
+            <label>
+              Lite / день / ключ
+              <input type="number" className="input mt-1 py-1 text-xs" value={limits.lite} onChange={(e) => setLimits({ ...limits, lite: Number(e.target.value) })} />
+            </label>
+            <button onClick={() => save({ dailyFlashLimit: limits.flash, dailyLiteLimit: limits.lite })} className="btn-ghost text-xs">Сохранить</button>
+          </div>
+          {stats?.today && (
+            <div className="mt-4 space-y-2 text-[12.5px]">
+              <p className="text-slate-300">
+                Запросов: <b className="text-white">{stats.today.totalReq}</b> · токенов: <b className="text-white">{stats.today.totalTokens.toLocaleString("ru-RU")}</b> · ошибок: <b className={stats.today.errors ? "text-red-300" : "text-white"}>{stats.today.errors}</b> · эмбеддинг-вызовов: <b className="text-white">{stats.today.embeddingReq}</b>
+              </p>
+              {Object.entries(stats.today.perFlashModel).map(([m, v]) => (
+                <div key={m}>
+                  <div className="flex justify-between text-[11px] text-slate-400"><span>{m}</span><span>{v.used}/{v.cap}</span></div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className={`h-full ${v.used >= v.cap ? "bg-red-400" : "bg-violet-400"}`} style={{ width: `${Math.min(100, (v.used / Math.max(1, v.cap)) * 100)}%` }} /></div>
                 </div>
               ))}
-              {!s?.keysCount && (
-                <p className="text-xs text-slate-500">Ключей нет — игра работает на встроенном офлайн-движке без потери прогресса.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* MONITORING & QUOTAS */}
-      <div className="card fade-up p-6 md:p-8">
-        <h2 className="text-lg font-extrabold text-white">📊 Мониторинг расхода токенов и квот (за сегодня)</h2>
-        <p className="mt-1 text-xs text-slate-400">Учитывает все вызовы: нарратив, разрешение, компакцию и фолбэки:</p>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-          <div className="rounded-xl border border-white/10 bg-black/30 p-3.5">
-            <p className="text-[11px] uppercase tracking-widest text-slate-400">Всего вызовов</p>
-            <p className="mt-1 text-2xl font-black text-white">{stats?.today?.totalReq ?? 0}</p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-black/30 p-3.5">
-            <p className="text-[11px] uppercase tracking-widest text-slate-400">Токенов сегодня</p>
-            <p className="mt-1 text-2xl font-black text-amber-200">{(stats?.today?.totalTokens ?? 0).toLocaleString("ru-RU")}</p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-black/30 p-3.5">
-            <p className="text-[11px] uppercase tracking-widest text-slate-400">Flash (лимит 60)</p>
-            <p className="mt-1 text-2xl font-black text-violet-200">{stats?.today?.flashReq ?? 0} <span className="text-xs text-slate-400">/ 60</span></p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-black/30 p-3.5">
-            <p className="text-[11px] uppercase tracking-widest text-slate-400">Lite (лимит 500)</p>
-            <p className="mt-1 text-2xl font-black text-emerald-200">{stats?.today?.liteReq ?? 0} <span className="text-xs text-slate-400">/ 500</span></p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {/* By model stats */}
-          <div className="rounded-xl border border-white/10 bg-black/30 p-4">
-            <p className="text-xs uppercase tracking-widest text-slate-400">Расход по моделям</p>
-            <div className="mt-2 space-y-2.5">
-              {Object.entries(stats?.today?.byModel ?? {}).map(([m, v]) => {
-                const limit = m.includes("lite") ? 500 : 20;
-                const pct = Math.min(100, Math.round((v.requests / limit) * 100));
-                return (
-                  <div key={m}>
-                    <div className="flex justify-between font-mono text-[11.5px] text-slate-300">
-                      <span>{m}</span>
-                      <span>{v.requests}/{limit} req ({pct}%) · {v.tokens.toLocaleString("ru-RU")} tok</span>
+              <div>
+                <div className="flex justify-between text-[11px] text-slate-400"><span>gemini-3.5-flash-lite</span><span>{stats.today.liteReq}/{stats.today.liteCap}</span></div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-emerald-400" style={{ width: `${Math.min(100, (stats.today.liteReq / Math.max(1, stats.today.liteCap)) * 100)}%` }} /></div>
+              </div>
+              <p className="text-[11px] text-slate-500">{stats.quotas?.note}</p>
+              <details className="rounded-lg bg-black/30 p-2">
+                <summary className="cursor-pointer text-[12px] text-slate-300">Последние вызовы</summary>
+                <div className="mt-1 space-y-1 font-mono text-[10.5px]">
+                  {stats.recent?.map((r, i) => (
+                    <div key={i} className={`flex justify-between gap-2 ${r.success ? "text-slate-400" : "text-red-300"}`}>
+                      <span className="truncate">{new Date(r.createdAt).toLocaleTimeString("ru-RU")} {r.model} · {r.taskType}</span>
+                      <span className="shrink-0">{r.latencyMs}ms · {r.totalTokens}t{r.error ? ` · ${r.error.slice(0, 40)}` : ""}</span>
                     </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className={`h-full rounded-full ${
-                          pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-amber-400" : "bg-emerald-400"
-                        }`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-              {!Object.keys(stats?.today?.byModel ?? {}).length && (
-                <p className="text-xs text-slate-500">Вызовов пока не было.</p>
-              )}
-            </div>
-          </div>
-
-          {/* Recent logs */}
-          <div className="rounded-xl border border-white/10 bg-black/30 p-4">
-            <p className="text-xs uppercase tracking-widest text-slate-400">Последние логи вызовов</p>
-            <div className="mt-2 max-h-48 space-y-1.5 overflow-y-auto scroll-thin text-[11.5px]">
-              {(stats?.recent ?? []).map((r, i) => (
-                <div key={i} className="flex items-center justify-between rounded-lg bg-white/5 px-2.5 py-1.5 text-slate-300">
-                  <span className="font-mono">{r.model.replace("gemini-", "")} · {r.taskType}</span>
-                  <span className={r.success ? "text-emerald-300 font-mono" : "text-red-300"}>
-                    {r.success ? `${r.totalTokens} tok` : `ERR`}
-                  </span>
+                  ))}
                 </div>
-              ))}
-              {!(stats?.recent ?? []).length && <p className="text-xs text-slate-500">Лог пуст.</p>}
+              </details>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
