@@ -181,20 +181,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let flags: Record<string, string | number | boolean> = {};
 
   const charLine = `${character.name} (${character.archetype}, ур.${character.level}, HP ${character.hp}/${character.maxHp}, статы ${Object.entries(character.stats).map(([k, v]) => `${k}:${v}`).join(" ")}, навыки: ${character.skills.join(", ")}, золото ${character.gold})`;
-  const worldLine = `Мир ${world.worldName}, квест: ${world.mainQuest}, глава ${world.chapter}, накал ${world.danger}`;
+  const worldLine = `Мир ${world.worldName}, тон: ${world.tone ?? "приключенческий"}, квест: ${world.mainQuest}, глава ${world.chapter}, накал ${world.danger}`;
 
   if (canUseLive) {
     try {
       const models = routeModelsFor(taskType, aiConf.routingConfig);
       // Fix #9: расширяем окно scenarioPrompt с 600 до 1400 символов.
       const system = isCustom
-        ? buildResolutionSystemPrompt()
+        ? buildResolutionSystemPrompt({ tone: world.tone, worldName: world.worldName })
         : buildNarrationSystemPrompt({
             character: charLine,
             worldDigest: `${worldLine}. Предыстория: ${session.scenarioPrompt.slice(0, 1400)}`,
             memoryDigest,
             recentTurns,
             location: world.currentLocation,
+            tone: world.tone ?? "приключенческий",
           });
       const user = isCustom
         // Fix #2: добавляем memoryDigest в user-промпт для свободных действий.

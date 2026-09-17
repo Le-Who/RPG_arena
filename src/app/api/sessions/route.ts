@@ -198,12 +198,17 @@ export async function POST(req: Request) {
     },
   ]);
 
-  // стартовый инвентарь
-  await db.insert(inventoryItems).values([
-    { sessionId: session.id, name: "Дорожный паёк", kind: "consumable", description: "+10 HP вне боя", quantity: 2, icon: "🍞", power: 10 },
-    { sessionId: session.id, name: "Простой клинок", kind: "weapon", description: "Верный спутник", quantity: 1, equipped: true, icon: "🗡️", power: 3 },
-    { sessionId: session.id, name: "Письмо-загадка", kind: "quest", description: "Крючок главного квеста", quantity: 1, icon: "✉️", power: 0 },
-  ]);
+  // стартовый инвентарь: только для preset-режима
+  // custom-режим намеренно стартует с пустым инвентарём —
+  // игрок может взаимодействовать с любым объектом мира, и лут нарастает
+  // исключительно через resolution engine (свободные действия).
+  if (body.mode === "preset") {
+    await db.insert(inventoryItems).values([
+      { sessionId: session.id, name: "Дорожный паёк", kind: "consumable", description: "+10 HP вне боя", quantity: 2, icon: "🍞", power: 10 },
+      { sessionId: session.id, name: "Простой клинок", kind: "weapon", description: "Верный спутник", quantity: 1, equipped: true, icon: "🗡️", power: 3 },
+      { sessionId: session.id, name: "Письмо-загадка", kind: "quest", description: "Крючок главного квеста", quantity: 1, icon: "✉️", power: 0 },
+    ]);
+  }
 
   // карта
   let idx = 0;
