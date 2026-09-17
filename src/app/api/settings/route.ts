@@ -52,7 +52,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Некорректные настройки" }, { status: 400 });
+    if (body.embeddingModel && body.embeddingModel !== "gemini-embedding-2") return NextResponse.json({ error: "Поддерживается только gemini-embedding-2" }, { status: 400 });
     const s = await getSettingsRow();
     const currentKeys = ((s.keys as string[]) ?? []).filter(Boolean);
 
@@ -81,7 +83,7 @@ export async function POST(req: Request) {
     const intIn = (v: unknown, lo: number, hi: number, cur: number) => (Number.isFinite(Number(v)) && v !== null && v !== undefined ? Math.max(lo, Math.min(hi, Math.round(Number(v)))) : cur);
     const boolIn = (v: unknown, cur: boolean) => (typeof v === "boolean" ? v : cur);
     const embeddingDims = intIn(body.embeddingDims, 128, 3072, s.embeddingDims);
-    const embeddingModel = typeof body.embeddingModel === "string" && /^gemini-embedding-/.test(body.embeddingModel) ? body.embeddingModel.slice(0, 60) : s.embeddingModel;
+    const embeddingModel = "gemini-embedding-2";
 
     await db
       .update(aiSettings)

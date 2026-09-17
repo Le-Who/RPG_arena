@@ -42,3 +42,18 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   await db.delete(gameSessions).where(eq(gameSessions.id, id));
   return NextResponse.json({ ok: true });
 }
+
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object") return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
+  const patch: { title?: string; status?: string; updatedAt: Date } = { updatedAt: new Date() };
+  if (typeof body.title === "string" && body.title.trim()) patch.title = body.title.trim().slice(0, 80);
+  if (["active", "archived", "paused", "finished"].includes(body.status)) patch.status = body.status;
+  if (!patch.title && !patch.status) return NextResponse.json({ error: "Нет изменений" }, { status: 400 });
+  const row = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${id}))`);
+    return tx.update(gameSessions).set(patch).where(eq(gameSessions.id, id)).returning();
+  });
+  return row[0] ? NextResponse.json({ session: row[0] }) : NextResponse.json({ error: "Кампания не найдена" }, { status: 404 });
+}

@@ -1,5 +1,6 @@
 // ── Пресеты сценариев и персонажей ──
 import type { RulesProfile } from "@/db/schema";
+import { NEW_SCENARIOS } from "./new-scenarios";
 export type ScenarioPreset = {
   id: string;
   title: string;
@@ -24,6 +25,7 @@ export type ScenarioPreset = {
 };
 
 export const SCENARIOS: ScenarioPreset[] = [
+  ...NEW_SCENARIOS,
   {
     id: "ashen-crown",
     title: "Пепельная Корона",

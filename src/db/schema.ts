@@ -210,7 +210,7 @@ export const memoryLinks = pgTable("memory_links", {
 //  Вектор хранится как real[] — переносимо без pgvector; поиск идёт
 //  строго внутри sessionId, поэтому cosine на стороне приложения дёшев.
 // ─────────────────────────────────────────────────────────────
-export type EmbeddingStatus = "pending" | "ready" | "failed";
+export type EmbeddingStatus = "pending" | "processing" | "ready" | "failed";
 
 export const memoryEmbeddings = pgTable(
   "memory_embeddings",
@@ -226,6 +226,9 @@ export const memoryEmbeddings = pgTable(
     dims: integer("dims").notNull().default(768),
     contentHash: text("content_hash").notNull(),
     status: text("status").notNull().default("pending").$type<EmbeddingStatus>(),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    nextAttemptAt: timestamp("next_attempt_at").defaultNow().notNull(),
     attempts: integer("attempts").notNull().default(0),
     error: text("error").default(""),
     vector: real("vector").array(),
@@ -408,3 +411,11 @@ export const tokenLogs = pgTable(
     index("idx_token_logs_model_created").on(t.model, t.createdAt),
   ],
 );
+
+/** Local, single-owner workspace. Add ownership/RLS before multi-user deployment. */
+export const workspacePreferences = pgTable("workspace_preferences", {
+  id: text("id").primaryKey().default("local"),
+  displayName: text("display_name").notNull().default("Искатель историй"),
+  favorites: jsonb("favorites").notNull().$type<string[]>().default([]),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

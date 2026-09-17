@@ -60,7 +60,7 @@ export async function getAIConfig(): Promise<AIConfig> {
     limits: { flash: s.dailyFlashLimit ?? 20, lite: s.dailyLiteLimit ?? 500 },
     enforceLimits: s.enforceLimits ?? true,
     embeddingsEnabled: s.embeddingsEnabled ?? true,
-    embeddingModel: s.embeddingModel || "gemini-embedding-2",
+    embeddingModel: "gemini-embedding-2",
     embeddingDims: s.embeddingDims || DEFAULT_EMBEDDING_DIMS,
     semanticExtractionEnabled: s.semanticExtractionEnabled ?? true,
   };

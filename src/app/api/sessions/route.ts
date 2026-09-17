@@ -15,7 +15,7 @@ import { enqueueEmbeddings, indexPendingEmbeddings } from "@/lib/embeddings";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const sessions = await db.select().from(gameSessions).orderBy(desc(gameSessions.updatedAt)).limit(30);
+  const sessions = await db.select().from(gameSessions).orderBy(desc(gameSessions.updatedAt)).limit(100);
   return NextResponse.json({ sessions });
 }
 
@@ -41,7 +41,12 @@ const clean = (v: unknown, max: number, dflt = "") => (typeof v === "string" && 
 const cleanList = (v: unknown, max: number, itemMax = 40) => (Array.isArray(v) ? v.map((x) => clean(x, itemMax)).filter(Boolean).slice(0, max) : []);
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as CreateBody;
+  const raw = await req.json().catch(() => null);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
+  const body = raw as CreateBody;
+  if (body.mode !== "preset" && body.mode !== "free" && body.mode !== "custom") return NextResponse.json({ error: "Укажите режим кампании" }, { status: 400 });
+  if (body.mode === "preset" && !SCENARIOS.some((s) => s.id === body.scenarioId)) return NextResponse.json({ error: "Сценарий не найден" }, { status: 400 });
+  if (body.mode !== "preset" && (typeof body.customScenario?.title !== "string" || !body.customScenario.title.trim())) return NextResponse.json({ error: "Назовите вашу историю" }, { status: 400 });
   const mode: CampaignMode = body.mode === "preset" ? "preset" : "free";
   const now = new Date();
 
@@ -125,7 +130,7 @@ export async function POST(req: Request) {
     mana: 0,
     maxMana: 0,
     gold: spec.resources.gold ? 15 : 0,
-    stats: char.stats,
+    stats: spec.resources.stats ? char.stats : {},
     skills: char.skills,
     traits: char.traits,
     backstory: char.backstory,
@@ -134,7 +139,8 @@ export async function POST(req: Request) {
   };
   const worldState = { worldName, tone, era, mainQuest, currentLocation: startLocation, factions, flags: {}, danger, chapter: 1 };
 
-  const inserted = await db
+  const { session, seedIds } = await db.transaction(async (tx) => {
+  const inserted = await tx
     .insert(gameSessions)
     .values({
       title,
@@ -151,12 +157,12 @@ export async function POST(req: Request) {
     .returning();
   const session = inserted[0];
 
-  await db.insert(gameTurns).values({
+  await tx.insert(gameTurns).values({
     sessionId: session.id,
     turnNumber: 1,
     role: "narrator",
     content: intro,
-    choices: openingChoices(),
+    choices: mode === "preset" ? openingChoices() : [],
     taskType: "narration",
     modelUsed: mode === "preset" ? "preset-intro" : "author-intro",
     promptTokens: 0,
@@ -164,7 +170,7 @@ export async function POST(req: Request) {
   });
 
   // Квест-хранилище (RES-1a): главный квест — строка в quests, worldState.mainQuest остаётся зеркалом для промптов
-  await db.insert(quests).values({ sessionId: session.id, key: "main", title: mainQuest, description: "Главная цель истории", status: "active", progress: 0, isMain: true, updatedTurn: 1 });
+  await tx.insert(quests).values({ sessionId: session.id, key: "main", title: mainQuest, description: "Главная цель истории", status: "active", progress: 0, isMain: true, updatedTurn: 1 });
 
   // Канонические стартовые ноды (source = seed)
   const seedIds: string[] = [];
@@ -177,20 +183,23 @@ export async function POST(req: Request) {
     { layer: "procedural" as const, category: "rule", title: `Правила: профиль ${spec.label}`, content: proceduralContent, importance: 60, entityKey: "rules:profile" },
     ...(factions.length ? [{ layer: "semantic" as const, category: "world", title: "Фракции", content: `Силы мира: ${factions.join(", ")}.`, importance: 70, entityKey: "world:factions" }] : []),
   ]) {
-    const r = await upsertMemoryNode({ sessionId: session.id, ...n, source: "seed", sourceTurn: 1, mode: "upsert", turnFrom: 0, turnTo: 1 });
+    const r = await upsertMemoryNode({ sessionId: session.id, ...n, source: "seed", sourceTurn: 1, mode: "upsert", turnFrom: 0, turnTo: 1 }, tx);
     seedIds.push(r.id);
   }
 
   if (startInventory.length) {
-    await db.insert(inventoryItems).values(startInventory.map((i) => ({ sessionId: session.id, name: i.name, kind: i.kind, description: i.description, quantity: i.quantity, equipped: Boolean(i.equipped), icon: i.icon, power: i.power })));
+    await tx.insert(inventoryItems).values(startInventory.map((i) => ({ sessionId: session.id, name: i.name, kind: i.kind, description: i.description, quantity: i.quantity, equipped: Boolean(i.equipped), icon: i.icon, power: i.power })));
   }
 
   let idx = 0;
   for (const l of locs) {
-    await db.insert(worldLocations).values({ sessionId: session.id, name: l.name, description: l.description, x: l.x, y: l.y, danger: l.danger, icon: l.icon, discovered: idx < 2, current: idx === 0, connectedTo: [] });
+    await tx.insert(worldLocations).values({ sessionId: session.id, name: idx === 0 ? startLocation : l.name, description: l.description, x: l.x, y: l.y, danger: l.danger, icon: l.icon, discovered: idx < 2, current: idx === 0, connectedTo: [] });
     idx++;
   }
-  await db.update(gameSessions).set({ updatedAt: now }).where(eq(gameSessions.id, session.id));
+  await tx.update(gameSessions).set({ updatedAt: now }).where(eq(gameSessions.id, session.id));
+
+  return { session, seedIds };
+  });
 
   // Индексация стартовых нод — в фоне
   after(async () => {

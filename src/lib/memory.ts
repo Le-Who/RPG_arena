@@ -9,8 +9,10 @@
 import { createHash } from "crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { memoryNodes, type MemorySource } from "@/db/schema";
+import { memoryNodes, memoryEmbeddings, aiSettings, type MemorySource } from "@/db/schema";
 import { estimateTokens } from "./gemini";
+import { EMBEDDING_MODEL, DEFAULT_EMBEDDING_DIMS, formatDocument } from "./vector";
+import { mayReplaceMemory } from "./memory-policy";
 import type { MemoryEvent } from "./resolution";
 
 export { LAYER_INFO, SOURCE_INFO, type MemoryLayer } from "./memory-ui";
@@ -92,7 +94,14 @@ export type UpsertNodeInput = {
   salience?: number;
 };
 
-type Tx = Pick<typeof db, "select" | "insert" | "update" | "delete">;
+type Tx = Pick<typeof db, "select" | "insert" | "update" | "delete" | "execute">;
+
+async function queueMemory(tx: Tx, sessionId: string, memoryNodeId: string, title: string, content: string) {
+  const [settings] = await tx.select({ dims: aiSettings.embeddingDims }).from(aiSettings).where(eq(aiSettings.id, "global"));
+  const dims = settings?.dims ?? DEFAULT_EMBEDDING_DIMS;
+  const row = { model: EMBEDDING_MODEL, dims, contentHash: hashContent(EMBEDDING_MODEL, String(dims), formatDocument(title, content)), status: "pending" as const, vector: null, attempts: 0, error: "", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(), updatedAt: new Date() };
+  await tx.insert(memoryEmbeddings).values({ sessionId, memoryNodeId, ...row }).onConflictDoUpdate({ target: memoryEmbeddings.memoryNodeId, set: row, setWhere: sql`${memoryEmbeddings.contentHash} <> excluded.content_hash` });
+}
 
 /**
  * upsert-режим: если нода с таким entityKey есть — обновляем содержимое (факт о сущности эволюционирует).
@@ -100,20 +109,23 @@ type Tx = Pick<typeof db, "select" | "insert" | "update" | "delete">;
  * Возвращает id ноды и признак изменения содержимого (нужен для переиндексации эмбеддинга).
  */
 export async function upsertMemoryNode(input: UpsertNodeInput, tx: Tx = db): Promise<{ id: string; changed: boolean; created: boolean }> {
+  if (tx === db) return db.transaction((inner) => upsertMemoryNode(input, inner));
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}))`);
   const title = input.title.slice(0, 120);
   const content = input.content.slice(0, 900);
   const contentHash = hashContent(input.layer, input.category, title, content);
-  const importance = Math.max(5, Math.min(100, Math.round(input.importance)));
-  const salience = input.salience ?? Math.min(95, Math.max(input.source === "ai-semantic" ? 45 : 50, importance));
+  const importance = Number.isFinite(input.importance) ? Math.max(5, Math.min(100, Math.round(input.importance))) : 55;
+  const salience = Number.isFinite(input.salience) ? Math.max(0, Math.min(100, input.salience!)) : Math.min(95, Math.max(input.source === "ai-semantic" ? 45 : 50, importance));
   const mode = input.mode ?? (input.entityKey ? "upsert" : "append");
 
   if (mode === "upsert" && input.entityKey) {
     const existing = await tx
-      .select({ id: memoryNodes.id, contentHash: memoryNodes.contentHash })
+      .select({ id: memoryNodes.id, contentHash: memoryNodes.contentHash, source: memoryNodes.source, sourceTurn: memoryNodes.sourceTurn })
       .from(memoryNodes)
       .where(and(eq(memoryNodes.sessionId, input.sessionId), eq(memoryNodes.entityKey, input.entityKey)))
       .limit(1);
     if (existing[0]) {
+      if (!mayReplaceMemory(existing[0], input)) return { id: existing[0].id, changed: false, created: false };
       const changed = existing[0].contentHash !== contentHash;
       await tx
         .update(memoryNodes)
@@ -132,6 +144,7 @@ export async function upsertMemoryNode(input: UpsertNodeInput, tx: Tx = db): Pro
           updatedAt: new Date(),
         })
         .where(eq(memoryNodes.id, existing[0].id));
+      if (changed) await queueMemory(tx, input.sessionId, existing[0].id, title, content);
       return { id: existing[0].id, changed, created: false };
     }
   } else {
@@ -164,6 +177,7 @@ export async function upsertMemoryNode(input: UpsertNodeInput, tx: Tx = db): Pro
       evidence: input.evidence ?? null,
     })
     .returning({ id: memoryNodes.id });
+  await queueMemory(tx, input.sessionId, inserted[0].id, title, content);
   return { id: inserted[0].id, changed: true, created: true };
 }
 
@@ -204,14 +218,16 @@ export type ExtractedFact = {
 export function normalizeExtractedFacts(raw: unknown, narration: string, playerAction: string): ExtractedFact[] {
   const out: ExtractedFact[] = [];
   const facts = Array.isArray((raw as { facts?: unknown })?.facts) ? ((raw as { facts: unknown[] }).facts as Record<string, unknown>[]) : [];
-  const haystack = `${playerAction}\n${narration}`.toLowerCase();
+  // An intended player action is not proof that the event happened.
+  const haystack = narration.toLowerCase();
   for (const f of facts.slice(0, 6)) {
+    if (!f || typeof f !== "object" || !["npc", "world", "character", "relationship", "promise", "secret", "event"].includes(String(f.type))) continue;
     const content = typeof f.content === "string" ? f.content.trim().slice(0, 600) : "";
     const evidence = typeof f.evidence === "string" ? f.evidence.trim().slice(0, 240) : "";
     const confidence = Math.max(0, Math.min(1, Number(f.confidence ?? 0)));
-    if (!content || content.length < 12) continue;
+    if (!content || content.length < 12 || !Number.isFinite(confidence)) continue;
     // Доказательство должно реально присутствовать в тексте (защита от галлюцинаций)
-    const evOk = evidence.length >= 8 && haystack.includes(evidence.toLowerCase().slice(0, 40));
+    const evOk = evidence.length >= 8 && haystack.includes(evidence.toLowerCase());
     if (!evOk || confidence < 0.55) continue;
     // Не принимаем факты о ресурсах/предметах/локациях — они приходят из состояния (MEM-1c)
     if (/\b(hp|опыт|xp|золот|монет|кредит|предмет получ|подобрал|перешёл в|прибыл в)\b/i.test(content) && (f.type === "event" || f.type === "world")) continue;
@@ -221,7 +237,7 @@ export function normalizeExtractedFacts(raw: unknown, narration: string, playerA
       title: (typeof f.title === "string" ? f.title : content.slice(0, 60)).slice(0, 120),
       content,
       evidence,
-      importance: Math.max(40, Math.min(95, Math.round(Number(f.importance ?? 55)))),
+      importance: Number.isFinite(Number(f.importance)) ? Math.max(40, Math.min(95, Math.round(Number(f.importance)))) : 55,
       confidence,
     });
   }

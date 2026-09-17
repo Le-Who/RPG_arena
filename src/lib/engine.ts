@@ -5,10 +5,13 @@
 import { rollD20, roll2d6, dcFor, statModifier } from "./dice";
 import type { DiceResult } from "@/db/schema";
 import { assessRisk, profileFor } from "./profiles";
+import { seededRandom } from "./rng";
 
 export type EngineInput = {
   playerAction: string;
   isFreeAction: boolean;
+  /** Reuse the authoritative check; never roll twice for a single action. */
+  resolvedDice?: DiceResult | null;
   rulesProfile: string;
   character: { name: string; archetype: string; stats: Record<string, number>; hp: number; maxHp: number };
   world: { worldName: string; currentLocation: string; mainQuest: string; danger: number; chapter: number; tone: string };
@@ -47,8 +50,8 @@ const FAIL_TAILS = [
   "Отступление — тоже тактика. Следующий ход должен быть точнее.",
 ];
 
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+function pick<T>(arr: T[], random: () => number): T {
+  return arr[Math.floor(random() * arr.length)];
 }
 
 export function detectSkill(action: string): { skill: string; stat: string } {
@@ -84,24 +87,25 @@ export function serverCheck(input: { rulesProfile: string; playerAction: string;
 
 export function runOfflineEngine(input: EngineInput): EngineOutput {
   const spec = profileFor(input.rulesProfile);
-  const dice = input.isFreeAction
+  const dice = input.resolvedDice !== undefined ? input.resolvedDice : input.isFreeAction
     ? serverCheck({ rulesProfile: input.rulesProfile, playerAction: input.playerAction, stats: input.character.stats, danger: input.world.danger, turnCount: input.turnCount })
     : null;
 
+  const random = seededRandom(`${input.scenarioTitle}|${input.world.worldName}|${input.turnCount}|${input.playerAction}|${JSON.stringify(dice)}`);
   const band = dice ? dice.band ?? (dice.success ? "full" : "fail") : "full";
-  let narration = `${pick(BEATS)}Ты — ${input.character.name}, ${input.character.archetype}. Твоё решение — «${input.playerAction}» — меняет расклад в «${input.world.currentLocation}». `;
-  if (band === "full") narration += `${pick(SUCCESS_TAILS)} Нить главной цели — «${input.world.mainQuest}» — становится чуть ближе.`;
-  else if (band === "cost") narration += `${pick(COST_TAILS)} «${input.world.mainQuest}» по-прежнему впереди, но путь стал дороже.`;
-  else narration += `${pick(FAIL_TAILS)} ${input.world.currentLocation} запоминает твою ошибку.`;
+  let narration = `${pick(BEATS, random)}Ты — ${input.character.name}, ${input.character.archetype}. Твоё решение — «${input.playerAction}» — меняет расклад в «${input.world.currentLocation}». `;
+  if (band === "full") narration += `${pick(SUCCESS_TAILS, random)} Нить главной цели — «${input.world.mainQuest}» — становится чуть ближе.`;
+  else if (band === "cost") narration += `${pick(COST_TAILS, random)} «${input.world.mainQuest}» по-прежнему впереди, но путь стал дороже.`;
+  else narration += `${pick(FAIL_TAILS, random)} ${input.world.currentLocation} запоминает твою ошибку.`;
   narration += ` (Автономный режим пресета: подключите ключи Gemini для живого повествования.)`;
 
   const crit = dice?.critical === "crit";
   const fumble = dice?.critical === "fumble";
-  const hp = !spec.resources.hp ? 0 : fumble ? -8 - Math.floor(Math.random() * 6) : band === "fail" ? -3 - Math.floor(Math.random() * 5) : band === "cost" ? -2 : crit ? 4 : 0;
-  const xp = !spec.resources.xp ? 0 : crit ? 50 : band === "full" ? 20 + Math.floor(Math.random() * 15) : band === "cost" ? 15 : 8;
-  const gold = !spec.resources.gold ? 0 : band === "full" && Math.random() < 0.35 ? 5 + Math.floor(Math.random() * 20) : 0;
+  const hp = !spec.resources.hp ? 0 : fumble ? -8 - Math.floor(random() * 6) : band === "fail" ? -3 - Math.floor(random() * 5) : band === "cost" ? -2 : crit ? 4 : 0;
+  const xp = !spec.resources.xp ? 0 : crit ? 50 : band === "full" ? 20 + Math.floor(random() * 15) : band === "cost" ? 15 : 8;
+  const gold = !spec.resources.gold ? 0 : band === "full" && random() < 0.35 ? 5 + Math.floor(random() * 20) : 0;
   const danger = band === "fail" ? 5 : band === "cost" ? 1 : -3;
-  const loot = band === "full" && input.lootPool?.length && Math.random() < (crit ? 0.9 : 0.25) ? [pick(input.lootPool)] : [];
+  const loot = band === "full" && input.lootPool?.length && random() < (crit ? 0.9 : 0.25) ? [pick(input.lootPool, random)] : [];
   const conditions = { add: [] as string[], remove: [] as string[] };
   if (band === "fail" && spec.resources.conditions) conditions.add.push(fumble ? "серьёзно ранен" : "потрясён");
   if (band === "full" && spec.resources.conditions) conditions.remove.push("потрясён");

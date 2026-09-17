@@ -146,6 +146,7 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
   const sRows = await db.select().from(gameSessions).where(eq(gameSessions.id, sessionId));
   if (!sRows[0]) return { ok: false, code: "NOT_FOUND", message: "Кампания не найдена" };
   const session = sRows[0];
+  if (session.status !== "active") return { ok: false, code: "BUSY", message: "Кампания находится в архиве. Сначала восстановите её." };
   const character: CharacterState = { conditions: [], ...(session.character as CharacterState) };
   const world = session.worldState as WorldState;
   const spec = profileFor(session.rulesProfile);
@@ -285,6 +286,7 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
     const eng = runOfflineEngine({
       playerAction,
       isFreeAction: opts.isFree,
+      resolvedDice: dice,
       rulesProfile: spec.id,
       character: { name: character.name, archetype: character.archetype, stats: character.stats ?? {}, hp: character.hp, maxHp: character.maxHp },
       world: { worldName: world.worldName, currentLocation: world.currentLocation, mainQuest: world.mainQuest, danger: world.danger, chapter: world.chapter, tone: world.tone },
@@ -335,6 +337,8 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
   try {
     touchedMemoryIds = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${sessionId}))`);
+      const [fresh] = await tx.select({ turnCount: gameSessions.turnCount, status: gameSessions.status }).from(gameSessions).where(eq(gameSessions.id, sessionId));
+      if (!fresh || fresh.turnCount !== session.turnCount || fresh.status !== "active") throw new Error("TURN_CONFLICT");
       await tx.insert(gameTurns).values({
         sessionId,
         turnNumber: nextTurn,
@@ -382,7 +386,7 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
             title: `Глава ${world.chapter} завершена (ход ${nextTurn})`,
             content: `[Итог главы ${world.chapter}] ${payload!.narration.slice(0, 460)}`,
             importance: 90,
-            source: "state",
+            source: "compaction",
             sourceTurn: nextTurn,
             entityKey: `chapter:${world.chapter}`,
             mode: "upsert",
@@ -396,11 +400,12 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
       return touched;
     });
   } catch (e) {
-    const code = (e as { code?: string })?.code;
-    if (code === "23505" && requestId) {
+    const code = (e as { code?: string; cause?: { code?: string } })?.code ?? (e as { cause?: { code?: string } })?.cause?.code;
+    if ((code === "23505" || (e instanceof Error && e.message === "TURN_CONFLICT")) && requestId) {
       const replay = await loadReplay(sessionId, requestId);
       if (replay) return replay;
     }
+    if (e instanceof Error && e.message === "TURN_CONFLICT") return { ok: false, code: "BUSY", message: "История уже изменилась в другой вкладке или находится в архиве. Обновите её перед следующим ходом." };
     throw e;
   }
 

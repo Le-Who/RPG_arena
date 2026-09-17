@@ -1,0 +1,64 @@
+import { chromium, expect } from "@playwright/test";
+import { mkdir } from "node:fs/promises";
+const base = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
+async function run() {
+  await mkdir("artifacts", { recursive: true });
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1040 }, deviceScaleFactor: 1 });
+  const ids: string[] = [];
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  try {
+    await page.goto(base, { waitUntil: "networkidle" });
+    await page.evaluate(() => document.fonts.ready);
+    await expect(page.locator(".hero h2")).toContainText("Твоя история");
+    await page.screenshot({ path: "artifacts/desktop.png", fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    const campaignLink = await page.locator(".campaign-card-main").first().getAttribute("href");
+    await page.locator(".campaign-more").first().click(); await page.getByRole("button", { name: "Переименовать", exact: true }).click();
+    const rename = page.getByRole("textbox", { name: "Название кампании" }); const originalName = await rename.inputValue();
+    await rename.fill(""); await rename.pressSequentially("Проверка фокуса", { delay: 20 }); await expect(rename).toHaveValue("Проверка фокуса"); await expect(rename).toBeFocused();
+    await page.getByRole("button", { name: "Оставить как есть", exact: true }).click();
+    await page.locator(".hero-secondary").click(); await expect(page.getByRole("dialog")).toBeVisible(); await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("link", { name: "Библиотека миров", exact: false }).click();
+    await expect(page.locator(".world-card")).toHaveCount(8);
+    await page.getByRole("button", { name: "Киберпанк", exact: true }).click(); await expect(page.locator(".world-card")).toHaveCount(1); await expect(page.locator(".world-title")).toContainText("Неоновый Пакт");
+    const bookmark = page.locator(".bookmark-button"); const wasBookmarked = await bookmark.getAttribute("aria-pressed");
+    await bookmark.click(); await expect(bookmark).toHaveAttribute("aria-pressed", wasBookmarked === "true" ? "false" : "true");
+    await page.waitForTimeout(200); await page.reload({ waitUntil: "networkidle" });
+    const neonBookmark = page.locator(".world-card").filter({ hasText: "Неоновый Пакт" }).locator(".bookmark-button");
+    await expect(neonBookmark).toHaveAttribute("aria-pressed", wasBookmarked === "true" ? "false" : "true"); await neonBookmark.click();
+    await page.getByRole("textbox", { name: "Поиск миров" }).fill("Эхо"); await expect(page.locator(".world-card")).toHaveCount(1); await page.locator(".cover-link").click();
+    await expect(page.getByRole("dialog")).toBeVisible(); await page.getByRole("button", { name: "Ника Орлова Бортинженер" }).click();
+    await page.getByRole("button", { name: "Начать историю", exact: true }).click(); await page.waitForURL(/\/play\//); ids.push(page.url().split("/play/")[1]);
+    await expect(page.locator(".play-banner h1")).toHaveText("Станция «Эхо»");
+    await page.locator(".action-choices>button").first().click(); await expect(page.locator("#turn-2")).toBeVisible({ timeout: 15000 });
+    await page.getByRole("tab", { name: "Вещи" }).click(); await expect(page.locator(".inventory-item")).toHaveCount(3);
+    await page.getByRole("tab", { name: "Герой" }).click(); await expect(page.locator(".hero-identity h2")).toHaveText("Ника Орлова");
+    await page.screenshot({ path: "artifacts/play.png", fullPage: true });
+    await page.getByRole("link", { name: "Память мира", exact: true }).click(); await expect(page.locator(".memory-card").first()).toBeVisible();
+    await page.locator(".record-select select").selectOption(ids[0]); await expect(page.locator(".memory-card").first()).toBeVisible();
+    await page.locator(".memory-search-row input").fill("Ника"); await expect(page.locator(".memory-card").first()).toContainText("Ника");
+    await page.locator(".imagination-card button").click();
+    await page.getByRole("textbox", { name: /Название истории/ }).fill("Browser smoke: чистый лист");
+    await page.getByRole("textbox", { name: /Завязка истории/ }).fill("Современная семейная драма. Герой возвращается в родной город после долгой разлуки.");
+    await page.getByRole("button", { name: "Придумать героя" }).click();
+    await page.getByRole("textbox", { name: /Имя героя/ }).fill("Марина");
+    await page.getByRole("button", { name: "Начать историю", exact: true }).click(); await page.waitForURL(/\/play\//); ids.push(page.url().split("/play/")[1]);
+    await page.getByRole("textbox", { name: "Ваше действие" }).fill("Позвонить маме и договориться о встрече"); await page.getByRole("button", { name: "Сделать ход" }).click();
+    await expect(page.locator(".action-area [role=alert]")).toContainText("ключ Gemini", { timeout: 10000 });
+    await page.goto(base + "/settings", { waitUntil: "networkidle" }); await expect(page.getByRole("button", { name: "Проверить подключение" })).toBeDisabled();
+    await expect(page.locator(".embedding-fields input")).toHaveValue("gemini-embedding-2");
+    await page.screenshot({ path: "artifacts/settings.png", fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 }); await page.goto(base, { waitUntil: "networkidle" }); await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({ path: "artifacts/mobile.png", fullPage: true }); expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    await page.getByRole("button", { name: "Открыть меню" }).click(); await expect(page.locator(".sidebar")).toHaveClass(/is-open/); await page.getByRole("link", { name: "Мои кампании", exact: false }).click();
+    await expect(page.locator(".sidebar")).not.toHaveClass(/is-open/); await page.locator(".new-story-button").click(); await expect(page.getByRole("dialog")).toBeVisible(); expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false); await page.keyboard.press("Escape");
+    expect(errors).toEqual([]);
+    console.log("PASS: desktop/mobile layouts, guide, world filters, persistent favorites, preset creation, offline turn, inventory, memory, custom wizard, AI-required error and settings");
+  } finally {
+    for (const id of ids) await fetch(`${base}/api/sessions/${id}`, { method: "DELETE" });
+    await browser.close();
+  }
+}
+run().catch((error) => { console.error(error); process.exitCode = 1; });

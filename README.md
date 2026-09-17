@@ -1,111 +1,84 @@
-# 📖 CHRONICLE ENGINE (RPG ARENA) — v2
+# Chronicle Engine · 2.1
 
-Интерактивная новелла со свободой действия для **любого жанра**: нуар, космос, хоррор, бытовая драма, классическая героика. ИИ-мастер (Gemini) ведёт сцену, а **сервер валидирует и применяет каждое изменение мира** — предметы, локации, отношения, цели, состояния героя. Память кампании строится из подтверждённых фактов и находится **по смыслу** через `gemini-embedding-2`.
+Интерактивные истории со свободой действия. Восемь авторских миров, собственные кампании, три профиля правил и память на **gemini-embedding-2**.
 
-> Принцип v2: **модель предлагает — сервер решает.** Подробный разбор архитектуры и принятых решений: [`docs/superpowers/plans/2026-09-17-v2-architecture-upgrade.md`](docs/superpowers/plans/2026-09-17-v2-architecture-upgrade.md). Дорожная карта: [`docs/superpowers/plans/roadmap.md`](docs/superpowers/plans/roadmap.md).
+Рабочая версия на основе [Le-Who/RPG_arena](https://github.com/Le-Who/RPG_arena), main `14cd16661599350a89fe6f54396bf3442df08d63`. Исходный roadmap `a6f9a55` сохранён в документации. Изменения в оригинальный GitHub не отправлялись.
 
----
+## Главное
 
-## Что умеет
+**Модель предлагает — сервер решает.** Предметы, цели, отношения, локации и память сохраняются через Drizzle ORM в PostgreSQL. Параллельный запоздавший ход не перезаписывает мир; повтор requestId возвращает тот же результат.
 
-| Область | Реализация |
-|---|---|
-| **Режимы кампании** | `preset` — 6 авторских историй с офлайн-фолбэком; `free` — AI-first: без ключа Gemini ход честно отклоняется (`409 AI_REQUIRED`), а не подменяется шаблоном |
-| **Профили механик** | `d20` (серверный бросок vs DC, статы, HP/XP/золото) · `rules-light` (оценка риска + 2d6: полный успех / успех с ценой / провал; без статов и уровней) · `narrative` (без бросков и счётчиков; только состояния и отношения) |
-| **Контракт хода** | Оба типа хода (вариант 1/2/3 и свободное действие) возвращают JSON: `narration, outcome, choices, effects, stateChanges{location, quests, npcs, inventory, sceneObjects, conditions, flags}`; provider `responseSchema` + runtime-парсер на сервере |
-| **Reducers** | Клампы по профилю, согласование исхода с серверной проверкой, проверка владения и количества предметов, терминальные квесты, мёртвые NPC, лимиты новых сущностей, единый источник истины для локации |
-| **Транзакция** | Один ход — одна транзакция с advisory-lock; `requestId` даёт идемпотентность (повтор возвращает применённый результат) |
-| **Память** | 5 слоёв + provenance (`seed / state / ai-semantic / compaction`), `entityKey`-upsert и хеш-дедуп; state-события пишутся reducers; AI-экстрактор фактов работает асинхронно и принимает только факты с цитатой из текста |
-| **Эмбеддинги** | `gemini-embedding-2` (768 dims, MRL), outbox-индексация, backfill/reindex, hybrid-retrieval внутри сессии; работает без pgvector (`real[]` + cosine), путь апгрейда на pgvector описан в Blueprint |
-| **Лимиты** | Дневные лимиты моделей соблюдаются сервером (лимит × число ключей); ключи из БД + `GEMINI_API_KEYS` |
-| **Миграции** | drizzle migrator с ledger; идемпотентный SQL, безопасный апгрейд с v1 |
+- `preset`: авторская история, допускает упрощённый автономный режим.
+- `free`: собственный мир, AI-first; без доступного Gemini ход отклоняется с понятным `AI_REQUIRED`, без поддельного сюжета.
+- `d20`: серверные броски, характеристики, ресурсы.
+- `rules-light`: 2d6 и риск, минимальные ресурсы.
+- `narrative`: без обязательных бросков и ресурсных панелей.
 
----
+Новые миры: **Станция «Эхо»** и **Последний рейс**. Сохранены шесть исходных пресетов.
 
-## Конвейер хода
+## Запуск
 
-```
-Игрок (вариант 1/2/3 или свободный ввод, requestId)
-   │
-   ├─ параллельно: последние ходы · top-60 памяти · инвентарь(#ref) · квесты(key) · NPC(key) · объекты сцены · локации
-   ├─ семантический поиск: embed(действие + сцена) → cosine по нодам сессии → hybrid-rerank → ≤8 нод
-   ├─ проверка по профилю ДО вызова ИИ: d20 vs DC │ 2d6 риск │ нет
-   ▼
-Gemini (routing: Lite для вариантов, Flash для свободных действий) → JSON по схеме
-   ▼
-parseResolution (runtime-нормализация) → applyResolution (reducers по профилю)
-   ▼
-ТРАНЗАКЦИЯ: player-ход → сессия → narrator-ход (stateChanges, contextMeta) → таблицы → state-ноды памяти
-   ▼
-after(): semantic-extractor (fastTaskModel, с цитатами) → outbox эмбеддингов → batchEmbedContents
-```
+Требуются Node.js 20.9+ и PostgreSQL. Зависимости: Next.js 16.3.5, React 19, Drizzle ORM, node-postgres, Tailwind CSS 4.
 
----
+1. Установить зависимости: `npm install`.
+2. Создать `.env` по `.env.example`, настроить `DATABASE_URL`.
+3. Применить версионированные миграции: `node --env-file=.env --import tsx scripts/migrate.ts`.
+4. Запустить разработку: `npm run dev`.
 
-## Быстрый старт
+Миграции — явный deploy step, не скрытый побочный эффект каждого запроса. Drizzle хранит ledger. Повторный запуск безопасен. В одноразовой песочнице можно использовать `npx drizzle-kit push`; не смешивайте этот путь с ручными production-изменениями без review.
 
-```bash
-git clone https://github.com/Le-Who/RPG_arena.git && cd RPG_arena
-npm install
-cp .env.example .env          # DATABASE_URL, опционально GEMINI_API_KEYS
-npm run dev                   # миграции применяются при старте (drizzle migrator)
-npm test                      # reducers, парсер контракта, кости, лимиты, экстрактор
-```
-
-Откройте `http://localhost:3000`, добавьте ключ Google AI Studio в **Настройках**, включите Live. Без ключа доступны только пресеты (офлайн-движок, помеченный в тексте хода).
-
-Переменные окружения: `DATABASE_URL` (обязательно), `GEMINI_API_KEYS` (опционально, через запятую), `MIGRATIONS_STRICT=1` (падать при ошибке миграций).
-
----
+Gemini не нужен для просмотра и запуска пресетов. Для AI добавьте ключ в **Настройках** и включите живого мастера. Альтернатива: `GEMINI_API_KEYS` (через запятую) или `GEMINI_API_KEY` в серверном окружении. Ключи не входят в клиентский bundle. Сохранённые в БД ключи сейчас **не зашифрованы**: приложение рассчитано на приватное пространство одного владельца, не на открытый multi-user production.
 
 ## Страницы
 
-- **`/`** — лобби: пресеты с указанием механики; конструктор свободной истории (мир, эпоха, тон, фракции, стартовая точка; герой, навыки, черты, предметы; статы для d20).
-- **`/play/[id]`** — игровая комната: лог с чипами «что изменилось» (в т.ч. что отклонил сервер), варианты/свободный ввод, панели Герой (профильно-зависимые), Цели (квесты + NPC с отношением), Мир (карта + объекты сцены), Память (provenance, семантический поиск, переиндексация).
-- **`/settings`** — ключи (БД + окружение), профили роутинга, матрица задач, эмбеддинги (модель/размерность), экстрактор фактов, лимиты с реальными счётчиками.
-- **`/blueprint`** — архитектурный манифест.
+| Страница | Назначение |
+|---|---|
+| `/` | Обзор, продолжение историй, подборка миров |
+| `/campaigns` | Переименование, архивирование, восстановление, удаление, экспорт |
+| `/worlds` | Поиск, жанры, профили механик, избранное |
+| `/characters` | Герои кампаний, навыки и профильные характеристики |
+| `/play/:id` | Ходы, варианты, свободное действие, мир, вещи, цели, память |
+| `/memory` | Факты с provenance, текстовый/семантический поиск, reindex |
+| `/journal` | Последние записи и скачивание полного Markdown-журнала |
+| `/settings` | Ключи, routing, лимиты, embeddings, тест подключения |
+| `/blueprint` | Устройство движка, реализованные улучшения и открытые этапы |
 
----
+## API
 
-## REST API
+Существующие session/act/memory/compact/settings/tokens API сохранены. Дополнительно:
 
-| Метод | Эндпоинт | Назначение |
-|---|---|---|
-| GET/POST | `/api/sessions` | Список / создание (`mode: preset\|free`, `rulesProfile`, `customScenario`, `customCharacter`) |
-| GET/DELETE | `/api/sessions/:id` | Снимок: сессия, профиль, ходы, память, инвентарь, локации, квесты, NPC, объекты сцены, статус эмбеддингов |
-| POST | `/api/sessions/:id/act` | Ход: `{ action, custom, requestId? }` → `{ narration, choices, dice, outcome, applied, retrieved, warnings, needsCompaction }`; `409 AI_REQUIRED` для free без ИИ, `503 AI_FAILED` при недоступности |
-| POST | `/api/sessions/:id/compact` | Компакция памяти (source=compaction) + индексация |
-| GET | `/api/sessions/:id/memories` | Статистика по слоям, источникам, эмбеддингам |
-| GET | `/api/sessions/:id/memory/search?q=` | Семантический поиск с объяснением (`why`, `sourceTurn`) |
-| POST | `/api/sessions/:id/memory/reindex` | Backfill + индексация pending |
-| GET/POST | `/api/settings` | Настройки ИИ, лимитов, эмбеддингов |
-| GET | `/api/tokens/stats` | Расход за сутки, лимиты, последние вызовы |
-| GET | `/api/health` | Состояние БД и миграций |
+- `PATCH /api/sessions/:id` — title, status (active/archived/paused/finished).
+- `GET /api/sessions/:id/export` — полный журнал Markdown.
+- `GET /api/sessions/:id/turns?before=N` — предыдущие 60 записей.
+- `GET/PATCH /api/workspace` — имя профиля и избранные миры.
+- `POST /api/settings/test` — реальный проверочный вызов gemini-embedding-2.
+- `GET /api/health` — проверка соединения с PostgreSQL.
 
----
+## Надёжная память
 
-## Структура
+Memory node и outbox создаются атомарно. Индексатор арендует задания на 45 секунд, работает вне DB-транзакции во время сети и применяет результат только при совпадении lease token + content hash. Есть backoff, failed status, reindex/backfill и восстановление истёкших leases.
 
-```
-drizzle/0000_chronicle_engine_v2.sql   идемпотентная схема (ledger: __drizzle_migrations)
-instrumentation.ts                     запуск миграций при старте
-src/db/schema.ts                       сессии, ходы, память(+provenance), эмбеддинги, инвентарь, локации, квесты, NPC, объекты сцены, настройки, логи
-src/lib/profiles.ts                    профили механик (ресурсы, лимиты, проверка, канон промпта)
-src/lib/resolution.ts                  контракт, runtime-парсер, reducers, события памяти
-src/lib/turn.ts                        оркестратор хода: контекст → проверка → AI/offline → транзакция → фон
-src/lib/gemini.ts                      каталог моделей, роутинг, промпты, экстрактор, ротация ключей, лимиты
-src/lib/embeddings.ts                  gemini-embedding-2: embed/batch, outbox, backfill, hybrid search
-src/lib/memory.ts                      provenance-upsert, state-события, нормализация фактов экстрактора
-src/lib/engine.ts                      офлайн-движок (только пресеты) + serverCheck по профилю
-src/lib/scenarios.ts                   6 пресетов с rulesProfile, стартовым инвентарём и лут-пулом
-tests/resolution.test.ts               unit-тесты (node --test + tsx)
-```
+Для поиска используется ровно `gemini-embedding-2`, по умолчанию 768 измерений. Task задаётся префиксом текста, **не** taskType. Preview/001 не являются fallback. Поиск проверяет обе sessionId, модель, размерность, статус и актуальность хеша. Query-vector cache ограничен 128 записями/двумя минутами.
 
----
+Векторы пока хранятся в `real[]`, cosine вычисляется на сервере внутри кампании. Это не pgvector и не ANN. Постоянного worker пока нет: доставка запускается после запросов или через reindex. Качество реального семантического поиска не измерялось без API-ключа; тестовый mock проверяет контракт и транзакционные гарантии, не recall.
 
-## Ограничения и честные оговорки
+## Проверки
 
-- Ключи Gemini хранятся в БД открытым текстом (как в v1) — для production нужно шифрование at-rest.
-- Квоты 20/500 — ориентиры бесплатного тарифа на ключ; фактические лимиты определяет Gemini. Сервер лишь не превышает настроенные значения.
-- Эмбеддинги ищутся перебором внутри сессии — достаточно для сотен нод; для тысяч — pgvector.
-- Лицензия проекта пока не опубликована (LEGAL-1).
+- Unit/контрактные тесты (52): `node --env-file=.env --import tsx --test tests/*.test.ts`.
+- API + PostgreSQL + mock-provider smoke (сервер должен работать; Live AI выключен): `node --env-file=.env --import tsx scripts/smoke.ts`.
+- Чистая БД и повтор миграций (нужны права CREATE DATABASE): `node --env-file=.env --import tsx scripts/migrations-check.ts`.
+- Браузер: `npx playwright install --with-deps chromium`, затем `node --env-file=.env --import tsx scripts/browser-smoke.ts`. Скрипт ожидает хотя бы одну стартовую кампанию для проверки rename-dialog. Снимки — `artifacts/`.
+- Typegen: `npx next typegen`.
+- TypeScript: `npm exec tsc -- --noEmit --pretty false`.
+- Production: `npm run build`.
+- Проверка runtime dependencies: `npm audit --omit=dev` (0 advisories на момент этапа; это не полный аудит безопасности, у dev-инструментов есть advisories).
+
+`SMOKE_BASE_URL` позволяет выбрать адрес уже работающего тестового сервера (по умолчанию localhost:3000). Smoke-скрипты создают временные кампании и удаляют их; не запускайте их с рабочими AI-ключами или в публичной production-среде.
+
+## Документация и следующий этап
+
+Полный анализ кода, архитектурные риски, технические альтернативы и приоритеты: [v2.1 audit and plan](docs/superpowers/plans/2026-09-17-v2.1-audit-and-plan.md).
+
+[Roadmap](docs/superpowers/plans/roadmap.md) · [исходный roadmap](docs/superpowers/plans/roadmap-initial-a6f9a55.md).
+
+Следующие приоритеты: auth/ownership + encryption; атомарное резервирование квот по Google-проекту; admission lease перед AI; постоянный worker; pgvector после измерений; evaluation recall@K/genre drift; затем streaming, scene graphs, мультимодальная память и ветвление историй. Эти пункты пока являются планом, не готовыми возможностями.

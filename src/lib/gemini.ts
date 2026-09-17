@@ -135,7 +135,7 @@ export function estimateTokens(text: string): number {
 /** Ключи из окружения (GEMINI_API_KEYS="k1,k2") объединяются с ключами из БД. */
 export function envKeys(): string[] {
   const raw = process.env.GEMINI_API_KEYS ?? process.env.GEMINI_API_KEY ?? "";
-  return raw.split(/[\n,;]+/).map((k) => k.trim()).filter((k) => k.length > 10);
+  return [...new Set(raw.split(/[\n,;]+/).map((k) => k.trim()).filter((k) => k.length > 10))].slice(0, 10);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -305,11 +305,14 @@ export async function callGeminiWithRotation(opts: {
   if (!keys.length) throw new Error("NO_KEYS");
   if (!models.length) throw new Error("NO_MODELS_AVAILABLE");
   let lastErr = "unknown";
+  const deadline = Date.now() + Math.min(opts.timeoutMs ?? 35_000, 45_000);
   for (const model of models) {
     for (let ki = 0; ki < keys.length; ki++) {
+      const remaining = deadline - Date.now();
+      if (remaining < 250) throw new Error(`AI_DEADLINE: ${lastErr}`);
       const started = Date.now();
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 45_000);
+      const timer = setTimeout(() => ctrl.abort(), remaining);
       try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
         const res = await fetch(url, {
@@ -328,8 +331,7 @@ export async function callGeminiWithRotation(opts: {
         });
         const latencyMs = Date.now() - started;
         if (!res.ok) {
-          const t = await res.text();
-          lastErr = `HTTP ${res.status}: ${t.slice(0, 300)}`;
+          lastErr = `HTTP ${res.status}: Gemini временно недоступен`;
           await opts.onAttempt?.({ model, keyIndex: ki, ok: false, latencyMs, error: lastErr });
           // 400 на конкретную модель (например, неизвестная модель) — нет смысла перебирать ключи
           if (res.status === 400 || res.status === 404) break;
