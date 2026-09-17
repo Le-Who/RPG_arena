@@ -428,6 +428,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
   }
 
+  // Fix #7: при повышении уровня вставляем обновлённую procedural-ноду.
+  // Стартовая нода (importance: 60) остаётся в БД, но новая (importance: 75)
+  // вытесняет её из топ-60 при ранжировании в assembleMemoryDigest.
+  if (leveled) {
+    const newMaxHp = character.maxHp + 5; // соответствует логике строки ~326
+    const proceduralContent = `Уровень ${newLevel}. Статы: ${Object.entries(character.stats).map(([k, v]) => `${k}:${v}`).join(" ")}. Навыки: ${character.skills.join(", ")}. Черты: ${(character.traits ?? []).join(", ")}. HP: ${newMaxHp}/${newMaxHp}.`;
+    await db.insert(memoryNodes).values({
+      sessionId: id,
+      layer: "procedural",
+      category: "rule",
+      title: `Уровень ${newLevel}: способности персонажа`,
+      content: proceduralContent,
+      importance: 75,
+      salience: 70,
+      tokensEstimate: estimateTokens(proceduralContent),
+      turnFrom: nextTurn,
+      turnTo: nextTurn,
+    });
+  }
+
   // Fix #4: lastCompactTurn из сессии, а не из chronicle-нод внутри limit(60).
   const lastCompactTurn = (session.lastCompactTurn as number | null) ?? 0;
   const workingTokensEstimate = estimateTokens(recentTurns);
