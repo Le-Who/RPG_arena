@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { aiSettings, gameSessions, gameTurns, inventoryItems, memoryNodes, tokenLogs } from "@/db/schema";
-import { and, count, desc, eq, gt } from "drizzle-orm";
+import { and, count, desc, eq, gt, sql } from "drizzle-orm";
 import {
   buildNarrationSystemPrompt,
   buildResolutionSystemPrompt,
@@ -134,11 +134,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .map((t) => `[${t.role} #${t.turnNumber}]: ${t.content.slice(0, recentCharLimit)}`)
     .join("\n");
 
+  // Весовое ранжирование: importance×0.7 + salience×0.3
+  // Гарантирует, что свежие NPC-ноды (высокий salience, средний importance)
+  // не вытесняются старыми событиями (высокий importance, упавший salience)
+  // до того, как запустится assembleMemoryDigest с decay.
   const mems = await db
     .select()
     .from(memoryNodes)
     .where(eq(memoryNodes.sessionId, id))
-    .orderBy(desc(memoryNodes.importance))
+    .orderBy(desc(sql`${memoryNodes.importance} * 0.7 + ${memoryNodes.salience} * 0.3`))
     .limit(60);
 
   const memoryDigest = assembleMemoryDigest(
