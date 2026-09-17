@@ -123,8 +123,10 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   const choices: string[] = lastNarrator?.choices ?? [];
 
   async function act(text: string, isCustomAction: boolean) {
-    // Fix #12: блокируем новое действие, если идёт ход или компакция
-    if (!text.trim() || busy || compacting) return;
+    // Fix #12 + Fix #dc: используем refs вместо state для защиты от двойного клика.
+    // React state (busy, compacting) обновляется только после ре-рендера — при быстром
+    // двойном клике оба события видят stale false. Refs обновляются синхронно.
+    if (!text.trim() || busyRef.current || compactingRef.current) return;
     setBusy(true);
     setAction("");
     setNotice(
@@ -174,6 +176,8 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   }
 
   async function compact() {
+    // Guard через ref: синхронная проверка, не зависит от рендер-цикла React
+    if (compactingRef.current) return;
     setCompacting(true);
     setNotice("📜 Мастер заносит ключевые вехи истории в летопись...");
     try {

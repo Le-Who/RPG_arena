@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { aiSettings, gameSessions, gameTurns, inventoryItems, memoryNodes, tokenLogs } from "@/db/schema";
-import { and, count, desc, eq, gt } from "drizzle-orm";
+import { and, count, desc, eq, gt, sql } from "drizzle-orm";
 import {
   buildNarrationSystemPrompt,
   buildResolutionSystemPrompt,
@@ -11,11 +11,12 @@ import {
   routeModelsFor,
   RoutingConfig,
   TaskType,
+  RESOLUTION_RESPONSE_SCHEMA,
 } from "@/lib/gemini";
 import { assembleMemoryDigest, extractMemoryCandidates, shouldCompact, LAYER_INFO } from "@/lib/memory";
 import type { ModelTier } from "@/lib/memory";
-import { runOfflineEngine } from "@/lib/engine";
-import { rollD20, dcFor } from "@/lib/dice";
+import { runOfflineEngine, detectSkill } from "@/lib/engine";
+import { rollD20, dcFor, statModifier } from "@/lib/dice";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -134,11 +135,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .map((t) => `[${t.role} #${t.turnNumber}]: ${t.content.slice(0, recentCharLimit)}`)
     .join("\n");
 
+  // Весовое ранжирование: importance×0.7 + salience×0.3
+  // Гарантирует, что свежие NPC-ноды (высокий salience, средний importance)
+  // не вытесняются старыми событиями (высокий importance, упавший salience)
+  // до того, как запустится assembleMemoryDigest с decay.
   const mems = await db
     .select()
     .from(memoryNodes)
     .where(eq(memoryNodes.sessionId, id))
-    .orderBy(desc(memoryNodes.importance))
+    .orderBy(desc(sql`${memoryNodes.importance} * 0.7 + ${memoryNodes.salience} * 0.3`))
     .limit(60);
 
   const memoryDigest = assembleMemoryDigest(
@@ -183,12 +188,40 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const charLine = `${character.name} (${character.archetype}, ур.${character.level}, HP ${character.hp}/${character.maxHp}, статы ${Object.entries(character.stats).map(([k, v]) => `${k}:${v}`).join(" ")}, навыки: ${character.skills.join(", ")}, золото ${character.gold})`;
   const worldLine = `Мир ${world.worldName}, тон: ${world.tone ?? "приключенческий"}, квест: ${world.mainQuest}, глава ${world.chapter}, накал ${world.danger}`;
 
+  // ── Предварительный бросок для resolution (кубик ДО AI) ──────────────────
+  // Для isCustom: бросаем d20 сейчас, до вызова AI.
+  // AI получает факт броска в промпте и ОБЯЗАН писать нарратив под него.
+  // Это устраняет yes-manning: AI больше не решает исход, только описывает его.
+  let preRolledDice: { d20: number; modifier: number; total: number; dc: number; success: boolean; critical: "crit" | "fumble" | null; skill: string; label: string } | null = null;
+  if (isCustom) {
+    const { skill, stat } = detectSkill(playerAction);
+    const statScore = (character.stats as Record<string, number>)[stat] ?? 11;
+    const mod = statModifier(statScore);
+    const dc = dcFor(world.danger, nextTurn);
+    preRolledDice = { ...rollD20(skill, mod, dc) };
+  }
+
   if (canUseLive) {
     try {
       const models = routeModelsFor(taskType, aiConf.routingConfig);
       // Fix #9: расширяем окно scenarioPrompt с 600 до 1400 символов.
       const system = isCustom
-        ? buildResolutionSystemPrompt({ tone: world.tone, worldName: world.worldName })
+        ? buildResolutionSystemPrompt({
+            tone: world.tone,
+            worldName: world.worldName,
+            // Передаём уже брошенный кубик — AI видит факт и пишет под него нарратив
+            diceContext: preRolledDice
+              ? {
+                  skill: preRolledDice.skill,
+                  d20: preRolledDice.d20,
+                  modifier: preRolledDice.modifier,
+                  total: preRolledDice.total,
+                  dc: preRolledDice.dc,
+                  success: preRolledDice.success,
+                  critical: preRolledDice.critical,
+                }
+              : undefined,
+          })
         : buildNarrationSystemPrompt({
             character: charLine,
             worldDigest: `${worldLine}. Предыстория: ${session.scenarioPrompt.slice(0, 1400)}`,
@@ -211,6 +244,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         system,
         user,
         maxTokens: 1400,
+        // Для resolution-задач используем responseSchema: API возвращает чистый JSON без markdown-обёрток.
+        ...(isCustom ? { responseSchema: RESOLUTION_RESPONSE_SCHEMA } : {}),
         onAttempt: async (a) => {
           await logToken({
             sessionId: id,
@@ -230,14 +265,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       completionTokens = estimateTokens(res.text);
 
       if (isCustom) {
-        // Парсинг JSON для свободных действий
+        // Парсинг JSON для свободных действий.
+        // С responseSchema API возвращает чистый JSON без markdown-обёрток.
+        // Fallback indexOf/lastIndexOf для старых моделей без схемы.
         try {
-          const jsonStart = res.text.indexOf("{");
-          const jsonEnd = res.text.lastIndexOf("}");
-          if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
-            throw new Error("NO_JSON");
+          let jsonStr = res.text.trim();
+          if (!jsonStr.startsWith("{")) {
+            const jsonStart = jsonStr.indexOf("{");
+            const jsonEnd = jsonStr.lastIndexOf("}");
+            if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+              throw new Error("NO_JSON");
+            }
+            jsonStr = jsonStr.slice(jsonStart, jsonEnd + 1);
           }
-          const jsonStr = res.text.slice(jsonStart, jsonEnd + 1);
           const parsed = JSON.parse(jsonStr);
           narration = String(parsed.narration ?? res.text).slice(0, 3000);
           choices = Array.isArray(parsed.choices) ? parsed.choices.slice(0, 3) : [];
@@ -249,12 +289,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             dangerDelta: 0,
           };
           flags = parsed.effects?.flags ?? {};
-          const dc = Number(parsed.dc ?? dcFor(world.danger, nextTurn));
-          const skillGuess = String(parsed.roll_reason ?? "Выживание").slice(0, 40);
-          dice = { ...rollD20(skillGuess, 1, dc) };
-          if (dice.success && parsed.outcome === "failure") {
-            narration += " (Кости, однако, благоволят тебе — удача переламывает исход!)";
-          }
+          // \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u043c \u0443\u0436\u0435 \u0431\u0440\u043e\u0448\u0435\u043d\u043d\u044b\u0439 preRolledDice \u2014 \u043a\u0443\u0431\u0438\u043a \u0431\u0440\u043e\u0448\u0435\u043d \u0414\u041e AI.\n          // AI \u0437\u043d\u0430\u043b \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442 \u0438 \u043d\u0430\u043f\u0438\u0441\u0430\u043b \u043d\u0430\u0440\u0440\u0430\u0442\u0438\u0432 \u043f\u043e\u0434 \u043d\u0435\u0433\u043e. \u041a\u043e\u0440\u0440\u0435\u043a\u0442\u0438\u0440\u0443\u044e\u0449\u0430\u044f \u0444\u0440\u0430\u0437\u0430 \u0431\u043e\u043b\u044c\u0448\u0435 \u043d\u0435 \u043d\u0443\u0436\u043d\u0430.\n          dice = preRolledDice;
         } catch {
           narration = stripChoicesLine(res.text).slice(0, 3000) || res.text.slice(0, 3000);
           choices = parseChoices(res.text, []);
