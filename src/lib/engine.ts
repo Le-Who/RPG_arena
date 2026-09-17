@@ -55,7 +55,7 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function detectSkill(action: string): { skill: string; stat: string } {
+export function detectSkill(action: string): { skill: string; stat: string } {
   const a = action.toLowerCase();
   if (/атак|удар|сраж|выстрел|клинок|меч|кинжал|в бой|напада/.test(a)) return { skill: "Ближний бой", stat: "СИЛ" };
   if (/скрыт|крад|незаметно|тихо|украдк|прослед|засад/.test(a)) return { skill: "Скрытность", stat: "ЛОВ" };

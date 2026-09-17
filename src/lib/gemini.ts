@@ -186,12 +186,39 @@ export function buildNarrationSystemPrompt(opts: {
 export function buildResolutionSystemPrompt(opts?: {
   tone?: string;
   worldName?: string;
+  diceContext?: {
+    skill: string;
+    d20: number;
+    modifier: number;
+    total: number;
+    dc: number;
+    success: boolean;
+    critical: string | null;
+  };
 }): string {
   const ctx = opts?.tone
     ? `Тон: ${opts.tone}. Мир: ${opts.worldName ?? "авторский"}.`
     : "";
+
+  // Если передан результат предварительного броска — вставляем его как факт.
+  // AI ОБЯЗАН писать нарратив под этот исход, не может его изменить.
+  const diceBlock = opts?.diceContext
+    ? (() => {
+        const d = opts.diceContext!;
+        const outcomeRu =
+          d.critical === "crit"
+            ? "КРИТИЧЕСКИЙ УСПЕХ (d20=20)"
+            : d.critical === "fumble"
+              ? "КРИТИЧЕСКАЯ НЕУДАЧА (d20=1)"
+              : d.success
+                ? `УСПЕХ (${d.total} ≥ DC ${d.dc})`
+                : `НЕУДАЧА (${d.total} < DC ${d.dc})`;
+        return `\nРЕЗУЛЬТАТ БРОСКА (факт, не меняй):\n· Навык: ${d.skill}\n· d20=${d.d20}${d.modifier >= 0 ? "+" : ""}${d.modifier} = ${d.total} vs DC ${d.dc}\n· Исход: ${outcomeRu}\n\nНарратив ОБЯЗАН соответствовать исходу выше. Если УСПЕХ — герой добивается цели (полностью или частично). Если НЕУДАЧА — цель не достигнута, возникают последствия. Не противоречь факту броска.`;
+      })()
+    : "";
+
   return `Ты — движок разрешения свободных действий (Action Resolution Engine). ${ctx}
-Игрок совершает свободное авторское действие.
+Игрок совершает свободное авторское действие.${diceBlock}
 
 Оцени реалистичность с учётом сеттинга, статов персонажа, инвентаря, сложности (DC) и памяти.
 
@@ -204,7 +231,7 @@ export function buildResolutionSystemPrompt(opts?: {
 Верни СТРОГО валидный JSON:
 {
   "outcome": "success" | "partial" | "failure",
-  "dc": 12,
+  "dc": ${opts?.diceContext?.dc ?? 12},
   "roll_reason": "навык",
   "narration": "120-200 слов художественного описания последствий на русском во втором лице",
   "effects": {
