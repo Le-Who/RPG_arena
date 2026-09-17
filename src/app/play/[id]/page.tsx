@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { LAYER_INFO } from "@/lib/memory";
 
 type Turn = {
@@ -92,8 +92,14 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   const logRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
 
-  async function load() {
-    if (loadingRef.current) return;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const compactingRef = useRef(compacting);
+  compactingRef.current = compacting;
+
+  const load = useCallback(async () => {
+    // Fix #19: не опрашиваем сервер во время активных операций игрока или компакции
+    if (loadingRef.current || busyRef.current || compactingRef.current) return;
     loadingRef.current = true;
     try {
       const res = await fetch(`/api/sessions/${id}`);
@@ -101,13 +107,13 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
     } finally {
       loadingRef.current = false;
     }
-  }
+  }, [id]);
 
   useEffect(() => {
     load();
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
-  }, [id]);
+  }, [load]);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
@@ -117,7 +123,8 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   const choices: string[] = lastNarrator?.choices ?? [];
 
   async function act(text: string, isCustomAction: boolean) {
-    if (!text.trim() || busy) return;
+    // Fix #12: блокируем новое действие, если идёт ход или компакция
+    if (!text.trim() || busy || compacting) return;
     setBusy(true);
     setAction("");
     setNotice(
@@ -312,7 +319,7 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
               {choices.map((ch, i) => (
                 <button
                   key={i}
-                  disabled={busy}
+                  disabled={busy || compacting}
                   onClick={() => act(ch, false)}
                   className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-left text-[13.5px] text-slate-100 transition hover:border-amber-300/50 hover:bg-amber-300/10 disabled:opacity-50"
                 >
@@ -336,14 +343,14 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
                   onKeyDown={(e) => {
                     if (e.key === "Enter") act(action, true);
                   }}
-                  disabled={busy}
+                  disabled={busy || compacting}
                 />
                 <button
                   onClick={() => act(action, true)}
-                  disabled={busy || !action.trim()}
+                  disabled={busy || compacting || !action.trim()}
                   className="btn-primary shrink-0 text-xs font-bold"
                 >
-                  {busy ? "…" : "⚔️ Действовать"}
+                  {busy || compacting ? "…" : "⚔️ Действовать"}
                 </button>
               </div>
             </div>

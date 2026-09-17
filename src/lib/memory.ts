@@ -33,11 +33,14 @@ export const CONTEXT_BUDGET: Record<ModelTier, number> = {
   flash: 16_000,
 };
 
-/** Устаревшее имя, оставлено для совместимости с UI-компонентами. */
+/**
+ * @deprecated Используй `CONTEXT_BUDGET[tier]`.
+ * Оставлено только для обратной совместимости.
+ */
 export const TOTAL_CONTEXT_BUDGET = CONTEXT_BUDGET.flash;
 
 export type MemoryNodeInput = {
-  layer: MemoryLayer;
+  layer: Exclude<MemoryLayer, "working">;
   category: string;
   title: string;
   content: string;
@@ -92,31 +95,50 @@ export function extractMemoryCandidates(text: string, turnNumber: number): Memor
       turnTo: turnNumber,
     });
   }
-  const itemMatch = text.match(/(нашёл|нашла|получил|получила|подобрал|забрал|мечь?|клинок|амулет|зелье|карта|ключ|кольцо|свиток|золото|кинжал|лук|щит)/i);
-  if (itemMatch) {
-    out.push({
-      layer: "semantic",
-      category: "item",
-      title: `Предмет: ${itemMatch[0]} — ход ${turnNumber}`,
-      content: text.slice(0, 300),
-      importance: 62,
-      turnFrom: turnNumber,
-      turnTo: turnNumber,
-    });
+
+  // Поиск предметов (поддержка нескольких ключевых слов)
+  const itemKeywords = ["клинок", "меч", "кинжал", "лук", "щит", "амулет", "зелье", "свиток", "кольцо", "артефакт", "ключ", "карта", "золото"];
+  const foundItems = new Set<string>();
+  for (const kw of itemKeywords) {
+    if (text.toLowerCase().includes(kw)) {
+      foundItems.add(kw);
+      out.push({
+        layer: "semantic",
+        category: "item",
+        title: `Предмет: ${kw} — ход ${turnNumber}`,
+        content: text.slice(0, 300),
+        importance: 62,
+        turnFrom: turnNumber,
+        turnTo: turnNumber,
+      });
+      if (foundItems.size >= 2) break;
+    }
   }
-  const npcMatch = text.match(/(назван|зовут|по имени|встретил|встретила)\s+([А-ЯЁ][а-яё]+)/);
-  if (npcMatch) {
-    out.push({
-      layer: "semantic",
-      category: "npc",
-      title: `NPC: ${npcMatch[2]}`,
-      content: text.slice(0, 300),
-      importance: 70,
-      turnFrom: turnNumber,
-      turnTo: turnNumber,
-    });
+
+  // Поиск NPC (поддержка кириллицы и латиницы)
+  const npcRegex = /(?:назван[а-я]*|зовут|по имени|встретил[а-я]*)\s+([A-ZА-ЯЁ][a-zа-яё]+)/gi;
+  const foundNpcs = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = npcRegex.exec(text)) !== null) {
+    const name = match[1];
+    if (name && !foundNpcs.has(name.toLowerCase())) {
+      foundNpcs.add(name.toLowerCase());
+      out.push({
+        layer: "semantic",
+        category: "npc",
+        title: `NPC: ${name}`,
+        content: text.slice(0, 300),
+        importance: 70,
+        turnFrom: turnNumber,
+        turnTo: turnNumber,
+      });
+      if (foundNpcs.size >= 2) break;
+    }
   }
-  return out;
+
+  // Fix #6: working-слой зарезервирован исключительно для in-memory контекста (recentTurns),
+  // ноды памяти в БД никогда не должны попадать в working.
+  return out.filter((c) => (c.layer as string) !== "working");
 }
 
 /**

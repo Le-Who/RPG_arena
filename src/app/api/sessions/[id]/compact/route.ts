@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { aiSettings, gameSessions, gameTurns, memoryNodes, tokenLogs } from "@/db/schema";
-import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lte, sql } from "drizzle-orm";
 import { buildCompactionSystemPrompt, callGeminiWithRotation, estimateTokens } from "@/lib/gemini";
 import { assembleMemoryDigest } from "@/lib/memory";
 
@@ -232,6 +232,27 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
       .update(gameSessions)
       .set({ lastCompactTurn: newTurnTo, updatedAt: new Date() })
       .where(eq(gameSessions.id, id));
+
+    // Fix #5: очистка старых единичных эвристических episodic-событий из уже сжатого диапазона ходов.
+    // Они уже вошли в летопись (chronicle) и компактные сводки, поэтому единичные
+    // сырые regex-ноды («Кровь и раны — ход X») больше не нужны и только раздувают таблицу.
+    // ВАЖНО: берём только ноды ДО начала текущего окна компакции (turnTo < newTurnFrom),
+    // чтобы не удалить ноды, только что созданные этой же компакцией (edge-case: recent.length == 1).
+    try {
+      await db
+        .delete(memoryNodes)
+        .where(
+          and(
+            eq(memoryNodes.sessionId, id),
+            eq(memoryNodes.layer, "episodic"),
+            eq(memoryNodes.category, "event"),
+            lte(memoryNodes.turnTo, newTurnFrom - 1),
+            sql`${memoryNodes.turnFrom} = ${memoryNodes.turnTo}`,
+          ),
+        );
+    } catch {
+      // Игнорируем ошибку очистки, чтобы не прерывать успешный ответ компакции
+    }
   }
 
   return NextResponse.json({ ok: true, created, mode });

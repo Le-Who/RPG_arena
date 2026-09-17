@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const mems = await db.select().from(memoryNodes).where(eq(memoryNodes.sessionId, id)).orderBy(desc(memoryNodes.importance)).limit(100);
+  // Fix #18: limit(60) выравнивает UI с контекстным окном промпта в act/route.ts
+  const mems = await db.select().from(memoryNodes).where(eq(memoryNodes.sessionId, id)).orderBy(desc(memoryNodes.importance)).limit(60);
   const byLayer: Record<string, number> = {};
   let tokens = 0;
   for (const m of mems) {
