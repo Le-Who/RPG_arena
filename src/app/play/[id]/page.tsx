@@ -93,9 +93,9 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
   const loadingRef = useRef(false);
 
   const busyRef = useRef(busy);
-  busyRef.current = busy;
+  busyRef.current = busy; // eslint-disable-line react-hooks/refs
   const compactingRef = useRef(compacting);
-  compactingRef.current = compacting;
+  compactingRef.current = compacting; // eslint-disable-line react-hooks/refs
 
   const load = useCallback(async () => {
     // Fix #19: не опрашиваем сервер во время активных операций игрока или компакции
