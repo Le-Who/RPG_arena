@@ -197,7 +197,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             location: world.currentLocation,
           });
       const user = isCustom
-        ? `Ситуация:\n${recentTurns}\nДействие игрока (free-form): ${playerAction}\nПерсонаж: ${charLine}\nЛокация: ${world.currentLocation}`
+        // Fix #2: добавляем memoryDigest в user-промпт для свободных действий.
+        // Без этого модель видела recentTurns, но не структурированную память об NPC/квестах/предметах
+        // и могла противоречить канону (использовать неверные имена, забывать артефакты и т.п.).
+        ? `ПАМЯТЬ КАНА (соблюдай строго):\n${memoryDigest}\n\nПоследние события:\n${recentTurns}\n\nДействие игрока (free-form): ${playerAction}\nПерсонаж: ${charLine}\nЛокация: ${world.currentLocation}`
         : `Ход ${nextTurn}. Персонаж: ${charLine}. Игрок выбрал: «${playerAction}». Опиши последствия и предоставь 3 новых варианта.`;
       promptTokens = estimateTokens(system + user);
       const started = Date.now();
