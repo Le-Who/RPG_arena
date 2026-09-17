@@ -7,11 +7,13 @@ import {
   buildResolutionSystemPrompt,
   callGeminiWithRotation,
   estimateTokens,
+  isLite,
   routeModelsFor,
   RoutingConfig,
   TaskType,
 } from "@/lib/gemini";
-import { assembleMemoryDigest, extractMemoryCandidates } from "@/lib/memory";
+import { assembleMemoryDigest, extractMemoryCandidates, shouldCompact } from "@/lib/memory";
+import type { ModelTier } from "@/lib/memory";
 import { runOfflineEngine } from "@/lib/engine";
 import { rollD20, dcFor } from "@/lib/dice";
 
@@ -108,13 +110,33 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const character = session.character as typeof session.character;
   const world = session.worldState as typeof session.worldState;
 
-  const turns = await db.select().from(gameTurns).where(eq(gameTurns.sessionId, id)).orderBy(asc(gameTurns.turnNumber)).limit(200);
-  const mems = await db.select().from(memoryNodes).where(eq(memoryNodes.sessionId, id)).orderBy(desc(memoryNodes.importance)).limit(40);
+  const turns = await db.select().from(gameTurns).where(eq(gameTurns.sessionId, id)).orderBy(asc(gameTurns.turnNumber)).limit(500);
+  const mems = await db.select().from(memoryNodes).where(eq(memoryNodes.sessionId, id)).orderBy(desc(memoryNodes.importance)).limit(60);
+
+  // Определяем tier модели для данного хода, чтобы адаптировать размер контекста
+  // Это делается до getAI(), используя признак isCustom как первичный индикатор
+  // (финальный tier пересчитывается после getAI() ниже)
+  const aiConf = await getAI();
+  const canUseLive = aiConf.useLiveAI && aiConf.keys.length > 0;
+
+  // Tier модели: flash для свободных действий (resolution), lite для стандартного нарратива
+  const routingModels = routeModelsFor(isCustom ? "resolution" : "narration", aiConf.routingConfig);
+  const primaryModel = routingModels[0] ?? "gemini-3.5-flash-lite";
+  const modelTier: ModelTier = isLite(primaryModel) ? "lite" : "flash";
+
+  // Адаптивное окно недавних ходов: lite — 10 ходов × 1000 симв, flash — 16 × 1500 симв
+  const recentCount = modelTier === "flash" ? 16 : 10;
+  const recentCharLimit = modelTier === "flash" ? 1500 : 1000;
+  const recentTurns = turns
+    .slice(-recentCount)
+    .map((t) => `[${t.role} #${t.turnNumber}]: ${t.content.slice(0, recentCharLimit)}`)
+    .join("\n");
 
   const memoryDigest = assembleMemoryDigest(
     mems.map((m) => ({ layer: m.layer, title: m.title, content: m.content, importance: m.importance, salience: m.salience })),
+    modelTier,
   );
-  const recentTurns = turns.slice(-6).map((t) => `[${t.role} #${t.turnNumber}]: ${t.content.slice(0, 500)}`).join("\n");
+
 
   const nextTurn = (session.turnCount ?? turns.length) + 1;
 
@@ -131,8 +153,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     completionTokens: estimateTokens(playerAction),
   });
 
-  const aiConf = await getAI();
-  const canUseLive = aiConf.useLiveAI && aiConf.keys.length > 0;
+
 
   let narration = "";
   let choices: string[] = [];
@@ -159,7 +180,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         location: world.currentLocation,
       });
       const user = isCustom
-        ? `Ситуация: ${recentTurns.slice(-1500)}\nДействие игрока (free-form): ${playerAction}\nПерсонаж: ${charLine}\nЛокация: ${world.currentLocation}`
+        // recentTurns уже разово ограничен (16 ходов × 1500 симв) — не режем повторно
+        ? `Ситуация:\n${recentTurns}\nДействие игрока (free-form): ${playerAction}\nПерсонаж: ${charLine}\nЛокация: ${world.currentLocation}`
         : `Ход ${nextTurn}. Персонаж: ${charLine}. Игрок выбрал: «${playerAction}». Опиши последствия и предоставь 3 новых варианта.`;
       promptTokens = estimateTokens(system + user);
       const started = Date.now();
@@ -168,7 +190,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         models,
         system,
         user,
-        maxTokens: 1200,
+        maxTokens: 1400,
         onAttempt: async (a) => {
           await logToken({
             sessionId: id,
@@ -283,6 +305,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // turnCount = последний вставленный turnNumber, чтобы следующий nextTurn = turnCount + 1
       // Нарратор = nextTurn + 1, Кости (если есть) = nextTurn + 2
       turnCount: dice !== null ? nextTurn + 2 : nextTurn + 1,
+      // Обновляем оценку размера контекста для мониторинга (видно в UI)
+      contextTokensEstimate: promptTokens,
       updatedAt: new Date(),
     })
     .where(eq(gameSessions.id, id));
@@ -364,5 +388,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
   }
 
-  return NextResponse.json({ ok: true, narration, choices, dice, effects, loot, modelUsed, dead, taskType });
+  // Проверяем необходимость компакции: если условие выполняется, клиент получает флаг needsCompaction: true
+  // и на следующем взаимодействии вызывает POST /compact (избегаем inline-задержку текущего хода).
+  // lastCompactTurn выводится из последней chronicle-ноды (создаётся при компакции и авто-хронике).
+  const lastChronicleNode = mems.filter((m) => m.layer === "chronicle").sort((a, b) => (b.turnTo ?? 0) - (a.turnTo ?? 0))[0];
+  const lastCompactTurn = lastChronicleNode?.turnTo ?? 0;
+  const workingTokensEstimate = estimateTokens(recentTurns);
+  const needsCompaction = shouldCompact(nextTurn, lastCompactTurn, workingTokensEstimate);
+
+  return NextResponse.json({ ok: true, narration, choices, dice, effects, loot, modelUsed, dead, taskType, needsCompaction });
 }
+

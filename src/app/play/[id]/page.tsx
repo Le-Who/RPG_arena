@@ -136,6 +136,25 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
       setNotice(noticeText);
       await load();
       setTimeout(() => setNotice((cur) => (cur === noticeText ? "" : cur)), 6000);
+
+      // Авто-компакция: если Memory House переполнен и компакция уже не идёт —
+      // запускаем фоново (без блокировки), игрок не ждёт результата текущего хода.
+      if (j.needsCompaction && !compacting) {
+        setCompacting(true);
+        // Небольшая задержка, чтобы UI успел отрисовать новый ход до запуска компакции
+        setTimeout(async () => {
+          try {
+            setNotice("📜 Мастер заносит вехи истории в летопись…");
+            await fetch(`/api/sessions/${id}/compact`, { method: "POST" });
+            await load();
+          } catch {
+            // Авто-компакция — best-effort, тихо проглатываем ошибку
+          } finally {
+            setCompacting(false);
+            setNotice("");
+          }
+        }, 800);
+      }
     } catch {
       setNotice("Ошибка связи — попробуй ещё раз");
       setTimeout(() => setNotice((cur) => (cur === "Ошибка связи — попробуй ещё раз" ? "" : cur)), 5000);
