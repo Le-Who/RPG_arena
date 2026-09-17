@@ -1,0 +1,274 @@
+// ── Каталог моделей, квоты, роутинг задач, ротация ключей ──
+// Квоты: flash 20 req/day на каждую модель (3.8, 3.7, 3.6), lite 500 req/day.
+// Стратегия: lite берет на себя рутину и стандартные ходы нарратива (500 лимита!),
+// а flash 3.8/3.7/3.6 сберегаются для сжатия памяти и сложных свободных действий.
+
+export const MODEL_CATALOG = [
+  {
+    id: "gemini-3.5-flash-lite",
+    name: "Gemini 3.5 Flash Lite",
+    family: "lite" as const,
+    tier: "fast-economy",
+    dailyLimit: 500,
+    role: "Обычный нарратив, стандартные ходы, извлечение фактов, инвентарь",
+    badge: "500 запросов / день",
+    strength: 80,
+  },
+  {
+    id: "gemini-3.8-flash",
+    name: "Gemini 3.8 Flash",
+    family: "flash" as const,
+    tier: "flagship",
+    dailyLimit: 20,
+    role: "Сложные свободные действия игрока, Memory House компакция, босс-файты",
+    badge: "20 запросов / день",
+    strength: 100,
+  },
+  {
+    id: "gemini-3.7-flash",
+    name: "Gemini 3.7 Flash",
+    family: "flash" as const,
+    tier: "fallback-1",
+    dailyLimit: 20,
+    role: "Фолбэк-1 для сложных задач и балансировки нагрузки",
+    badge: "20 запросов / день",
+    strength: 92,
+  },
+  {
+    id: "gemini-3.6-flash",
+    name: "Gemini 3.6 Flash",
+    family: "flash" as const,
+    tier: "fallback-2",
+    dailyLimit: 20,
+    role: "Фолбэк-2 для сложных задач",
+    badge: "20 запросов / день",
+    strength: 85,
+  },
+] as const;
+
+export type TaskType =
+  | "narration" // стандартный ход по выбранному варианту 1/2/3
+  | "resolution" // свободное действие игрока (free-form action)
+  | "compaction" // сжатие памяти Memory House
+  | "fast" // извлечение фактов / NPC / лута
+  | "chapter_milestone"; // поворот сюжета / рубеж главы
+
+export type RoutingProfile = "balanced" | "economy" | "flagship" | "custom";
+
+export type RoutingConfig = {
+  profile: RoutingProfile;
+  narrationModel: string;
+  customActionModel: string;
+  compactionModel: string;
+  fastTaskModel: string;
+};
+
+export const ROUTING_PROFILES: Record<RoutingProfile, { title: string; desc: string; config: Omit<RoutingConfig, "profile"> }> = {
+  balanced: {
+    title: "⚡ Баланс & Экономия (Рекомендуемый)",
+    desc: "Lite 3.5 для нарратива и обычных ходов (до 500 ходов/день!). Flash 3.8 только для свободных действий и компакции памяти.",
+    config: {
+      narrationModel: "gemini-3.5-flash-lite",
+      customActionModel: "gemini-3.8-flash",
+      compactionModel: "gemini-3.8-flash",
+      fastTaskModel: "gemini-3.5-flash-lite",
+    },
+  },
+  economy: {
+    title: "🌿 Максимальная Экономия",
+    desc: "Lite 3.5 для всех видов ходов (обычных и свободных). Flash привлекается исключительно для сжатия памяти.",
+    config: {
+      narrationModel: "gemini-3.5-flash-lite",
+      customActionModel: "gemini-3.5-flash-lite",
+      compactionModel: "gemini-3.8-flash",
+      fastTaskModel: "gemini-3.5-flash-lite",
+    },
+  },
+  flagship: {
+    title: "👑 Флагманский (Максимум деталей)",
+    desc: "Flash 3.8 для всех операций. Самое богатое повествование, но расходует 20 запросов/день.",
+    config: {
+      narrationModel: "gemini-3.8-flash",
+      customActionModel: "gemini-3.8-flash",
+      compactionModel: "gemini-3.8-flash",
+      fastTaskModel: "gemini-3.5-flash-lite",
+    },
+  },
+  custom: {
+    title: "⚙️ Кастомная настройка",
+    desc: "Пользователь вручную назначает модель для каждой конкретной задачи.",
+    config: {
+      narrationModel: "gemini-3.5-flash-lite",
+      customActionModel: "gemini-3.8-flash",
+      compactionModel: "gemini-3.8-flash",
+      fastTaskModel: "gemini-3.5-flash-lite",
+    },
+  },
+};
+
+/** Какая задача — какой пул моделей с учётом пользовательской конфигурации */
+export function routeModelsFor(task: TaskType, config?: Partial<RoutingConfig>): string[] {
+  const profile = config?.profile ?? "balanced";
+  const defaults = ROUTING_PROFILES[profile]?.config ?? ROUTING_PROFILES.balanced.config;
+
+  const narrationTarget = config?.narrationModel || defaults.narrationModel;
+  const customTarget = config?.customActionModel || defaults.customActionModel;
+  const compactionTarget = config?.compactionModel || defaults.compactionModel;
+  const fastTarget = config?.fastTaskModel || defaults.fastTaskModel;
+
+  if (task === "compaction") {
+    // Компакция памяти требует старших моделей, lite как крайний фолбэк
+    return [compactionTarget, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"].filter(
+      (m, i, arr) => arr.indexOf(m) === i,
+    );
+  }
+
+  if (task === "resolution") {
+    // Свободное действие игрока
+    return [customTarget, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"].filter(
+      (m, i, arr) => arr.indexOf(m) === i,
+    );
+  }
+
+  if (task === "fast") {
+    // Быстрые задачи / извлечение фактов
+    return [fastTarget, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"].filter(
+      (m, i, arr) => arr.indexOf(m) === i,
+    );
+  }
+
+  // Обычный нарратив (выбор готового варианта 1/2/3)
+  return [narrationTarget, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"].filter(
+    (m, i, arr) => arr.indexOf(m) === i,
+  );
+}
+
+export function isLite(model: string) {
+  return model.includes("lite");
+}
+
+/** Грубая оценка токенов: ~3.6 символа = 1 токен (RU/EN смесь). */
+export function estimateTokens(text: string): number {
+  if (!text) return 0;
+  return Math.max(1, Math.ceil(text.length / 3.6));
+}
+
+// ── Промпты ───────────────────────────────────────────────
+export function buildNarrationSystemPrompt(opts: {
+  character: string;
+  worldDigest: string;
+  memoryDigest: string;
+  recentTurns: string;
+  location: string;
+}): string {
+  return `Ты — Гейм-мастер текстовой RPG в духе D&D (русский язык, второе лицо, кинематографично и живо: 110–200 слов).
+Персонаж: ${opts.character}
+Мир и квест: ${opts.worldDigest}
+Локация: ${opts.location}
+ПАМЯТЬ КАНА (строго соблюдай факты и имена): ${opts.memoryDigest}
+Последние события: ${opts.recentTurns}
+Правила: учитывай статы, инвентарь и HP; в конце обязательно предоставь 3 интересных варианта дальнейших действий в формате:
+ВАРИАНТЫ: 1) ... | 2) ... | 3) ...
+Не противоречь канону памяти. Русский язык.`;
+}
+
+export function buildResolutionSystemPrompt(): string {
+  return `Ты — движок разрешения свободных действий D&D (Action Resolution Engine). Игрок совершает свободное авторское действие.
+Оцени реалистичность, статы персонажа, инвентарь, сложность ситуации (DC) и память.
+Верни СТРОГО валидный JSON:
+{
+  "outcome": "success" | "partial" | "failure",
+  "dc": 12,
+  "roll_reason": "Ближний бой | Скрытность | Убеждение | Магия | Ловкость рук | Выживание",
+  "narration": "120-200 слов художественного описания последствий на русском во втором лице",
+  "effects": {
+    "hp": -4,
+    "xp": 30,
+    "gold": 5,
+    "flags": { "saved_hostage": true }
+  },
+  "loot": [
+    { "name": "Название предмета", "kind": "misc", "description": "Краткое описание" }
+  ],
+  "choices": [
+    "Вариант 1",
+    "Вариант 2",
+    "Вариант 3"
+  ]
+}
+Будь честным: невозможное логично проваливается; остроумное вознаграждается. Никакого текста вне JSON.`;
+}
+
+export function buildCompactionSystemPrompt(): string {
+  return `Ты — модуль Memory House для RPG. Сожми последние ходы в структурированную память БЕЗ потери канона.
+Верни JSON: {
+  "episodic": [{ "title": "...", "content": "...", "importance": 0-100 }],
+  "semantic": [{ "title": "...", "content": "...", "importance": 0-100 }],
+  "character_updates": { "facts": ["..."] },
+  "world_updates": { "facts": ["..."] },
+  "flags": {},
+  "chronicle": "2-3 предложения: главные итоги главы, ключевые решения и потери"
+}
+Правила: имена, долги, травмы, смерти, артефакты, фракции — importance >= 75. Вода отбрасывается. Русский язык.`;
+}
+
+export function buildFastSystemPrompt(): string {
+  return `Ты — быстрый RPG-ассистент (lite). Извлеки факты из последнего хода в JSON: {"facts":[],"items":[],"npcs":[],"hp_delta":0,"gold_delta":0}. Без прозы.`;
+}
+
+// ── Вызов Gemini REST (v1beta) с ротацией ключей ──────────
+export async function callGeminiWithRotation(opts: {
+  keys: string[];
+  models: string[];
+  system: string;
+  user: string;
+  maxTokens?: number;
+  onAttempt?: (info: { model: string; keyIndex: number; ok: boolean; latencyMs: number; error?: string }) => Promise<void> | void;
+}): Promise<{ text: string; model: string; keyIndex: number; latencyMs: number }> {
+  const { keys, models, system, user } = opts;
+  if (!keys.length) throw new Error("NO_KEYS");
+  let lastErr = "unknown";
+  for (const model of models) {
+    for (let ki = 0; ki < keys.length; ki++) {
+      const started = Date.now();
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(keys[ki])}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: system }] },
+            contents: [{ role: "user", parts: [{ text: user }] }],
+            generationConfig: {
+              temperature: 0.85,
+              maxOutputTokens: opts.maxTokens ?? 1200,
+            },
+          }),
+        });
+        const latencyMs = Date.now() - started;
+        if (!res.ok) {
+          const t = await res.text();
+          lastErr = `HTTP ${res.status}: ${t.slice(0, 300)}`;
+          await opts.onAttempt?.({ model, keyIndex: ki, ok: false, latencyMs, error: lastErr });
+          // 429 / quota limit — пробуем следующий ключ или модель в цепочке
+          continue;
+        }
+        const data = await res.json();
+        const text =
+          data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
+        if (!text) {
+          lastErr = "EMPTY_RESPONSE";
+          await opts.onAttempt?.({ model, keyIndex: ki, ok: false, latencyMs, error: lastErr });
+          continue;
+        }
+        await opts.onAttempt?.({ model, keyIndex: ki, ok: true, latencyMs });
+        return { text, model, keyIndex: ki, latencyMs };
+      } catch (e) {
+        const latencyMs = Date.now() - started;
+        lastErr = e instanceof Error ? e.message : String(e);
+        await opts.onAttempt?.({ model, keyIndex: ki, ok: false, latencyMs, error: lastErr });
+      }
+    }
+  }
+  throw new Error(`ALL_MODELS_FAILED: ${lastErr}`);
+}
