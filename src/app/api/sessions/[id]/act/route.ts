@@ -418,11 +418,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       sessionId: id,
       layer: "chronicle",
       category: "event",
-      title: `Глава ${world.chapter}: рубеж на ходе ${nextTurn}`,
-      content: narration.slice(0, 500),
+      // Fix #9: world.chapter здесь — значение ДО инкремента (инкремент на строке ~331).
+      // Нода описывает итоги ЗАВЕРШЁННОЙ главы N, а не начало главы N+1.
+      title: `Глава ${world.chapter} завершена (ход ${nextTurn})`,
+      content: `[Завершение главы ${world.chapter}] ${narration.slice(0, 460)}`,
       importance: 90,
       salience: 85,
-      tokensEstimate: estimateTokens(narration.slice(0, 500)),
+      tokensEstimate: estimateTokens(`[Завершение главы ${world.chapter}] ${narration.slice(0, 460)}`),
       turnFrom: nextTurn - 14,
       turnTo: nextTurn,
     });
