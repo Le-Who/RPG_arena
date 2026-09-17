@@ -7,6 +7,7 @@ import {
   jsonb,
   timestamp,
   real,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // ── Игровые сессии (кампании) ─────────────────────────────
@@ -21,6 +22,10 @@ export const gameSessions = pgTable("game_sessions", {
   status: text("status").notNull().default("active"), // active | finished | paused
   turnCount: integer("turn_count").notNull().default(0),
   contextTokensEstimate: integer("context_tokens_estimate").notNull().default(0),
+  // lastCompactTurn: номер последнего хода, вошедшего в компакцию.
+  // Используется в shouldCompact и compact/route.ts для точного окна сжатия.
+  // Исключает ненадёжный поиск по chronicle-нодам (баг #4).
+  lastCompactTurn: integer("last_compact_turn").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -96,7 +101,9 @@ export const memoryNodes = pgTable("memory_nodes", {
   importance: real("importance").notNull().default(50), // 0-100
   salience: real("salience").notNull().default(50),
   tokensEstimate: integer("tokens_estimate").notNull().default(0),
-  parentId: uuid("parent_id"),
+  // parentId: self-referencing FK для иерархии нод (дочерние ноды → родительская нода).
+  // onDelete: set null — удаление родителя не каскадирует на дочерние.
+  parentId: uuid("parent_id").references((): AnyPgColumn => memoryNodes.id, { onDelete: "set null" }),
   turnFrom: integer("turn_from").default(0),
   turnTo: integer("turn_to").default(0),
   accessCount: integer("access_count").notNull().default(0),
@@ -104,10 +111,17 @@ export const memoryNodes = pgTable("memory_nodes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// memoryLinks: граф связей между нодами памяти (зарезервировано для будущего графового поиска).
+// В текущей версии таблица создаётся, но не используется в запросах.
+// FK намеренно без каскадного удаления — для ручного управления связями.
 export const memoryLinks = pgTable("memory_links", {
   id: uuid("id").defaultRandom().primaryKey(),
-  fromId: uuid("from_id").notNull(),
-  toId: uuid("to_id").notNull(),
+  fromId: uuid("from_id")
+    .notNull()
+    .references(() => memoryNodes.id, { onDelete: "cascade" }),
+  toId: uuid("to_id")
+    .notNull()
+    .references(() => memoryNodes.id, { onDelete: "cascade" }),
   relation: text("relation").notNull().default("relates"), // causes | owns | knows | located | child
 });
 

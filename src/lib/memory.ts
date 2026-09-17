@@ -17,7 +17,10 @@ export const LAYER_INFO: Record<MemoryLayer, { label: string; icon: string; hint
   episodic:   { label: "События",        icon: "📖", hint: "Ключевые решения, встречи и последствия", budget: 5000 },
   semantic:   { label: "Знания о мире",  icon: "🧠", hint: "NPC, локации, реликвии и факты",          budget: 4000 },
   procedural: { label: "Правила",        icon: "⚙️", hint: "Особенности персонажа и мира",             budget: 2000 },
-  working:    { label: "Недавнее",       icon: "⚡", hint: "Детали последних минут приключения",       budget: 4000 },
+  // `working` — концептуальный/UI слой. Реальная рабочая память это recentTurns,
+  // который вставляется напрямую в промпт, а не хранится как ноды в БД.
+  // budget здесь используется только как fallback-порог в shouldCompact.
+  working:    { label: "Недавнее",       icon: "⚡", hint: "Последние ходы (вставляются в промпт напрямую)", budget: 4000 },
 };
 
 /**
@@ -117,17 +120,21 @@ export function extractMemoryCandidates(text: string, turnNumber: number): Memor
 }
 
 /**
- * Сборка дайджеста памяти для промпта с учётом бюджета, salience и tier модели.
+ * Сборка дайджеста памяти для промпта с учётом бюджета, salience, decay и tier модели.
  *
  * Lite  → макс 8 000 символов (~2 200 токенов), до 12 нод на слой, 350 симв/нода.
  * Flash → макс 14 000 символов (~3 800 токенов), до 20 нод на слой, 500 симв/нода.
  *
- * Порядок слоёв (bookending-aware): хроника и семантика идут первыми (primacy — в начало,
- * чтобы канон был в «горячей» зоне внимания), активные эпизоды — ближе к хвосту (recency).
+ * Salience decay: старые ноды теряют вес в ранжировании (~0.3 пункта/ход, макс 30).
+ * Chronicle-слой не декается — летопись всегда релевантна независимо от возраста.
+ *
+ * Порядок слоёв (bookending-aware): хроника и семантика идут первыми (primacy),
+ * активные эпизоды — ближе к хвосту (recency).
  */
 export function assembleMemoryDigest(
-  nodes: { layer: string; title: string; content: string; importance: number; salience: number }[],
+  nodes: { layer: string; title: string; content: string; importance: number; salience: number; turnTo?: number }[],
   tier: ModelTier = "lite",
+  currentTurn = 0,
 ): string {
   if (!nodes.length) return "Пока пусто — начало истории.";
 
@@ -135,8 +142,19 @@ export function assembleMemoryDigest(
   const maxNodesPerLayer = tier === "flash" ? 20 : 12;
   const hardCap = tier === "flash" ? 14_000 : 8_000;
 
+  // Salience decay: чем старее нода, тем ниже её эффективный вес в ранжировании.
+  // Chronicle не декается — исторические летописи всегда критичны.
+  const effectiveSalience = (n: (typeof nodes)[0]): number => {
+    if (n.layer === "chronicle" || !currentTurn || !n.turnTo) return n.salience;
+    const age = Math.max(0, currentTurn - n.turnTo);
+    const decay = Math.min(30, age * 0.3);
+    return Math.max(0, n.salience - decay);
+  };
+
   const sorted = [...nodes].sort(
-    (a, b) => b.importance * 0.7 + b.salience * 0.3 - (a.importance * 0.7 + a.salience * 0.3),
+    (a, b) =>
+      b.importance * 0.7 + effectiveSalience(b) * 0.3 -
+      (a.importance * 0.7 + effectiveSalience(a) * 0.3),
   );
   const perLayer: Record<string, typeof nodes> = {};
   for (const n of sorted) {
@@ -160,12 +178,20 @@ export function assembleMemoryDigest(
 
 /**
  * Когда пора компактить:
- *   - прошло ≥ 24 хода с последней компакции (с 14, чтобы снизить частоту и экономить квоты)
- *   - ИЛИ рабочая память превысила бюджет рабочего слоя
+ *   - прошло ≥ 24 хода с последней компакции
+ *   - ИЛИ рабочая память превысила порог workingBudget
  *
- * Используется в act/route.ts: возвращает needsCompaction: true в ответе клиенту,
- * который затем вызывает /compact на следующем взаимодействии (избегаем inline задержки хода).
+ * workingBudget передаётся явно из act/route.ts с учётом tier модели:
+ *   Lite  → LAYER_INFO.working.budget (4 000 токенов)
+ *   Flash → 8 000 токенов (16 ходов × 1500 симв / 3.6 ≈ 6 600 — не триггерим на каждом ходу)
+ *
+ * Возвращает needsCompaction: true в ответе клиенту, который вызывает /compact фоново.
  */
-export function shouldCompact(turnCount: number, lastCompactTurn: number, workingTokens: number): boolean {
-  return turnCount - lastCompactTurn >= 24 || workingTokens > LAYER_INFO.working.budget;
+export function shouldCompact(
+  turnCount: number,
+  lastCompactTurn: number,
+  workingTokens: number,
+  workingBudget = LAYER_INFO.working.budget,
+): boolean {
+  return turnCount - lastCompactTurn >= 24 || workingTokens > workingBudget;
 }

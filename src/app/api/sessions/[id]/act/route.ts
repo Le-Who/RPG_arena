@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { aiSettings, gameSessions, gameTurns, inventoryItems, memoryNodes, tokenLogs } from "@/db/schema";
-import { asc, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import {
   buildNarrationSystemPrompt,
   buildResolutionSystemPrompt,
@@ -12,7 +12,7 @@ import {
   RoutingConfig,
   TaskType,
 } from "@/lib/gemini";
-import { assembleMemoryDigest, extractMemoryCandidates, shouldCompact } from "@/lib/memory";
+import { assembleMemoryDigest, extractMemoryCandidates, shouldCompact, LAYER_INFO } from "@/lib/memory";
 import type { ModelTier } from "@/lib/memory";
 import { runOfflineEngine } from "@/lib/engine";
 import { rollD20, dcFor } from "@/lib/dice";
@@ -102,7 +102,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const playerAction: string = String(body.action ?? "").slice(0, 2000) || "Осмотреться";
-  const isCustom: boolean = Boolean(body.custom); // true = игрок написал своё действие руками; false = выбрал готовый вариант 1/2/3
+  const isCustom: boolean = Boolean(body.custom);
 
   const sRows = await db.select().from(gameSessions).where(eq(gameSessions.id, id));
   if (!sRows[0]) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -110,37 +110,53 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const character = session.character as typeof session.character;
   const world = session.worldState as typeof session.worldState;
 
-  const turns = await db.select().from(gameTurns).where(eq(gameTurns.sessionId, id)).orderBy(asc(gameTurns.turnNumber)).limit(500);
-  const mems = await db.select().from(memoryNodes).where(eq(memoryNodes.sessionId, id)).orderBy(desc(memoryNodes.importance)).limit(60);
-
-  // Определяем tier модели для данного хода, чтобы адаптировать размер контекста
-  // Это делается до getAI(), используя признак isCustom как первичный индикатор
-  // (финальный tier пересчитывается после getAI() ниже)
+  // Загружаем AI-конфиг ДО выборки ходов, чтобы правильно определить tier и размер окна.
   const aiConf = await getAI();
   const canUseLive = aiConf.useLiveAI && aiConf.keys.length > 0;
 
-  // Tier модели: flash для свободных действий (resolution), lite для стандартного нарратива
+  // Tier модели: flash для свободных действий (resolution), lite для стандартного нарратива.
   const routingModels = routeModelsFor(isCustom ? "resolution" : "narration", aiConf.routingConfig);
   const primaryModel = routingModels[0] ?? "gemini-3.5-flash-lite";
   const modelTier: ModelTier = isLite(primaryModel) ? "lite" : "flash";
 
-  // Адаптивное окно недавних ходов: lite — 10 ходов × 1000 симв, flash — 16 × 1500 симв
+  // Fix #2: desc+limit+reverse вместо limit(500)+slice(-N).
+  // Гарантирует корректное окно даже при >500 ходов в кампании.
   const recentCount = modelTier === "flash" ? 16 : 10;
   const recentCharLimit = modelTier === "flash" ? 1500 : 1000;
-  const recentTurns = turns
-    .slice(-recentCount)
+  const recentTurnsRaw = await db
+    .select()
+    .from(gameTurns)
+    .where(eq(gameTurns.sessionId, id))
+    .orderBy(desc(gameTurns.turnNumber))
+    .limit(recentCount);
+  const recentTurns = recentTurnsRaw
+    .reverse()
     .map((t) => `[${t.role} #${t.turnNumber}]: ${t.content.slice(0, recentCharLimit)}`)
     .join("\n");
 
+  const mems = await db
+    .select()
+    .from(memoryNodes)
+    .where(eq(memoryNodes.sessionId, id))
+    .orderBy(desc(memoryNodes.importance))
+    .limit(60);
+
   const memoryDigest = assembleMemoryDigest(
-    mems.map((m) => ({ layer: m.layer, title: m.title, content: m.content, importance: m.importance, salience: m.salience })),
+    mems.map((m) => ({
+      layer: m.layer,
+      title: m.title,
+      content: m.content,
+      importance: m.importance,
+      salience: m.salience,
+      turnTo: m.turnTo ?? undefined,
+    })),
     modelTier,
+    session.turnCount ?? 0,
   );
 
+  const nextTurn = (session.turnCount ?? 0) + 1;
 
-  const nextTurn = (session.turnCount ?? turns.length) + 1;
-
-  // сохраняем ход игрока
+  // Сохраняем ход игрока
   await db.insert(gameTurns).values({
     sessionId: id,
     turnNumber: nextTurn,
@@ -152,8 +168,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     promptTokens: 0,
     completionTokens: estimateTokens(playerAction),
   });
-
-
 
   let narration = "";
   let choices: string[] = [];
@@ -172,15 +186,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (canUseLive) {
     try {
       const models = routeModelsFor(taskType, aiConf.routingConfig);
-      const system = isCustom ? buildResolutionSystemPrompt() : buildNarrationSystemPrompt({
-        character: charLine,
-        worldDigest: `${worldLine}. Предыстория: ${session.scenarioPrompt.slice(0, 600)}`,
-        memoryDigest,
-        recentTurns,
-        location: world.currentLocation,
-      });
+      // Fix #9: расширяем окно scenarioPrompt с 600 до 1400 символов.
+      const system = isCustom
+        ? buildResolutionSystemPrompt()
+        : buildNarrationSystemPrompt({
+            character: charLine,
+            worldDigest: `${worldLine}. Предыстория: ${session.scenarioPrompt.slice(0, 1400)}`,
+            memoryDigest,
+            recentTurns,
+            location: world.currentLocation,
+          });
       const user = isCustom
-        // recentTurns уже разово ограничен (16 ходов × 1500 симв) — не режем повторно
         ? `Ситуация:\n${recentTurns}\nДействие игрока (free-form): ${playerAction}\nПерсонаж: ${charLine}\nЛокация: ${world.currentLocation}`
         : `Ход ${nextTurn}. Персонаж: ${charLine}. Игрок выбрал: «${playerAction}». Опиши последствия и предоставь 3 новых варианта.`;
       promptTokens = estimateTokens(system + user);
@@ -293,19 +309,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const newDanger = Math.max(0, Math.min(100, world.danger + effects.dangerDelta));
   const dead = newHp <= 0;
 
-  // Если персонаж погиб — немедленно восстанавливаем 1 HP (single update, нет промежуточного состояния hp=0)
+  // Если персонаж погиб — восстанавливаем 1 HP сразу (нет промежуточного hp=0)
   const finalHp = dead ? 1 : newHp;
   const finalGold = dead ? Math.max(0, newGold - 10) : newGold;
+
+  // Fix #11: единое условие для инкремента главы И создания chronicle-ноды.
+  // Ранее расходились: chapter += при nextTurn%15, chronicle при (nextTurn+1)%15.
+  const isChapterBoundary = nextTurn % 15 === 0;
 
   await db
     .update(gameSessions)
     .set({
       character: { ...character, hp: finalHp, xp: newXp, gold: finalGold, level: newLevel, maxHp: leveled ? character.maxHp + 5 : character.maxHp },
-      worldState: { ...world, danger: newDanger, flags: { ...(world.flags ?? {}), ...flags }, chapter: nextTurn % 15 === 0 ? world.chapter + 1 : world.chapter },
-      // turnCount = последний вставленный turnNumber, чтобы следующий nextTurn = turnCount + 1
-      // Нарратор = nextTurn + 1, Кости (если есть) = nextTurn + 2
+      worldState: {
+        ...world,
+        danger: newDanger,
+        flags: { ...(world.flags ?? {}), ...flags },
+        chapter: isChapterBoundary ? world.chapter + 1 : world.chapter,
+      },
       turnCount: dice !== null ? nextTurn + 2 : nextTurn + 1,
-      // Обновляем оценку размера контекста для мониторинга (видно в UI)
       contextTokensEstimate: promptTokens,
       updatedAt: new Date(),
     })
@@ -327,7 +349,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     completionTokens,
   });
 
-  // Ход броска костей (отдельный turnNumber = nextTurn + 2, чтобы не коллидировать с нарратором)
+  // Ход броска костей (отдельный turnNumber = nextTurn + 2, не коллидирует с нарратором)
   if (dice) {
     await db.insert(gameTurns).values({
       sessionId: id,
@@ -355,9 +377,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
   }
 
-  // Извлечение кандидатов в память
-  const cands = [...extractMemoryCandidates(playerAction, nextTurn), ...extractMemoryCandidates(narration, nextTurn + 1)];
-  for (const c of cands.slice(0, 4)) {
+  // Fix #7: дедупликация кандидатов памяти по layer+category.
+  // Ранее playerAction и narration могли породить два дублирующих узла для одного события.
+  // При дублировании побеждает узел с большим content (нарратор информативнее).
+  const rawCands = [
+    ...extractMemoryCandidates(playerAction, nextTurn),
+    ...extractMemoryCandidates(narration, nextTurn + 1),
+  ];
+  const dedupMap = new Map<string, typeof rawCands[0]>();
+  for (const c of rawCands) {
+    const key = `${c.layer}:${c.category}`;
+    const existing = dedupMap.get(key);
+    if (!existing || c.content.length > existing.content.length) {
+      dedupMap.set(key, c);
+    }
+  }
+  for (const c of [...dedupMap.values()].slice(0, 4)) {
     await db.insert(memoryNodes).values({
       sessionId: id,
       layer: c.layer,
@@ -372,30 +407,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
   }
 
-  // Автоматическая хроника при смене главы
-  if ((nextTurn + 1) % 15 === 0) {
+  // Fix #11: chronicle создаётся при том же условии, что и смена главы
+  if (isChapterBoundary) {
     await db.insert(memoryNodes).values({
       sessionId: id,
       layer: "chronicle",
       category: "event",
-      title: `Глава ${world.chapter}: рубеж на ходе ${nextTurn + 1}`,
+      title: `Глава ${world.chapter}: рубеж на ходе ${nextTurn}`,
       content: narration.slice(0, 500),
       importance: 90,
       salience: 85,
       tokensEstimate: estimateTokens(narration.slice(0, 500)),
       turnFrom: nextTurn - 14,
-      turnTo: nextTurn + 1,
+      turnTo: nextTurn,
     });
   }
 
-  // Проверяем необходимость компакции: если условие выполняется, клиент получает флаг needsCompaction: true
-  // и на следующем взаимодействии вызывает POST /compact (избегаем inline-задержку текущего хода).
-  // lastCompactTurn выводится из последней chronicle-ноды (создаётся при компакции и авто-хронике).
-  const lastChronicleNode = mems.filter((m) => m.layer === "chronicle").sort((a, b) => (b.turnTo ?? 0) - (a.turnTo ?? 0))[0];
-  const lastCompactTurn = lastChronicleNode?.turnTo ?? 0;
+  // Fix #4: lastCompactTurn из сессии, а не из chronicle-нод внутри limit(60).
+  // Ранее: если chronicle-нода выпадала из топ-60, lastCompactTurn=0 → shouldCompact=true каждый ход.
+  const lastCompactTurn = (session.lastCompactTurn as number | null) ?? 0;
   const workingTokensEstimate = estimateTokens(recentTurns);
-  const needsCompaction = shouldCompact(nextTurn, lastCompactTurn, workingTokensEstimate);
+  const workingBudget = modelTier === "flash" ? 8000 : LAYER_INFO.working.budget;
+  const needsCompaction = shouldCompact(nextTurn, lastCompactTurn, workingTokensEstimate, workingBudget);
 
   return NextResponse.json({ ok: true, narration, choices, dice, effects, loot, modelUsed, dead, taskType, needsCompaction });
 }
-

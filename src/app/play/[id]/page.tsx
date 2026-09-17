@@ -75,6 +75,8 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
         tone: string;
         factions: string[];
       };
+      turnCount: number;
+      contextTokensEstimate: number;
     };
     turns: Turn[];
     memories: Mem[];
@@ -138,10 +140,11 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
       setTimeout(() => setNotice((cur) => (cur === noticeText ? "" : cur)), 6000);
 
       // Авто-компакция: если Memory House переполнен и компакция уже не идёт —
-      // запускаем фоново (без блокировки), игрок не ждёт результата текущего хода.
+      // запускаем фоново после небольшой задержки (UI успевает отрисовать новый ход).
+      // Guard: busy сбрасывается в finally ДО setTimeout, поэтому compacting — единственная
+      // защита от двойного запуска.
       if (j.needsCompaction && !compacting) {
         setCompacting(true);
-        // Небольшая задержка, чтобы UI успел отрисовать новый ход до запуска компакции
         setTimeout(async () => {
           try {
             setNotice("📜 Мастер заносит вехи истории в летопись…");
@@ -221,14 +224,30 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
             </div>
             <p className="mt-1 text-slate-400">Накал: {w.danger}/100 · 📍 {w.currentLocation}</p>
           </div>
-          <button
-            onClick={compact}
-            disabled={compacting}
-            className="btn-ghost text-xs"
-            title="Зафиксировать главные события и итоги недавних ходов в летопись кампании"
-          >
-            {compacting ? "Заносим в летопись…" : "📜 Записать в летопись"}
-          </button>
+          <div className="flex flex-col items-end gap-1">
+            {(data.session.contextTokensEstimate ?? 0) > 0 && (
+              <span
+                title="Оценка токенов последнего промпта. Зелёный <8k (норма), жёлтый <18k (допустимо для flash), красный ≥18k (риск амнезии)."
+                className={`text-[10px] font-mono tabular-nums ${
+                  (data.session.contextTokensEstimate ?? 0) >= 18000
+                    ? "text-red-400"
+                    : (data.session.contextTokensEstimate ?? 0) >= 8000
+                      ? "text-amber-400"
+                      : "text-emerald-400"
+                }`}
+              >
+                🧠 {((data.session.contextTokensEstimate ?? 0) / 1000).toFixed(1)}k токенов
+              </span>
+            )}
+            <button
+              onClick={compact}
+              disabled={compacting}
+              className="btn-ghost text-xs"
+              title="Зафиксировать главные события и итоги недавних ходов в летопись кампании"
+            >
+              {compacting ? "Заносим в летопись…" : "📜 Записать в летопись"}
+            </button>
+          </div>
         </div>
       </div>
 
