@@ -28,25 +28,34 @@ function mask(keys: string[]) {
 }
 
 export async function GET() {
-  const s = await getSettings();
-  return NextResponse.json({
-    keysMasked: mask((s.keys as string[]) ?? []),
-    keysCount: ((s.keys as string[]) ?? []).length,
-    routingProfile: s.routingProfile ?? "balanced",
-    narrationModel: s.narrationModel ?? "gemini-3.5-flash-lite",
-    customActionModel: s.customActionModel ?? "gemini-3.8-flash",
-    compactionModel: s.compactionModel ?? "gemini-3.8-flash",
-    fastTaskModel: s.fastTaskModel ?? "gemini-3.5-flash-lite",
-    primaryModel: s.primaryModel ?? s.narrationModel ?? "gemini-3.5-flash-lite",
-    fallbackChain: s.fallbackChain,
-    useLiveAI: s.useLiveAI,
-    dailyFlashLimit: s.dailyFlashLimit,
-    dailyLiteLimit: s.dailyLiteLimit,
-    profiles: ROUTING_PROFILES,
-  });
+  try {
+    const s = await getSettings();
+    return NextResponse.json({
+      keysMasked: mask((s.keys as string[]) ?? []),
+      keysCount: ((s.keys as string[]) ?? []).length,
+      routingProfile: s.routingProfile ?? "balanced",
+      narrationModel: s.narrationModel ?? "gemini-3.5-flash-lite",
+      customActionModel: s.customActionModel ?? "gemini-3.8-flash",
+      compactionModel: s.compactionModel ?? "gemini-3.8-flash",
+      fastTaskModel: s.fastTaskModel ?? "gemini-3.5-flash-lite",
+      primaryModel: s.primaryModel ?? s.narrationModel ?? "gemini-3.5-flash-lite",
+      fallbackChain: s.fallbackChain,
+      useLiveAI: s.useLiveAI,
+      dailyFlashLimit: s.dailyFlashLimit,
+      dailyLiteLimit: s.dailyLiteLimit,
+      profiles: ROUTING_PROFILES,
+    });
+  } catch (err) {
+    console.error("[settings GET]", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(req: Request) {
+  try {
   const body = await req.json().catch(() => ({}));
   const s = await getSettings();
   const currentKeys = ((s.keys as string[]) ?? []).filter(Boolean);
@@ -108,4 +117,11 @@ export async function POST(req: Request) {
     compactionModel,
     fastTaskModel,
   });
+  } catch (err) {
+    console.error("[settings POST]", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
 }

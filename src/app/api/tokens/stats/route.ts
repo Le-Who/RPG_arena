@@ -12,6 +12,7 @@ function dayStart() {
 }
 
 export async function GET() {
+  try {
   const since = dayStart();
   const today = await db.select().from(tokenLogs).where(gte(tokenLogs.createdAt, since)).orderBy(desc(tokenLogs.createdAt)).limit(500);
 
@@ -53,4 +54,11 @@ export async function GET() {
     },
     recent,
   });
+  } catch (err) {
+    console.error("[tokens/stats GET]", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
 }
