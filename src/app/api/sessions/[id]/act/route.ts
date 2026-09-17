@@ -24,11 +24,29 @@ export const maxDuration = 60;
 function parseChoices(text: string, fallback: string[]): string[] {
   const m = text.match(/ВАРИАНТЫ:\s*([\s\S]+)/i);
   if (!m) return fallback;
-  return m[1]
-    .split(/\s*\|\s*/)
-    .map((s) => s.replace(/^\d+\)\s*/, "").trim())
-    .filter(Boolean)
-    .slice(0, 3);
+
+  const raw = m[1].trim();
+
+  // Основной путь: разделитель | (ожидаемый от AI формат)
+  if (raw.includes("|")) {
+    return raw
+      .split(/\s*\|\s*/)
+      .map((s) => s.replace(/^\d+[).]\s*/, "").trim())
+      .filter(Boolean)
+      .slice(0, 3);
+  }
+
+  // Fallback: AI забыл | и написал "1) ... 2) ... 3) ..."
+  // Сплитим по границе перед цифрой+скобкой/точкой в начале элемента.
+  const parts = raw
+    .split(/(?=\s*\d+[).]\s)/)
+    .map((s) => s.replace(/^\s*\d+[).]\s*/, "").trim())
+    .filter(Boolean);
+
+  if (parts.length >= 2) return parts.slice(0, 3);
+
+  // Последний fallback: вернуть весь текст как единственный вариант
+  return [raw.replace(/^\d+[).]\s*/, "").trim()].filter(Boolean);
 }
 
 function stripChoicesLine(text: string) {
