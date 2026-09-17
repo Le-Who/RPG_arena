@@ -200,14 +200,24 @@ export function assembleMemoryDigest(
 
 /**
  * Когда пора компактить:
- *   - прошло ≥ 24 хода с последней компакции
+ *   - прошло >= 24 реальных действий игрока с последней компакции
  *   - ИЛИ рабочая память превысила порог workingBudget
  *
- * workingBudget передаётся явно из act/route.ts с учётом tier модели:
- *   Lite  → LAYER_INFO.working.budget (4 000 токенов)
- *   Flash → 8 000 токенов (16 ходов × 1500 симв / 3.6 ≈ 6 600 — не триггерим на каждом ходу)
+ * ВАЖНО (Fix #6): первый аргумент `turnCount` должен быть числом РЕАЛЬНЫХ действий
+ * игрока (role = "player") с момента последней компакции, а НЕ session.turnCount.
+ * Dice-записи (+1 к turnNumber за каждый бросок) не являются действиями игрока
+ * и раньше приближали порог компакции вдвое быстрее нужного.
  *
- * Возвращает needsCompaction: true в ответе клиенту, который вызывает /compact фоново.
+ * Правильный вызов из act/route.ts:
+ *   shouldCompact(playerTurnsSinceCompact, 0, workingTokens, workingBudget)
+ * Второй аргумент = 0, т.к. SQL-фильтр gt(turnNumber, lastCompactTurn) уже
+ * выполнил отсечение — счётчик начинается с нуля.
+ *
+ * workingBudget передаётся из act/route.ts с учётом tier модели:
+ *   Lite  → LAYER_INFO.working.budget (4 000 токенов)
+ *   Flash → 8 000 токенов
+ *
+ * Возвращает needsCompaction: true → клиент вызывает /compact фоново.
  */
 export function shouldCompact(
   turnCount: number,
