@@ -403,7 +403,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       title: c.title.slice(0, 120),
       content: c.content.slice(0, 800),
       importance: c.importance,
-      salience: 60,
+      // Fix #3: salience пропорционален importance, а не хардкод 60.
+      // Нижний порог 45 (а не 50 как в компакции) — эвристические ноды менее надёжны.
+      salience: Math.min(95, Math.max(45, c.importance)),
       tokensEstimate: estimateTokens(c.content),
       turnFrom: c.turnFrom ?? nextTurn,
       turnTo: c.turnTo ?? nextTurn + 1,
