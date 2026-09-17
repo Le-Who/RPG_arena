@@ -27,15 +27,18 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               </span>
             </a>
             <nav className="flex items-center gap-1 text-sm">
-              <a href="/" className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 hover:text-white">Игра</a>
-              <a href="/blueprint" className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 hover:text-white">📐 Blueprint-анализ</a>
-              <a href="/settings" className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 hover:text-white">⚙️ Ключи &amp; лимиты</a>
+              <a href="/" className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 hover:text-white">Приключения</a>
+              <a href="/settings" className="rounded-lg px-3 py-2 text-slate-300 hover:bg-white/10 hover:text-white">⚙️ Настройки</a>
             </nav>
           </div>
         </header>
         <main className="mx-auto max-w-6xl px-4 pb-20">{children}</main>
         <footer className="border-t border-white/10 py-6 text-center text-xs text-slate-500">
-          Chronicle Engine · Memory House · d20 · Gemini Flash routing · офлайн-движок как фолбэк
+          Chronicle Engine · Процедурный D&amp;D-квест с живым миром и бросками d20
+          <span className="mx-2 text-slate-600">·</span>
+          <a href="/settings" className="hover:text-slate-400 underline underline-offset-2">Настройки</a>
+          <span className="mx-2 text-slate-600">·</span>
+          <a href="/blueprint" className="hover:text-slate-400 underline underline-offset-2">Архитектура проекта (Blueprint)</a>
         </footer>
       </body>
     </html>

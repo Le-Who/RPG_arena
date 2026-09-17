@@ -82,28 +82,23 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
     locations: Loc[];
   } | null>(null);
 
-  const [settings, setSettings] = useState<{
-    routingProfile: string;
-    narrationModel: string;
-    customActionModel: string;
-    useLiveAI: boolean;
-    keysCount: number;
-  } | null>(null);
-
   const [action, setAction] = useState("");
   const [busy, setBusy] = useState(false);
   const [compacting, setCompacting] = useState(false);
   const [sideTab, setSideTab] = useState<"hero" | "map" | "memory">("hero");
   const [notice, setNotice] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
 
   async function load() {
-    const [res, sRes] = await Promise.all([
-      fetch(`/api/sessions/${id}`),
-      fetch("/api/settings").catch(() => null),
-    ]);
-    if (res.ok) setData(await res.json());
-    if (sRes && sRes.ok) setSettings(await sRes.json());
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    try {
+      const res = await fetch(`/api/sessions/${id}`);
+      if (res.ok) setData(await res.json());
+    } finally {
+      loadingRef.current = false;
+    }
   }
 
   useEffect(() => {
@@ -125,8 +120,8 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
     setAction("");
     setNotice(
       isCustomAction
-        ? "⚔️ Мастер просчитывает свободное действие (Flash 3.8 / d20)..."
-        : "📖 Генерация продолжения (Flash-Lite 3.5)...",
+        ? "⚔️ Мастер обдумывает твоё действие и бросает кости..."
+        : "📖 Мастер развивает сцену...",
     );
 
     try {
@@ -135,15 +130,15 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: text.slice(0, 2000), custom: isCustomAction }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const j = await res.json();
-      setNotice(
-        j.modelUsed?.includes("offline")
-          ? `Офлайн-движок · ${j.modelUsed}`
-          : `✨ ${j.modelUsed ?? "Мастер"} · ${j.dice?.label ? `кубик: ${j.dice.label}` : "ход принят"}`,
-      );
+      const noticeText = j.dice?.label ? `🎲 ${j.dice.label}` : "✨ Ход завершён";
+      setNotice(noticeText);
       await load();
+      setTimeout(() => setNotice((cur) => (cur === noticeText ? "" : cur)), 6000);
     } catch {
-      setNotice("Ошибка сети — попробуй ещё раз");
+      setNotice("Ошибка связи — попробуй ещё раз");
+      setTimeout(() => setNotice((cur) => (cur === "Ошибка связи — попробуй ещё раз" ? "" : cur)), 5000);
     } finally {
       setBusy(false);
     }
@@ -151,12 +146,18 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
 
   async function compact() {
     setCompacting(true);
-    setNotice("🧠 Старшая модель сжимает память Memory House (только 3.8/3.7/3.6)...");
+    setNotice("📜 Мастер заносит ключевые вехи истории в летопись...");
     try {
       const res = await fetch(`/api/sessions/${id}/compact`, { method: "POST" });
-      const j = await res.json();
-      setNotice(`✅ Память сжата: +${j.created} узлов · режим: ${j.mode}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await res.json();
+      const successNotice = "✅ Летопись обновлена: события надёжно зафиксированы";
+      setNotice(successNotice);
       await load();
+      setTimeout(() => setNotice((cur) => (cur === successNotice ? "" : cur)), 6000);
+    } catch {
+      setNotice("Не удалось обновить летопись — попробуй позже");
+      setTimeout(() => setNotice((cur) => (cur === "Не удалось обновить летопись — попробуй позже" ? "" : cur)), 5000);
     } finally {
       setCompacting(false);
     }
@@ -169,26 +170,16 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
 
   return (
     <div className="space-y-4 pt-6">
-      {/* HEADER WITH AI ROUTING BADGE */}
+      {/* HEADER */}
       <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] uppercase tracking-[0.2em] text-violet-300">
               {w.worldName} · глава {w.chapter} · {data.session.scenarioTitle}
             </span>
-            <a
-              href="/settings"
-              className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-200 hover:bg-emerald-500/20"
-              title="Нажмите, чтобы настроить распределение моделей"
-            >
-              {settings?.routingProfile === "balanced"
-                ? "⚡ Режим: Lite для ходов, 3.8 для свободного ввода"
-                : settings?.routingProfile === "economy"
-                  ? "🌿 Режим: Макс. Экономия (Lite)"
-                  : settings?.routingProfile === "flagship"
-                    ? "👑 Режим: Флагман 3.8"
-                    : "⚙️ Режим: Custom"}
-            </a>
+            <span className="rounded-full border border-violet-400/30 bg-violet-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-violet-200">
+              ⚔️ Активная кампания
+            </span>
           </div>
           <h1 className="mt-1 text-xl font-black text-white">{data.session.title} — {c.name}</h1>
           <p className="text-xs text-slate-400">Квест: {w.mainQuest}</p>
@@ -215,9 +206,9 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
             onClick={compact}
             disabled={compacting}
             className="btn-ghost text-xs"
-            title="Сжать последние ходы в структурированную память через старшую модель Gemini Flash"
+            title="Зафиксировать главные события и итоги недавних ходов в летопись кампании"
           >
-            {compacting ? "Сжимаем…" : "🧠 Сжать память"}
+            {compacting ? "Заносим в летопись…" : "📜 Записать в летопись"}
           </button>
         </div>
       </div>
@@ -227,29 +218,14 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
         <div className="card flex min-h-[540px] flex-col p-0">
           <div ref={logRef} className="scroll-thin max-h-[560px] flex-1 space-y-3 overflow-y-auto p-5">
             {data.turns.map((t) => {
-              const isLiteModel = t.modelUsed?.includes("lite");
-              const isFlashModel = t.modelUsed?.includes("flash") && !isLiteModel;
               return (
                 <div key={t.id} className={`fade-up ${t.role === "player" ? "ml-8" : t.role === "dice" ? "mx-auto max-w-md" : "mr-4"}`}>
                   {t.role === "narrator" && (
                     <div className="rounded-2xl border border-amber-200/15 bg-gradient-to-b from-amber-100/[0.07] to-transparent p-4">
-                      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px] text-slate-400">
+                      <div className="mb-1.5 flex items-center justify-between text-[11px] text-slate-400">
                         <span className="uppercase tracking-widest text-amber-200/90 font-semibold">
                           📖 Мастер · ход {t.turnNumber}
                         </span>
-                        {t.modelUsed && (
-                          <span
-                            className={`rounded-md px-1.5 py-0.5 font-mono text-[10px] ${
-                              isLiteModel
-                                ? "bg-emerald-500/20 text-emerald-200"
-                                : isFlashModel
-                                  ? "bg-amber-400/20 text-amber-200"
-                                  : "bg-white/10 text-slate-300"
-                            }`}
-                          >
-                            {t.modelUsed.replace("gemini-", "")} {isLiteModel ? "⚡ 500/д" : isFlashModel ? "👑 20/д" : ""}
-                          </span>
-                        )}
                       </div>
                       <div className="narrative whitespace-pre-wrap text-[14.5px] leading-relaxed text-slate-100">{t.content}</div>
                     </div>
@@ -261,7 +237,7 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
                         <span className="uppercase tracking-widest">🖐️ Ты · ход {t.turnNumber}</span>
                         {t.taskType === "resolution" && (
                           <span className="rounded bg-violet-400/20 px-1.5 py-0.5 text-[10px] font-semibold text-violet-200">
-                            Свободный ввод (Custom)
+                            Своё действие
                           </span>
                         )}
                       </div>
@@ -286,15 +262,14 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
             {busy && <p className="animate-pulse text-center text-sm text-amber-200">✨ Мастер разворачивает сцену… кости брошены…</p>}
           </div>
 
-          {/* ACTIONS: PRESET CHOICES (LITE) + CUSTOM FREE-FORM (FLASH 3.8) */}
+          {/* ACTIONS */}
           <div className="space-y-2.5 border-t border-white/10 p-4">
-            {notice && <p className="text-xs text-slate-300">{notice}</p>}
+            {notice && <p className="text-xs text-amber-200 font-medium">{notice}</p>}
 
-            {/* Standard preset choices -> Flash-Lite */}
+            {/* Standard preset choices */}
             <div className="grid gap-2">
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>Быстрые варианты (экономичный Flash-Lite 3.5):</span>
-                <span className="text-[10px] text-emerald-300 font-mono">500 запросов/день</span>
+              <div className="flex items-center justify-between text-[12px] font-medium text-slate-300">
+                <span>Варианты развития событий:</span>
               </div>
               {choices.map((ch, i) => (
                 <button
@@ -308,11 +283,11 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
               ))}
             </div>
 
-            {/* Free-form custom action -> Flash 3.8 */}
+            {/* Free-form custom action */}
             <div className="pt-1">
-              <div className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
-                <span>Своё свободное действие (просчитывается флагманом Flash 3.8 / d20):</span>
-                <span className="text-[10px] text-amber-300 font-mono">глубокий просчёт</span>
+              <div className="mb-1.5 flex items-center justify-between text-[12px] font-medium text-slate-300">
+                <span>Или опиши своё действие:</span>
+                <span className="text-[11px] text-violet-300">🎲 Проверка d20 по характеристикам</span>
               </div>
               <div className="flex gap-2">
                 <input
@@ -329,9 +304,8 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
                   onClick={() => act(action, true)}
                   disabled={busy || !action.trim()}
                   className="btn-primary shrink-0 text-xs font-bold"
-                  title="Задействует модель для свободных действий"
                 >
-                  {busy ? "…" : "⚔️ Своё действие"}
+                  {busy ? "…" : "⚔️ Действовать"}
                 </button>
               </div>
             </div>
@@ -350,7 +324,7 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
                     sideTab === t ? "bg-white/15 font-bold text-white" : "text-slate-400"
                   }`}
                 >
-                  {t === "hero" ? "🦸 Герой & рюкзак" : t === "map" ? "🗺️ Карта" : "🧠 Память"}
+                  {t === "hero" ? "🦸 Герой & рюкзак" : t === "map" ? "🗺️ Карта" : "📜 Летопись"}
                 </button>
               ))}
             </div>
@@ -437,11 +411,11 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
                 </div>
               )}
 
-              {/* MEMORY HOUSE TAB */}
+              {/* MEMORY TAB */}
               {sideTab === "memory" && (
                 <div className="space-y-2">
-                  <p className="text-[11px] leading-relaxed text-slate-400">
-                    Memory House: 5 слоёв памяти, хроника бессмертна. Бюджет 17k токенов.
+                  <p className="text-[12px] leading-relaxed text-slate-400">
+                    Летопись приключения: ключевые решения, важные персонажи, история мира и последствия твоих выборов.
                   </p>
                   {Object.keys(LAYER_INFO).map((layer) => {
                     const nodes = data.memories.filter((m) => m.layer === layer);
@@ -455,9 +429,8 @@ export default function PlayPage({ params }: { params: Promise<{ id: string }> }
                         <div className="space-y-1.5 p-2.5">
                           {nodes.slice(0, 8).map((m) => (
                             <div key={m.id} className="rounded-lg bg-white/5 px-2.5 py-1.5 text-[12px]">
-                              <span className="font-semibold text-amber-100">{m.title}</span>{" "}
-                              <span className="text-slate-500">· imp {Math.round(m.importance)}</span>
-                              <span className="block text-slate-300">{m.content.slice(0, 160)}</span>
+                              <span className="font-semibold text-amber-100">{m.title}</span>
+                              <span className="block mt-0.5 text-slate-300">{m.content.slice(0, 160)}</span>
                             </div>
                           ))}
                         </div>

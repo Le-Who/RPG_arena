@@ -6,11 +6,11 @@
 export type MemoryLayer = "working" | "episodic" | "semantic" | "procedural" | "chronicle";
 
 export const LAYER_INFO: Record<MemoryLayer, { label: string; icon: string; hint: string; budget: number }> = {
-  working: { label: "Рабочая", icon: "⚡", hint: "Последние ходы дословно", budget: 6000 },
-  episodic: { label: "Эпизодическая", icon: "📖", hint: "Что случилось: события, выборы, последствия", budget: 4000 },
-  semantic: { label: "Семантическая", icon: "🧠", hint: "Факты: NPC, места, артефакты, связи", budget: 3000 },
-  procedural: { label: "Процедурная", icon: "⚙️", hint: "Правила мира, статы, механики", budget: 1500 },
-  chronicle: { label: "Хроника", icon: "📜", hint: "Сжатая летопись глав — никогда не удаляется", budget: 2500 },
+  chronicle: { label: "Хроника глав", icon: "📜", hint: "Главные вехи и итоги пройденного пути", budget: 2500 },
+  episodic: { label: "События", icon: "📖", hint: "Ключевые решения, встречи и последствия", budget: 4000 },
+  semantic: { label: "Знания о мире", icon: "🧠", hint: "NPC, локации, реликвии и факты", budget: 3000 },
+  procedural: { label: "Правила", icon: "⚙️", hint: "Особенности персонажа и мира", budget: 1500 },
+  working: { label: "Недавнее", icon: "⚡", hint: "Детали последних минут приключения", budget: 6000 },
 };
 
 export const TOTAL_CONTEXT_BUDGET = 17000; // токенов на собранный контекст (далеко от 250k деградации)

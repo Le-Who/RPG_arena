@@ -1,0 +1,190 @@
+# ─────────────────────────────────────────────
+#  Chronicle Engine — .gitignore
+#  Стек: Next.js 16 · TypeScript · Tailwind v4
+#         Drizzle ORM · PostgreSQL · Node 22
+# ─────────────────────────────────────────────
+
+
+# ══════════════════════════════════════════════
+#  ЗАВИСИМОСТИ
+# ══════════════════════════════════════════════
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+
+# ══════════════════════════════════════════════
+#  NEXT.JS
+# ══════════════════════════════════════════════
+.next/
+out/
+build/
+dist/
+
+# Артефакты Turbopack
+.next/cache/
+.turbo/
+
+
+# ══════════════════════════════════════════════
+#  ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ — никогда не коммитить!
+# ══════════════════════════════════════════════
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+.env.staging
+
+# Исключение: шаблон для документирования переменных
+!.env.example
+
+
+# ══════════════════════════════════════════════
+#  DRIZZLE ORM
+# ══════════════════════════════════════════════
+# Миграции генерируются автоматически — исключать
+# нецелесообразно, если хранишь их в репо.
+# Раскомментируй строку ниже если миграции авто-генерируются в CI:
+# drizzle/
+
+# Временные файлы drizzle-kit
+drizzle/.meta/
+
+# ⚠️  drizzle.config.json содержит hardcoded credentials БД —
+#    НИКОГДА не коммитить! Использовать .env + drizzle.config.ts с process.env
+drizzle.config.json
+
+
+# ══════════════════════════════════════════════
+#  TYPESCRIPT
+# ══════════════════════════════════════════════
+*.tsbuildinfo
+next-env.d.ts
+
+
+# ══════════════════════════════════════════════
+#  ТЕСТЫ И ПОКРЫТИЕ
+# ══════════════════════════════════════════════
+coverage/
+.nyc_output/
+*.lcov
+test-results/
+playwright-report/
+playwright/.cache/
+
+
+# ══════════════════════════════════════════════
+#  ЛОГИ
+# ══════════════════════════════════════════════
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+logs/
+
+
+# ══════════════════════════════════════════════
+#  РЕДАКТОРЫ И IDE
+# ══════════════════════════════════════════════
+
+# VS Code (оставляем .vscode/extensions.json — полезен для команды)
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# JetBrains (WebStorm / IDEA)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim / Neovim
+*.swp
+*.swo
+*.swn
+*~
+
+# Emacs
+\#*\#
+.#*
+
+
+# ══════════════════════════════════════════════
+#  ОПЕРАЦИОННЫЕ СИСТЕМЫ
+# ══════════════════════════════════════════════
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+.directory
+.Trash-*
+
+
+# ══════════════════════════════════════════════
+#  ПРОЧЕЕ
+# ══════════════════════════════════════════════
+
+# Временные файлы
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# Vercel
+.vercel
+
+# Netlify
+.netlify/
+
+# Yarn v2+
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.pnp.*
+
+# ESLint кэш
+.eslintcache
+
+# Prettier кэш
+.prettiercache
+
+# Stylelint кэш
+.stylelintcache
+
+# SWC / Babel кэш
+.swc/
+
+# Sentry
+.sentryclirc
+
+# Локальные секреты и ключи (любой формат)
+*.pem
+*.key
+*.cert
+*.p12
+*.pfx
+secrets/

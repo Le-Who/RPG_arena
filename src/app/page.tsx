@@ -7,7 +7,6 @@ type Session = { id: string; title: string; scenarioTitle: string; turnCount: nu
 
 export default function HomePage() {
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [stats, setStats] = useState<{ today?: { totalReq: number; totalTokens: number; flashReq: number; liteReq: number } } | null>(null);
   const [ai, setAi] = useState<{ keysCount: number; useLiveAI: boolean; primaryModel: string } | null>(null);
   const [tab, setTab] = useState<"preset" | "custom">("preset");
   const [scenarioId, setScenarioId] = useState(SCENARIOS[0].id);
@@ -18,13 +17,11 @@ export default function HomePage() {
   const sc = SCENARIOS.find((s) => s.id === scenarioId) ?? SCENARIOS[0];
 
   async function refresh() {
-    const [a, b, c] = await Promise.all([
+    const [a, c] = await Promise.all([
       fetch("/api/sessions").then((r) => r.json()).catch(() => ({ sessions: [] })),
-      fetch("/api/tokens/stats").then((r) => r.json()).catch(() => null),
       fetch("/api/settings").then((r) => r.json()).catch(() => null),
     ]);
     setSessions(a.sessions ?? []);
-    setStats(b);
     setAi(c);
   }
   useEffect(() => { refresh(); }, []);
@@ -54,40 +51,41 @@ export default function HomePage() {
       <div className="card fade-up overflow-hidden">
         <div className="grid gap-6 p-6 md:grid-cols-[1.2fr_0.8fr] md:p-10">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-amber-300/90">Процедурный d&amp;d-квест · memory house · gemini routing</p>
+            <p className="text-xs uppercase tracking-[0.25em] text-amber-300/90">Интерактивное D&amp;D-приключение · Живой мир · Броски d20</p>
             <h1 className="mt-2 text-3xl font-black leading-[1.05] text-white md:text-5xl">
               История пишется костями <span className="bg-gradient-to-r from-amber-300 to-violet-400 bg-clip-text text-transparent">и твоими решениями</span>
             </h1>
             <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-slate-300">
-              Выбери пресет — или опиши свой мир. Дальше сюжет генерируется процедурно: выбирай из трёх действий
-              или <b className="text-white">пиши своё</b> — движок просчитает его по ситуации, статам и памяти.
-              Древо памяти держит канон даже на 200-м ходу, а маршрутизация <b className="text-white">3.8 → 3.7 → 3.6 → lite</b> бережёт лимиты.
+              Выбери готовое сказание или создай свой уникальный мир. Каждое твоё решение направляет сюжет:
+              выбирай предложенные варианты или <b className="text-white">совершай любые свои поступки</b>.
+              Исход определят характеристики героя, честные броски кубика d20 и история твоих прошлых выборов.
             </p>
             <div className="mt-5 flex flex-wrap gap-2 text-sm">
-              <a href="#new" className="btn-primary">🎲 Новая кампания</a>
-              <a href="/blueprint" className="btn-ghost">📐 Читать Blueprint-анализ</a>
+              <a href="#new" className="btn-primary">🎲 Начать приключение</a>
+              <a href="/settings" className="btn-ghost">⚙️ Настройки</a>
             </div>
             <div className="mt-5 flex flex-wrap gap-2 text-[12px]">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-slate-300">⚡ {stats?.today?.totalReq ?? 0} запросов сегодня</span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-slate-300">🔥 flash {stats?.today?.flashReq ?? 0}/60 · ✨ lite {stats?.today?.liteReq ?? 0}/500</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-slate-300">🎲 Проверки d20 по статам</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-slate-300">📜 Хранение канона и памяти</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-slate-300">🗺️ Интерактивная карта</span>
               <span className={`rounded-full border px-3 py-1 ${ai?.useLiveAI && (ai?.keysCount ?? 0) > 0 ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-200" : "border-amber-300/30 bg-amber-300/10 text-amber-200"}`}>
-                {ai?.useLiveAI && (ai?.keysCount ?? 0) > 0 ? `● Live Gemini (${ai.primaryModel}, ключей: ${ai.keysCount})` : "● Офлайн-движок (укажи ключи в настройках)"}
+                {ai?.useLiveAI && (ai?.keysCount ?? 0) > 0 ? "● ИИ-Мастер на связи" : "● Автономный режим"}
               </span>
             </div>
           </div>
           <div className="grid content-start gap-3">
             <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
-              <p className="text-xs uppercase tracking-widest text-slate-400">Как ходит игра</p>
+              <p className="text-xs uppercase tracking-widest text-slate-400">Как устроена игра</p>
               <ol className="mt-2 space-y-2 text-[13px] text-slate-300">
-                <li>🎭 <b className="text-white">Мастер</b> описывает сцену + 3 варианта</li>
-                <li>🖐️ <b className="text-white">Ты</b> выбираешь или пишешь своё действие</li>
-                <li>🎲 <b className="text-white">Кости d20</b> решают исход честно</li>
-                <li>🧠 <b className="text-white">Память</b> записывает важное в древо</li>
-                <li>🗺️ <b className="text-white">Мир</b> меняется: лут, раны, фракции</li>
+                <li>🎭 <b className="text-white">Мастер</b> описывает сцену и обстановку вокруг</li>
+                <li>🖐️ <b className="text-white">Ты</b> выбираешь действие или предлагаешь своё</li>
+                <li>🎲 <b className="text-white">Кости d20</b> и статы честно решают исход</li>
+                <li>📜 <b className="text-white">Летопись</b> сохраняет принятые решения и последствия</li>
+                <li>🗺️ <b className="text-white">Мир</b> меняется: локации, лут, раны и фракции</li>
               </ol>
             </div>
             <div className="rounded-2xl border border-violet-300/20 bg-violet-500/10 p-4 text-[13px] text-violet-100">
-              💡 Свободное действие — главная фишка: «подкупить стражника песней», «поджечь мост и бежать» — модель просчитает всё по контексту и статам.
+              💡 Полная свобода: «подкупить стражника песней», «поджечь мост и бежать» — Мастер и кубик d20 определят исход с учётом ситуации, характеристик и истории героя.
             </div>
           </div>
         </div>

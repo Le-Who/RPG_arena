@@ -190,7 +190,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (isCustom) {
         // Парсинг JSON для свободных действий
         try {
-          const jsonStr = res.text.slice(res.text.indexOf("{"), res.text.lastIndexOf("}") + 1);
+          const jsonStart = res.text.indexOf("{");
+          const jsonEnd = res.text.lastIndexOf("}");
+          if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+            throw new Error("NO_JSON");
+          }
+          const jsonStr = res.text.slice(jsonStart, jsonEnd + 1);
           const parsed = JSON.parse(jsonStr);
           narration = String(parsed.narration ?? res.text).slice(0, 3000);
           choices = Array.isArray(parsed.choices) ? parsed.choices.slice(0, 3) : [];
@@ -228,7 +233,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         memoryDigest,
         scenarioTitle: session.scenarioTitle,
       });
-      narration = `_(Live-модель недоступна: ${e instanceof Error ? e.message.slice(0, 120) : "ошибка"}. Включён офлайн-движок — прогресс сохранён.)_\n\n${eng.narration}`;
+      narration = eng.narration;
       choices = eng.choices;
       dice = eng.dice;
       loot = eng.loot;
@@ -266,17 +271,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const newDanger = Math.max(0, Math.min(100, world.danger + effects.dangerDelta));
   const dead = newHp <= 0;
 
+  // Если персонаж погиб — немедленно восстанавливаем 1 HP (single update, нет промежуточного состояния hp=0)
+  const finalHp = dead ? 1 : newHp;
+  const finalGold = dead ? Math.max(0, newGold - 10) : newGold;
+
   await db
     .update(gameSessions)
     .set({
-      character: { ...character, hp: newHp, xp: newXp, gold: newGold, level: newLevel, maxHp: leveled ? character.maxHp + 5 : character.maxHp },
+      character: { ...character, hp: finalHp, xp: newXp, gold: finalGold, level: newLevel, maxHp: leveled ? character.maxHp + 5 : character.maxHp },
       worldState: { ...world, danger: newDanger, flags: { ...(world.flags ?? {}), ...flags }, chapter: nextTurn % 15 === 0 ? world.chapter + 1 : world.chapter },
-      turnCount: nextTurn + 1,
+      // turnCount = последний вставленный turnNumber, чтобы следующий nextTurn = turnCount + 1
+      // Нарратор = nextTurn + 1, Кости (если есть) = nextTurn + 2
+      turnCount: dice !== null ? nextTurn + 2 : nextTurn + 1,
       updatedAt: new Date(),
     })
     .where(eq(gameSessions.id, id));
 
-  // Ход нарратора
+  // Ход нарратора (turnNumber = nextTurn + 1)
   await db.insert(gameTurns).values({
     sessionId: id,
     turnNumber: nextTurn + 1,
@@ -292,10 +303,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     completionTokens,
   });
 
+  // Ход броска костей (отдельный turnNumber = nextTurn + 2, чтобы не коллидировать с нарратором)
   if (dice) {
     await db.insert(gameTurns).values({
       sessionId: id,
-      turnNumber: nextTurn + 1,
+      turnNumber: nextTurn + 2,
       role: "dice",
       content: `🎲 ${dice.label}`,
       choices: [],
@@ -305,13 +317,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       promptTokens: 0,
       completionTokens: 10,
     });
-  }
-
-  if (dead) {
-    await db
-      .update(gameSessions)
-      .set({ character: { ...character, hp: 1, xp: newXp, gold: Math.max(0, newGold - 10), level: newLevel }, updatedAt: new Date() })
-      .where(eq(gameSessions.id, id));
   }
 
   // Добавление лута в инвентарь

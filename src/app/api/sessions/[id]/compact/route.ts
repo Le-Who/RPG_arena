@@ -36,7 +36,12 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
         maxTokens: 1400,
       });
 
-      const jsonStr = res.text.slice(res.text.indexOf("{"), res.text.lastIndexOf("}") + 1);
+      const jsonStart = res.text.indexOf("{");
+      const jsonEnd = res.text.lastIndexOf("}");
+      if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+        throw new Error("NO_JSON_IN_RESPONSE");
+      }
+      const jsonStr = res.text.slice(jsonStart, jsonEnd + 1);
       const parsed = JSON.parse(jsonStr);
       const jobs: { layer: string; category: string; title: string; content: string; importance: number }[] = [];
 

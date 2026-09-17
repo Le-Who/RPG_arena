@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────
+#  Chronicle Engine — .prettierignore
+# ─────────────────────────────────────────────
+
+# Next.js build output
+.next/
+out/
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# Drizzle generated migrations (автоматически генерируемый SQL)
+drizzle/
+
+# Lock files — не форматировать
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Generated declarations
+next-env.d.ts
+
+# Конфигурация с credentials
+drizzle.config.json

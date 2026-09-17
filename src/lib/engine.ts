@@ -99,9 +99,6 @@ export function runOfflineEngine(input: EngineInput): EngineOutput {
     narration += `${pick(FAIL_TAILS)} ${pick(TWISTS)} `;
     narration += `Ты отступаешь на шаг, тяжело дыша. ${input.world.currentLocation} запоминает твою ошибку — и ждёт реванша.`;
   }
-  if (input.memoryDigest && input.memoryDigest.length > 40) {
-    narration += ` (Память держит нить: ${input.memoryDigest.slice(0, 140)}…)`;
-  }
 
   const success = !dice || dice.success;
   const crit = dice?.critical === "crit";
@@ -112,7 +109,7 @@ export function runOfflineEngine(input: EngineInput): EngineOutput {
   const dangerDelta = success ? -3 : 5;
 
   const loot = success && Math.random() < (crit ? 0.9 : 0.3) ? [pick(LOOT_POOL)] : [];
-  const locationChange = Math.random() < 0.18 ? null : null; // офлайн не телепортирует без причины
+  const locationChange: string | null = null; // офлайн не телепортирует без причины
 
   const a = input.playerAction.slice(0, 60);
   const choices = [
