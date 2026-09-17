@@ -152,6 +152,12 @@ export async function POST(req: Request) {
     completionTokens: estimateTokens(intro),
   });
 
+  // Fix #5: контент нод вычисляется заранее, tokensEstimate — через estimateTokens().
+  // Хардкод 80/90/50 расходился с реальностью при длинных backstory/квестах.
+  const chronicleContent = `Мир: ${worldName}. Квест: ${mainQuest}. Герой ${character.name} (${character.archetype}) начинает в «${startLocation}». Тон: ${tone}.`;
+  const semanticContent = `${character.archetype}. ${character.backstory} Статы: ${Object.entries(character.stats).map(([k, v]) => `${k} ${v}`).join(", ")}. Навыки: ${character.skills.join(", ")}.`;
+  const proceduralContent = "Проверки d20+мод vs DC. Крит 20 — триумф, 1 — провал. HP 40, урон снижает, зелья лечат. Выбор игрока или своё действие.";
+
   // базовая память: chronicle + semantic + procedural
   await db.insert(memoryNodes).values([
     {
@@ -159,10 +165,10 @@ export async function POST(req: Request) {
       layer: "chronicle",
       category: "quest",
       title: "Глава 1: Начало",
-      content: `Мир: ${worldName}. Квест: ${mainQuest}. Герой ${character.name} (${character.archetype}) начинает в «${startLocation}». Тон: ${tone}.`,
+      content: chronicleContent,
       importance: 95,
       salience: 90,
-      tokensEstimate: 80,
+      tokensEstimate: estimateTokens(chronicleContent),
       turnFrom: 0,
       turnTo: 1,
     },
@@ -171,10 +177,10 @@ export async function POST(req: Request) {
       layer: "semantic",
       category: "character",
       title: `Герой: ${character.name}`,
-      content: `${character.archetype}. ${character.backstory} Статы: ${Object.entries(character.stats).map(([k, v]) => `${k} ${v}`).join(", ")}. Навыки: ${character.skills.join(", ")}.`,
+      content: semanticContent,
       importance: 90,
       salience: 85,
-      tokensEstimate: 90,
+      tokensEstimate: estimateTokens(semanticContent),
       turnFrom: 0,
       turnTo: 1,
     },
@@ -183,10 +189,10 @@ export async function POST(req: Request) {
       layer: "procedural",
       category: "rule",
       title: "Правила d20",
-      content: "Проверки d20+мод vs DC. Крит 20 — триумф, 1 — провал. HP 40, урон снижает, зелья лечат. Выбор игрока или своё действие.",
+      content: proceduralContent,
       importance: 60,
       salience: 40,
-      tokensEstimate: 50,
+      tokensEstimate: estimateTokens(proceduralContent),
       turnFrom: 0,
       turnTo: 1,
     },
