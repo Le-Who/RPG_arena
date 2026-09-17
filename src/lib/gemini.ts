@@ -221,6 +221,44 @@ export function buildResolutionSystemPrompt(opts?: {
 Никакого текста вне JSON.`;
 }
 
+/** JSON Schema для structured output ответа resolution-задачи. */
+export const RESOLUTION_RESPONSE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    outcome: { type: "string", enum: ["success", "partial", "failure"] },
+    dc: { type: "number" },
+    roll_reason: { type: "string" },
+    narration: { type: "string" },
+    effects: {
+      type: "object",
+      properties: {
+        hp: { type: "number" },
+        xp: { type: "number" },
+        gold: { type: "number" },
+        flags: { type: "object" },
+      },
+      required: ["hp", "xp", "gold"],
+    },
+    loot: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          kind: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["name", "kind", "description"],
+      },
+    },
+    choices: {
+      type: "array",
+      items: { type: "string" },
+    },
+  },
+  required: ["outcome", "narration", "effects", "choices"],
+};
+
 export function buildCompactionSystemPrompt(): string {
   return `Ты — модуль Memory House для текстовой RPG. Сожми блок ходов в структурированную память БЕЗ потери канона.
 Верни СТРОГО валидный JSON без текста вне него:
@@ -258,6 +296,7 @@ export async function callGeminiWithRotation(opts: {
   system: string;
   user: string;
   maxTokens?: number;
+  responseSchema?: Record<string, unknown>;
   onAttempt?: (info: { model: string; keyIndex: number; ok: boolean; latencyMs: number; error?: string }) => Promise<void> | void;
 }): Promise<{ text: string; model: string; keyIndex: number; latencyMs: number }> {
   const { keys, models, system, user } = opts;
@@ -277,6 +316,12 @@ export async function callGeminiWithRotation(opts: {
             generationConfig: {
               temperature: 0.85,
               maxOutputTokens: opts.maxTokens ?? 1200,
+              ...(opts.responseSchema
+                ? {
+                    responseMimeType: "application/json",
+                    responseSchema: opts.responseSchema,
+                  }
+                : {}),
             },
           }),
         });

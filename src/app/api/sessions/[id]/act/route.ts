@@ -11,6 +11,7 @@ import {
   routeModelsFor,
   RoutingConfig,
   TaskType,
+  RESOLUTION_RESPONSE_SCHEMA,
 } from "@/lib/gemini";
 import { assembleMemoryDigest, extractMemoryCandidates, shouldCompact, LAYER_INFO } from "@/lib/memory";
 import type { ModelTier } from "@/lib/memory";
@@ -215,6 +216,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         system,
         user,
         maxTokens: 1400,
+        // Для resolution-задач используем responseSchema: API возвращает чистый JSON без markdown-обёрток.
+        ...(isCustom ? { responseSchema: RESOLUTION_RESPONSE_SCHEMA } : {}),
         onAttempt: async (a) => {
           await logToken({
             sessionId: id,
@@ -234,14 +237,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       completionTokens = estimateTokens(res.text);
 
       if (isCustom) {
-        // Парсинг JSON для свободных действий
+        // Парсинг JSON для свободных действий.
+        // С responseSchema API возвращает чистый JSON без markdown-обёрток.
+        // Fallback indexOf/lastIndexOf для старых моделей без схемы.
         try {
-          const jsonStart = res.text.indexOf("{");
-          const jsonEnd = res.text.lastIndexOf("}");
-          if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
-            throw new Error("NO_JSON");
+          let jsonStr = res.text.trim();
+          if (!jsonStr.startsWith("{")) {
+            const jsonStart = jsonStr.indexOf("{");
+            const jsonEnd = jsonStr.lastIndexOf("}");
+            if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+              throw new Error("NO_JSON");
+            }
+            jsonStr = jsonStr.slice(jsonStart, jsonEnd + 1);
           }
-          const jsonStr = res.text.slice(jsonStart, jsonEnd + 1);
           const parsed = JSON.parse(jsonStr);
           narration = String(parsed.narration ?? res.text).slice(0, 3000);
           choices = Array.isArray(parsed.choices) ? parsed.choices.slice(0, 3) : [];
