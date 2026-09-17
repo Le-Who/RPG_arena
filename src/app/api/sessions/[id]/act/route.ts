@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { aiSettings, gameSessions, gameTurns, inventoryItems, memoryNodes, tokenLogs } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gt } from "drizzle-orm";
 import {
   buildNarrationSystemPrompt,
   buildResolutionSystemPrompt,
@@ -429,11 +429,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   // Fix #4: lastCompactTurn из сессии, а не из chronicle-нод внутри limit(60).
-  // Ранее: если chronicle-нода выпадала из топ-60, lastCompactTurn=0 → shouldCompact=true каждый ход.
   const lastCompactTurn = (session.lastCompactTurn as number | null) ?? 0;
   const workingTokensEstimate = estimateTokens(recentTurns);
   const workingBudget = modelTier === "flash" ? 8000 : LAYER_INFO.working.budget;
-  const needsCompaction = shouldCompact(nextTurn, lastCompactTurn, workingTokensEstimate, workingBudget);
+
+  // Fix #6: считаем только player-ходы (role = "player") после lastCompactTurn.
+  // Dice-записи (role = "dice") увеличивают turnNumber на +1 за каждый бросок,
+  // что раньше приближало порог компакции вдвое быстрее реальных действий игрока.
+  const playerCountResult = await db
+    .select({ c: count() })
+    .from(gameTurns)
+    .where(
+      and(
+        eq(gameTurns.sessionId, id),
+        eq(gameTurns.role, "player"),
+        gt(gameTurns.turnNumber, lastCompactTurn),
+      ),
+    );
+  const playerTurnsSinceCompact = playerCountResult[0]?.c ?? 0;
+  // playerTurnsSinceCompact — реальные действия игрока; 0 как второй аргумент потому,
+  // что SQL-фильтр gt(turnNumber, lastCompactTurn) уже выполнил отсечение.
+  const needsCompaction = shouldCompact(playerTurnsSinceCompact, 0, workingTokensEstimate, workingBudget);
 
   return NextResponse.json({ ok: true, narration, choices, dice, effects, loot, modelUsed, dead, taskType, needsCompaction });
 }
