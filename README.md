@@ -2,8 +2,6 @@
 
 Интерактивные истории со свободой действия. Восемь авторских миров, собственные кампании, три профиля правил и память на **gemini-embedding-2**.
 
-Рабочая версия на основе [Le-Who/RPG_arena](https://github.com/Le-Who/RPG_arena), main `14cd16661599350a89fe6f54396bf3442df08d63`. Исходный roadmap `a6f9a55` сохранён в документации. Изменения в оригинальный GitHub не отправлялись.
-
 ## Главное
 
 **Модель предлагает — сервер решает.** Предметы, цели, отношения, локации и память сохраняются через Drizzle ORM в PostgreSQL. Параллельный запоздавший ход не перезаписывает мир; повтор requestId возвращает тот же результат.
@@ -77,8 +75,4 @@ Memory node и outbox создаются атомарно. Индексатор 
 
 ## Документация и следующий этап
 
-Полный анализ кода, архитектурные риски, технические альтернативы и приоритеты: [v2.1 audit and plan](docs/superpowers/plans/2026-09-17-v2.1-audit-and-plan.md).
-
-[Roadmap](docs/superpowers/plans/roadmap.md) · [исходный roadmap](docs/superpowers/plans/roadmap-initial-a6f9a55.md).
-
-Следующие приоритеты: auth/ownership + encryption; атомарное резервирование квот по Google-проекту; admission lease перед AI; постоянный worker; pgvector после измерений; evaluation recall@K/genre drift; затем streaming, scene graphs, мультимодальная память и ветвление историй. Эти пункты пока являются планом, не готовыми возможностями.
+[Roadmap](docs/superpowers/plans/roadmap.md) 
