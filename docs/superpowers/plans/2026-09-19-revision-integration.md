@@ -1,5 +1,7 @@
 # Revision Integration Implementation Plan
 
+> Исторический документ этапа. Актуальные статусы и приоритеты на 19.09.2026 — в [roadmap](roadmap.md). Чек-листы и результаты ниже отражают исходный план или проверки того этапа; они не являются отчётом о новом прогоне.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Merge the strongest compatible backend, accessibility, and design changes from both local revisions while preserving preset offline play and current WebP artwork.

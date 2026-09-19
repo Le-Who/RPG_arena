@@ -1,6 +1,18 @@
 # Chronicle Engine · 2.5
 
+Состояние документации: **19 сентября 2026**, код интеграции `d5156fe`. Актуальные приоритеты — в [roadmap](docs/superpowers/plans/roadmap.md); документы отдельных версий сохраняются как история.
+
 Интерактивные истории любого жанра: восемь авторских миров, собственные кампании, три профиля правил, память на **gemini-embedding-2**, независимые сюжетные ветки и интерфейс на собственной дизайн-системе.
+
+## Режимы и механики
+
+- **Preset:** готовый мир с детерминированным процедурным продолжением без Gemini. Это автономная серверная генерация, а не офлайн-приложение в браузере: PostgreSQL и веб-сервер всё равно нужны.
+- **Free:** собственная история с живым AI. Без ключа или при выключенном живом мастере ход возвращает `AI_REQUIRED`; ошибка провайдера также не заменяется шаблонным сюжетом.
+- **d20:** характеристики, серверные броски, HP, опыт и уровни; упрощённые правила, не полная D&D 5e.
+- **rules-light:** 2d6 для рискованных действий, состояние и средства без характеристик и опыта.
+- **narrative:** история без бросков и числовых ресурсов героя; состояния, отношения и изменения мира сохраняются.
+
+Модель предлагает последствия, сервер валидирует resolution и применяет допустимые изменения инвентаря, локаций, NPC, квестов и объектов сцены. Ветки создаются из вручную сохранённых контрольных точек; произвольный откат к старому ходу не реализован.
 
 ## Что нового в v2.5
 
@@ -31,14 +43,16 @@ worker, диагностика `/system`, согласованная компа�
 
 ## Запуск
 
-Требуются Node.js 20.9+ и PostgreSQL. Next.js 16.3.5, React 19, Drizzle ORM, node-postgres, Tailwind CSS 4.
+Для команд ниже используйте Node.js 24 и PostgreSQL; локальная среда сверки — Node.js 24.13.0. Сам Next.js требует Node.js 20.9+, но скрипты проекта также используют встроенные флаги загрузки env-файлов. Зависимости в `package.json`: Next.js `^16.3.5`, React `19.2.6`, Drizzle ORM `0.45.2`, node-postgres `8.20.0`, Tailwind CSS `4.1.17`.
 
 1. `npm install`.
 2. Создать `.env` по `.env.example`, настроить `DATABASE_URL`.
-3. `node --env-file=.env --import tsx scripts/migrate.ts`.
+3. Создать указанную PostgreSQL-базу, затем выполнить `npm run migrate` из корня проекта.
 4. `npm run dev`.
 
-Миграции — явный deploy step, четыре версии в Drizzle ledger. Повторный запуск безопасен. В одноразовой песочнице допустим `npx drizzle-kit push`; для production используйте версионированные миграции.
+Миграции — отдельный шаг развёртывания, они не запускаются при старте HTTP-сервера. Drizzle ledger учитывает четыре версии: `0000` — базовая схема, `0001` — надёжность пространства, `0002` — ветки и задания, `0003` — настройки чтения. Повторный запуск пропускает применённые версии. Для обновления существующей базы сначала сделайте резервную копию; `drizzle-kit push` не заменяет историю миграций.
+
+Production-запуск после миграций: `npm run build`, затем `npm start`. Worker запускается отдельным процессом.
 
 Ключ Gemini можно добавить в **Настройках** или через серверные `GEMINI_API_KEYS` / `GEMINI_API_KEY`. Пресеты доступны без ключа. Для свободной истории включите живого мастера.
 
@@ -50,7 +64,7 @@ worker, диагностика `/system`, согласованная компа�
 
 Один ограниченный проход: добавить `--once`. Постоянный процесс следует запускать через systemd/supervisor/контейнерный оркестратор, а не из HTTP-handler. Он обрабатывает одно извлечение и до 32 векторов за tick, затем делает паузу. SIGTERM/SIGINT завершают его после текущего ограниченного задания. Состояние видно на `/system`.
 
-В проверочной среде запускался `--once`; постоянно работающий процесс не оставлялся.
+Наличие CLI не означает, что сервис уже развёрнут. Настройка и диагностика: [инструкция worker](docs/worker-operations.md).
 
 ## Страницы
 
@@ -67,9 +81,9 @@ worker, диагностика `/system`, согласованная компа�
 | `/settings` | Ключи, routing, лимиты, embeddings и тест подключения |
 | `/blueprint` | Устройство движка, реализованное и открытые задачи |
 
-## API v2.2
+## API текущей версии
 
-Существующие API сохранены. Дополнительно:
+Маршруты без версионного префикса; контракты надёжных ходов, введённые в v2.2, сохранены в v2.5:
 
 - `POST /api/sessions/:id/act`: `{action, custom, requestId?, expectedTurn?}`. `custom:false` допускает только вариант текущей сцены.
 - `GET /api/sessions/:id/requests/:requestId`: этап, статус и сохранённый результат.
@@ -79,7 +93,24 @@ worker, диагностика `/system`, согласованная компа�
 - `GET /api/system/status`: реальные счётчики и heartbeat без ключей и полных промптов.
 - `POST /api/system/process`: `{action:"process"}` для ограниченного прохода либо `{action:"retry"}` для возвращения failed-заданий в очередь.
 
-Остаются PATCH/DELETE кампании, экспорт Markdown, older-turn pagination, настройки, статистика токенов и healthcheck.
+Остальные группы API:
+
+| Метод и маршрут | Назначение |
+|---|---|
+| `GET/POST /api/sessions` | Список / создание кампании |
+| `GET/PATCH/DELETE /api/sessions/:id` | Снапшот / название и архив / удаление |
+| `GET /api/sessions/:id/turns?before=N` | Более ранние ходы |
+| `GET /api/sessions/:id/export` | Полная история в Markdown |
+| `GET /api/sessions/:id/memories` | Память кампании |
+| `GET /api/sessions/:id/memory/search?q=...&k=8` | Поиск памяти, `k` от 1 до 20 |
+| `POST /api/sessions/:id/memory/reindex` | Переиндексация памяти |
+| `POST /api/sessions/:id/compact` | Компакция памяти |
+| `GET/PATCH /api/workspace` | Имя владельца пространства, избранное, настройки чтения |
+| `GET/POST /api/settings` | AI-настройки |
+| `POST /api/settings/test` | Тест соединения с провайдером |
+| `GET /api/tokens/stats`, `GET /api/health` | Статистика использования / доступность БД |
+
+Снапшот принимает `?memories=N`: по умолчанию 80 фактов, максимум 200. `PATCH /api/workspace` принимает `reading: {textScale, measure, theme, motion}`. Допустимые значения: `compact/normal/large`, `narrow/normal/wide`, `midnight/sepia/contrast`, `full/reduced`. При передаче неполного объекта `reading` пропущенные поля нормализуются к значениям по умолчанию, поэтому для сохранения остальных предпочтений передавайте полный объект.
 
 ## Embeddings
 
@@ -89,18 +120,46 @@ worker, диагностика `/system`, согласованная компа�
 
 ## Проверки
 
+`DATABASE_URL` нужен даже unit-тестам: они импортируют модуль БД. Текущий набор `tests/*.test.ts` не требует подключения к PostgreSQL; для отдельного unit-прогона без `.env` можно задать тестовый адрес в PowerShell:
+
+```powershell
+$env:DATABASE_URL='postgresql://test:test@127.0.0.1:1/chronicle_unit'
+npm test
+Remove-Item Env:DATABASE_URL
+```
+
+Это адрес только для unit-тестов; сервер, миграции, worker и интеграционные проверки требуют настоящей тестовой базы. Если `DATABASE_URL` уже настроен, запускайте `npm test` без переопределения.
+
 - Unit/контрактные тесты: `npm test`.
 - Базовая интеграция: `node --env-file=.env --import tsx scripts/smoke.ts`.
 - v2.2 (ветки, admission, single provider call, leases, semantic jobs, компакция): `node --env-file=.env --import tsx scripts/v22-smoke.ts`.
 - Чистая БД и повтор миграций: `node --env-file=.env --import tsx scripts/migrations-check.ts` (требует CREATE DATABASE).
 - Браузер: `npx playwright install --with-deps chromium`, затем `node --env-file=.env --import tsx scripts/browser-smoke.ts` и `node --env-file=.env --import tsx scripts/v22-browser.ts`.
-- Аудит читаемости и контраста во всех палитрах: `npm run audit:ui` (сервер должен работать).
+- Аудит читаемости и контраста: `npm run audit:ui`; карта, клавиатура и настройки чтения: `npm run verify:ui` (сервер должен работать).
 - Быстрые команды: `npm run verify` (typecheck + тесты + сборка), `npm run migrate`, `npm run worker`, `npm run smoke`, `npm run smoke:v22`.
 - Базовый browser smoke ожидает одну стартовую кампанию. v2.2 browser smoke создаёт свои данные, проверяет потерянный после commit ответ и reload; снимки в `artifacts/`.
 - Typegen: `npx next typegen`; TS: `npm exec tsc -- --noEmit --pretty false`; production: `npm run build`.
-- `npm audit --omit=dev`: 0 advisories на момент проверки, не полноценный security audit.
+- Линтер запускается отдельно: `npm run lint` (не входит в `verify`). Зависимости проверяются командой `npm audit --omit=dev`; её результат зависит от даты и установленного дерева пакетов.
 
-Интеграционные скрипты требуют работающего тестового сервера (`SMOKE_BASE_URL`, по умолчанию localhost:3000). Используйте изолированную offline-среду без Gemini-ключей. Созданные тестовые кампании удаляются.
+HTTP/browser smoke требуют работающего тестового сервера (`SMOKE_BASE_URL`, по умолчанию localhost:3000); проверка миграций обращается напрямую к PostgreSQL. Используйте отдельную тестовую БД и среду без Gemini-ключей, в том числе сохранённых в AI-настройках.
+
+UI-скрипты по умолчанию используют первую кампанию. Для фиксированных тестовых данных в PowerShell: `$env:UI_AUDIT_MOCK='1'`, затем `npm run audit:ui` или `npm run verify:ui`. Подмена API выполняется в браузере и не проверяет БД или провайдера; запущенный веб-сервер всё равно требуется. Снимки UI сохраняются в `output/playwright/`. Аудит охватывает 10 desktop-страниц, дополнительные палитры на обзоре/игре/настройках и 3 mobile-страницы; это не полная проверка WCAG или всех сочетаний настроек.
+
+При сверке документации 19.09.2026 на Node.js 24.13.0 выполнены unit/контрактные тесты: **83/83**, с тестовым `DATABASE_URL` без подключения к БД. Миграции, browser smoke, UI-аудит и реальный Gemini в этой сверке не запускались.
+
+## Структура проекта
+
+| Путь | Содержание |
+|---|---|
+| `src/app`, `src/components` | Страницы, API, стили и компоненты интерфейса |
+| `src/lib/turn.ts`, `turn-admission.ts`, `resolution.ts` | Проведение хода, аренда запроса, применение последствий |
+| `src/lib/memory*.ts`, `embeddings.ts`, `background.ts` | Каноническая память, поиск и фоновые задания |
+| `src/lib/checkpoint*.ts`, `compaction.ts` | Контрольные точки, ветки и компакция |
+| `src/lib/scenarios.ts`, `new-scenarios.ts`, `profiles.ts`, `engine.ts` | Миры, профили правил и автономный движок |
+| `src/db`, `drizzle` | Схема PostgreSQL и версионированные миграции |
+| `scripts`, `tests` | Worker, миграции, smoke/UI-проверки и unit/контрактные тесты |
+| `public` | WebP-обложки и иконка |
+| `docs` | Эксплуатация, актуальный roadmap и исторические планы |
 
 ## Честные границы и следующие этапы
 
@@ -109,3 +168,5 @@ worker, диагностика `/system`, согласованная компа�
 Следующие приоритеты: auth/ownership + envelope encryption; проектный бюджет и admission quota; индекс/очереди под измеренной нагрузкой; pgvector после benchmark; recall@K/genre drift/entailment evaluation; затем authored scene graphs, streaming и мультимодальная память. Произвольное branch-from-turn потребует event log и replay: текущие контрольные точки этого не имитируют.
 
 [Отчёт и план v2.2](docs/superpowers/plans/v2.2-reliability-and-branches.md) · [Дизайн-система v2.4](docs/superpowers/plans/v2.4-design-system-and-roadmap.md) · [Roadmap](docs/superpowers/plans/roadmap.md).
+
+Файл лицензии в репозитории отсутствует; выбор и публикация лицензии остаются задачей владельца проекта.
