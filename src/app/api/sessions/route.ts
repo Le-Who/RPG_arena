@@ -1,8 +1,9 @@
+import { readJsonObject, httpError } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { db } from "@/db";
 import { gameSessions, gameTurns, inventoryItems, worldLocations, quests, type CampaignMode, type RulesProfile } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, getTableColumns } from "drizzle-orm";
 import { SCENARIOS } from "@/lib/scenarios";
 import { estimateTokens } from "@/lib/gemini";
 import { openingChoices } from "@/lib/engine";
@@ -15,7 +16,8 @@ import { enqueueEmbeddings, indexPendingEmbeddings } from "@/lib/embeddings";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const sessions = await db.select().from(gameSessions).orderBy(desc(gameSessions.updatedAt)).limit(100);
+  const { scenarioPrompt: _omit, ...listColumns } = getTableColumns(gameSessions);
+  const sessions = await db.select(listColumns).from(gameSessions).orderBy(desc(gameSessions.updatedAt)).limit(100);
   return NextResponse.json({ sessions });
 }
 
@@ -41,7 +43,8 @@ const clean = (v: unknown, max: number, dflt = "") => (typeof v === "string" && 
 const cleanList = (v: unknown, max: number, itemMax = 40) => (Array.isArray(v) ? v.map((x) => clean(x, itemMax)).filter(Boolean).slice(0, max) : []);
 
 export async function POST(req: Request) {
-  const raw = await req.json().catch(() => null);
+  try {
+  const raw = await readJsonObject(req, 32768);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
   const body = raw as CreateBody;
   if (body.mode !== "preset" && body.mode !== "free" && body.mode !== "custom") return NextResponse.json({ error: "Укажите режим кампании" }, { status: 400 });
@@ -127,8 +130,6 @@ export async function POST(req: Request) {
     xp: 0,
     hp: spec.resources.hp ? 40 : 0,
     maxHp: spec.resources.hp ? 40 : 0,
-    mana: 0,
-    maxMana: 0,
     gold: spec.resources.gold ? 15 : 0,
     stats: spec.resources.stats ? char.stats : {},
     skills: char.skills,
@@ -214,4 +215,5 @@ export async function POST(req: Request) {
   });
 
   return NextResponse.json({ session, slug: slugify(title) });
+  } catch (error) { return httpError(error); }
 }

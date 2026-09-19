@@ -15,7 +15,7 @@ import { EMBEDDING_MODEL, DEFAULT_EMBEDDING_DIMS, formatDocument } from "./vecto
 import { mayReplaceMemory } from "./memory-policy";
 import type { MemoryEvent } from "./resolution";
 
-export { LAYER_INFO, SOURCE_INFO, type MemoryLayer } from "./memory-ui";
+export { LAYER_INFO, type MemoryLayer } from "./memory-ui";
 import { LAYER_INFO } from "./memory-ui";
 import type { MemoryLayer } from "./memory-ui";
 export type ModelTier = "lite" | "flash";
@@ -224,8 +224,10 @@ export function normalizeExtractedFacts(raw: unknown, narration: string, playerA
     if (!f || typeof f !== "object" || !["npc", "world", "character", "relationship", "promise", "secret", "event"].includes(String(f.type))) continue;
     const content = typeof f.content === "string" ? f.content.trim().slice(0, 600) : "";
     const evidence = typeof f.evidence === "string" ? f.evidence.trim().slice(0, 240) : "";
-    const confidence = Math.max(0, Math.min(1, Number(f.confidence ?? 0)));
-    if (!content || content.length < 12 || !Number.isFinite(confidence)) continue;
+    const rawConfidence = f.confidence;
+    if (typeof rawConfidence !== "number" || !Number.isFinite(rawConfidence)) continue;
+    const confidence = Math.max(0, Math.min(1, rawConfidence));
+    if (!content || content.length < 12) continue;
     // Доказательство должно реально присутствовать в тексте (защита от галлюцинаций)
     const evOk = evidence.length >= 8 && haystack.includes(evidence.toLowerCase());
     if (!evOk || confidence < 0.55) continue;

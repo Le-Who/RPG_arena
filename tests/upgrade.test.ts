@@ -37,6 +37,8 @@ test("extractor: intentions, partial quotations, NaN and malformed facts are not
   assert.equal(normalizeExtractedFacts({ facts: [fact] }, "Лена отказывается от встречи.", phrase).length, 0);
   assert.equal(normalizeExtractedFacts({ facts: [{ ...fact, evidence: phrase + " Она также передала ключ от квартиры." }] }, phrase, "").length, 0);
   assert.equal(normalizeExtractedFacts({ facts: [{ ...fact, confidence: "not-a-number" }] }, phrase, "").length, 0);
+  assert.equal(normalizeExtractedFacts({ facts: [{ ...fact, confidence: Infinity }] }, phrase, "").length, 0);
+  assert.equal(normalizeExtractedFacts({ facts: [{ ...fact, confidence: "0.9" }] }, phrase, "").length, 0);
   assert.equal(normalizeExtractedFacts({ facts: [null, 7, { ...fact, type: "inventory" }] }, phrase, "").length, 0);
 });
 test("offline engine reuses the authoritative dice result instead of rolling again", () => {
@@ -56,7 +58,7 @@ for (const profile of ["d20", "rules-light", "narrative"] as RulesProfile[]) {
   for (const mode of ["preset", "free"] as CampaignMode[]) {
     for (const genre of ["нуар", "киберпанк", "бытовая драма", "хоррор", "научная фантастика", "фэнтези"]) {
       test(`genre/profile/mode contract: ${genre} × ${profile} × ${mode}`, () => {
-        const input: ApplyInput = { rulesProfile: profile, campaignMode: mode, character: { name: "Ада", archetype: "Исследователь", level: 1, xp: 0, hp: profile === "narrative" ? 0 : 40, maxHp: profile === "narrative" ? 0 : 40, mana: 0, maxMana: 0, gold: 0, stats: {}, skills: [], traits: [], backstory: "", appearance: "", conditions: [] }, world: { worldName: "Авторский мир", tone: genre, era: "2026", mainQuest: "Найти ответ", currentLocation: "Заданная локация", factions: [], flags: {}, danger: 20, chapter: 1 }, inventory: [], quests: [], npcs: [], sceneObjects: [], locations: [], payload: parseResolution(JSON.stringify({ narration: "Вы замечаете деталь.", effects: { hp: 5, xp: 50, gold: 100 }, stateChanges: {} })).payload, dice: null, turnNumber: 2 };
+        const input: ApplyInput = { rulesProfile: profile, campaignMode: mode, character: { name: "Ада", archetype: "Исследователь", level: 1, xp: 0, hp: profile === "narrative" ? 0 : 40, maxHp: profile === "narrative" ? 0 : 40, gold: 0, stats: {}, skills: [], traits: [], backstory: "", appearance: "", conditions: [] }, world: { worldName: "Авторский мир", tone: genre, era: "2026", mainQuest: "Найти ответ", currentLocation: "Заданная локация", factions: [], flags: {}, danger: 20, chapter: 1 }, inventory: [], quests: [], npcs: [], sceneObjects: [], locations: [], payload: parseResolution(JSON.stringify({ narration: "Вы замечаете деталь.", effects: { hp: 5, xp: 50, gold: 100 }, stateChanges: {} })).payload, dice: null, turnNumber: 2 };
         const result = applyResolution(input);
         assert.equal(result.world.worldName, "Авторский мир");
         assert.equal(result.world.tone, genre);

@@ -11,7 +11,7 @@ function baseInput(over: Partial<ApplyInput> = {}): ApplyInput {
   return {
     rulesProfile: "d20",
     campaignMode: "free",
-    character: { name: "Ада", archetype: "Следователь", level: 1, xp: 0, hp: 30, maxHp: 40, mana: 0, maxMana: 0, gold: 15, stats: { СИЛ: 10 }, skills: [], traits: [], backstory: "", appearance: "", conditions: [] },
+    character: { name: "Ада", archetype: "Следователь", level: 1, xp: 0, hp: 30, maxHp: 40, gold: 15, stats: { СИЛ: 10 }, skills: [], traits: [], backstory: "", appearance: "", conditions: [] },
     world: { worldName: "Город", tone: "нуар", era: "1950", mainQuest: "Найти брата", currentLocation: "Бар «Ржавый якорь»", factions: [], flags: {}, danger: 30, chapter: 1 },
     inventory: [{ id: "aaaaaaaa-0000-0000-0000-000000000000", name: "Аптечка", kind: "consumable", quantity: 1, equipped: false, description: "", icon: "🧪", power: 10 }],
     quests: [{ id: "q1", key: "main", title: "Найти брата", status: "active", progress: 10, isMain: true, description: "" }],
@@ -126,4 +126,21 @@ test("utils: slugify и cosine", () => {
   assert.equal(slugify("Бар «Ржавый якорь»!"), "бар-ржавый-якорь");
   assert.ok(Math.abs(cosine([1, 0], [1, 0]) - 1) < 1e-9);
   assert.ok(Math.abs(cosine([1, 0], [0, 1])) < 1e-9);
+});
+
+test("v2.2 reducer: an unknown explicit item ref cannot fall back to an owned name", () => {
+  const input = baseInput();
+  input.payload = parseResolution(JSON.stringify({ narration: "Попытка использовать предмет.", stateChanges: { inventory: [{ op: "consume", ref: "#bbbbbb", name: "Аптечка", quantity: 1 }] } })).payload;
+  const result = applyResolution(input);
+  assert.equal(result.applied.inventory[0].ok, false);
+  assert.ok(!result.ops.some((op) => op.t === "inv.update" || op.t === "inv.delete"));
+});
+test("v2.2 reducer: colliding short item IDs are rejected rather than taking the first item", () => {
+  const input = baseInput();
+  input.inventory = [{ ...input.inventory[0], id: "abcdef01-0000-4000-8000-000000000001", name: "Набор А" }, { ...input.inventory[0], id: "abcdef02-0000-4000-8000-000000000002", name: "Набор Б" }];
+  input.payload = parseResolution(JSON.stringify({ narration: "Попытка использовать предмет.", stateChanges: { inventory: [{ op: "consume", ref: "#abcdef", quantity: 1 }] } })).payload;
+  const result = applyResolution(input);
+  assert.equal(result.applied.inventory[0].ok, false);
+  assert.ok(result.applied.rejected.some((reason) => reason.includes("Неоднозначная")));
+  assert.ok(!result.ops.some((op) => op.t === "inv.update" || op.t === "inv.delete"));
 });

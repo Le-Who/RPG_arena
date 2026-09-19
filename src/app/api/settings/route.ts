@@ -1,3 +1,4 @@
+import { readJsonObject, httpError } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { aiSettings } from "@/db/schema";
@@ -26,8 +27,6 @@ function view(s: Awaited<ReturnType<typeof getSettingsRow>>) {
     customActionModel: s.customActionModel,
     compactionModel: s.compactionModel,
     fastTaskModel: s.fastTaskModel,
-    primaryModel: s.primaryModel ?? s.narrationModel,
-    fallbackChain: s.fallbackChain,
     useLiveAI: s.useLiveAI,
     dailyFlashLimit: s.dailyFlashLimit,
     dailyLiteLimit: s.dailyLiteLimit,
@@ -45,14 +44,13 @@ export async function GET() {
   try {
     return NextResponse.json(view(await getSettingsRow()));
   } catch (err) {
-    console.error("[settings GET]", err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return httpError(err);
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => null);
+    const body = await readJsonObject(req, 16384);
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Некорректные настройки" }, { status: 400 });
     if (body.embeddingModel && body.embeddingModel !== "gemini-embedding-2") return NextResponse.json({ error: "Поддерживается только gemini-embedding-2" }, { status: 400 });
     const s = await getSettingsRow();
@@ -63,11 +61,13 @@ export async function POST(req: Request) {
       const parsed = body.keysText.split(/[\n,;\s]+/).map((k: string) => k.trim()).filter((k: string) => k.length > 10);
       keys = body.append === false ? parsed : [...new Set([...currentKeys, ...parsed])];
     }
-    if (Array.isArray(body.removeIndex)) keys = keys.filter((_, i) => !body.removeIndex.includes(i));
+    const removeIndex = body.removeIndex;
+    if (Array.isArray(removeIndex)) keys = keys.filter((_, i) => !removeIndex.includes(i));
     if (body.clearKeys === true) keys = [];
     keys = keys.slice(0, MAX_KEYS); // DATA-1d: лимит ключей во всех путях
 
-    const profile: RoutingProfile = ROUTING_PROFILES[body.routingProfile as RoutingProfile] ? body.routingProfile : ((s.routingProfile as RoutingProfile) ?? "balanced");
+    const requestedProfile = typeof body.routingProfile === "string" ? body.routingProfile : "";
+    const profile: RoutingProfile = Object.prototype.hasOwnProperty.call(ROUTING_PROFILES, requestedProfile) ? requestedProfile as RoutingProfile : ((s.routingProfile as RoutingProfile) ?? "balanced");
     const pickModel = (v: unknown, cur: string) => (typeof v === "string" && KNOWN_MODELS.has(v) ? v : cur);
     let narrationModel = pickModel(body.narrationModel, s.narrationModel);
     let customActionModel = pickModel(body.customActionModel, s.customActionModel);
@@ -94,7 +94,6 @@ export async function POST(req: Request) {
         customActionModel,
         compactionModel,
         fastTaskModel,
-        primaryModel: narrationModel,
         useLiveAI: boolInAuto(body.useLiveAI, s.useLiveAI, keys.length + envKeys().length),
         dailyFlashLimit: intIn(body.dailyFlashLimit, 1, 100000, s.dailyFlashLimit),
         dailyLiteLimit: intIn(body.dailyLiteLimit, 1, 1000000, s.dailyLiteLimit),
@@ -110,8 +109,7 @@ export async function POST(req: Request) {
     const fresh = await getSettingsRow();
     return NextResponse.json({ ok: true, ...view(fresh) });
   } catch (err) {
-    console.error("[settings POST]", err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    return httpError(err);
   }
 }
 

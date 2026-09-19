@@ -1,3 +1,4 @@
+import { resolveInventoryReference } from "./entity-identity";
 // ── RES-1: контракт resolution, runtime-валидация и серверные reducers ──
 // Модель предлагает художественную интерпретацию + структурированные изменения мира.
 // Сервер валидирует (parseResolution), затем применяет (applyResolution) с лимитами профиля.
@@ -645,7 +646,13 @@ export function applyResolution(input: ApplyInput): ApplyResult {
   const invState = input.inventory.map((i) => ({ ...i }));
   let adds = 0;
   for (const op of payload.stateChanges.inventory) {
-    const found = invState.find((i) => (op.ref && i.id.startsWith(op.ref)) || (op.name && norm(i.name) === norm(op.name)));
+    const identity = resolveInventoryReference(invState, op.ref, op.name);
+    const found = identity.entity;
+    if (identity.error) {
+      rejected.push(identity.error);
+      invApplied.push({ op: op.op, name: op.name || "Предмет", quantity: op.quantity, ok: false, reason: identity.error });
+      continue;
+    }
     if (op.op === "add") {
       if (!op.name) continue;
       if (outcome === "failure" && dice) {

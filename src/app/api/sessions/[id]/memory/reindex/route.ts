@@ -1,27 +1,24 @@
-import { NextResponse } from "next/server";
+import { after } from "next/server";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { gameSessions } from "@/db/schema";
 import { getAIConfig } from "@/lib/ai-settings";
 import { backfillSession, embeddingStats, indexPendingEmbeddings } from "@/lib/embeddings";
-
+import { runMemoryCycle } from "@/lib/background";
+import { httpError, HttpError, requireUuid } from "@/lib/http";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-/** POST /api/sessions/:id/memory/reindex — backfill + индексация pending (MEM-2c). */
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const cfg = await getAIConfig();
-  if (!cfg.keys.length) return NextResponse.json({ error: "NO_KEYS", message: "Нужен ключ Gemini" }, { status: 409 });
-  const backfill = await backfillSession(id, cfg.embeddingModel, cfg.embeddingDims);
-  let indexed = 0;
-  let failed = 0;
-  let pending = 0;
-  // до 4 пачек по 32 за запрос — остальное доиндексируется после следующих ходов
-  for (let i = 0; i < 4; i++) {
-    const r = await indexPendingEmbeddings({ sessionId: id, keys: cfg.keys, model: cfg.embeddingModel, dims: cfg.embeddingDims, limit: 32 });
-    indexed += r.indexed;
-    failed += r.failed;
-    pending = r.pending;
-    if (!r.pending || (!r.indexed && !r.failed)) break;
-  }
-  const stats = await embeddingStats(id);
-  return NextResponse.json({ ok: true, backfill, indexed, failed, pending, stats, model: cfg.embeddingModel, dims: cfg.embeddingDims });
+  try {
+    const { id } = await params; requireUuid(id);
+    const [session] = await db.select({ id: gameSessions.id }).from(gameSessions).where(eq(gameSessions.id, id));
+    if (!session) throw new HttpError(404, "NOT_FOUND", "История не найдена.");
+    const cfg = await getAIConfig();
+    if (!cfg.keys.length) throw new HttpError(409, "NO_KEYS", "Нужен ключ Gemini.");
+    if (!cfg.embeddingsEnabled) throw new HttpError(409, "DISABLED", "Индексация выключена в настройках.");
+    const backfill = await backfillSession(id, cfg.embeddingModel, cfg.embeddingDims);
+    const result = await indexPendingEmbeddings({ sessionId: id, keys: cfg.keys, model: cfg.embeddingModel, dims: cfg.embeddingDims, limit: 32 });
+    if (result.pending) after(async () => { await runMemoryCycle({ sessionId: id, source: "after" }).catch(() => {}); });
+    return Response.json({ ok: true, backfill, ...result, stats: await embeddingStats(id), model: cfg.embeddingModel, dims: cfg.embeddingDims });
+  } catch (error) { return httpError(error); }
 }

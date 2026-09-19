@@ -9,9 +9,13 @@ import type { RetrievedNode } from "@/lib/embeddings";
 const layers = [{ id: "", title: "Все слои" }, { id: "semantic", title: "Факты" }, { id: "episodic", title: "События" }, { id: "procedural", title: "Правила" }, { id: "chronicle", title: "Хроника" }];
 export function StoryRecords({ mode }: { mode: "memory" | "journal" }) {
   const { sessions, settings, newStory, notify, loading } = useApp();
-  const [sessionId, setSessionId] = useState("");
+  const [requestedSession] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("session") ?? "");
+  const [chosenSessionId, setChosenSessionId] = useState("");
+  const sessionId = sessions.some((session) => session.id === chosenSessionId)
+    ? chosenSessionId
+    : sessions.find((session) => session.id === requestedSession)?.id ?? sessions[0]?.id ?? "";
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [layer, setLayer] = useState("");
@@ -21,10 +25,6 @@ export function StoryRecords({ mode }: { mode: "memory" | "journal" }) {
   const [timing, setTiming] = useState(0);
   const searchRequest = useRef(0);
   const hasKey = Boolean(settings && settings.keysCount + settings.envKeysCount > 0);
-  useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get("session");
-    if (!sessionId && sessions.length) setSessionId(sessions.find((s) => s.id === requested)?.id ?? sessions[0].id);
-  }, [sessionId, sessions]);
   const load = useCallback(async () => {
     if (!sessionId) return;
     setBusy(true); setError("");
@@ -34,10 +34,21 @@ export function StoryRecords({ mode }: { mode: "memory" | "journal" }) {
   }, [sessionId]);
   useEffect(() => {
     if (!sessionId) return;
-    let active = true; searchRequest.current++; setSearching(false); setBusy(true); setError(""); setSnapshot(null); setResults(null); setQuery("");
+    let active = true;
+    searchRequest.current++;
     api<Snapshot>(`/api/sessions/${sessionId}`).then((data) => { if (active) setSnapshot(data); }).catch((e) => { if (active) setError(e.message); }).finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
   }, [sessionId]);
+  const chooseSession = (nextSessionId: string) => {
+    searchRequest.current++;
+    setChosenSessionId(nextSessionId);
+    setSearching(false);
+    setBusy(true);
+    setError("");
+    setSnapshot(null);
+    setResults(null);
+    setQuery("");
+  };
   const semanticSearch = async () => {
     if (!query.trim() || searching) return;
     const request = ++searchRequest.current;
@@ -53,7 +64,7 @@ export function StoryRecords({ mode }: { mode: "memory" | "journal" }) {
   const memories = (results ?? snapshot?.memories ?? []).filter((node) => (!layer || node.layer === layer) && (results !== null || `${node.title} ${node.content}`.toLowerCase().includes(query.toLowerCase())));
   const turns = snapshot?.turns.filter((turn) => !query || turn.content.toLowerCase().includes(query.toLowerCase())) ?? [];
   if (!loading && !sessions.length) return <div className="empty-state"><BrainCircuit size={32} /><h3>У этой истории ещё нет воспоминаний</h3><p>Начните первую кампанию. Мы сохраним её мир, героя и каждый сделанный выбор.</p><button className="button primary" onClick={() => newStory()}>Начать историю <ArrowRight size={14} /></button></div>;
-  return <section className="records"><div className="records-toolbar"><div className="record-select"><BookOpen size={17} /><select aria-label="Выбрать кампанию" disabled={indexing} value={sessionId} onChange={(e) => setSessionId(e.target.value)}>{sessions.map((s) => <option key={s.id} value={s.id}>{s.title} · {s.character.name}</option>)}</select></div><div className="record-actions">{mode === "memory" ? <button className="button secondary" onClick={() => void reindex()} disabled={!hasKey || indexing || !snapshot} title={!hasKey ? "Добавьте ключ Gemini в настройках" : "Переиндексировать память"}>{indexing ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}Обновить индекс</button> : <a className="button secondary" href={`/api/sessions/${sessionId}/export`}><Download size={14} />Скачать историю</a>}<Link className="button primary" href={`/play/${sessionId}`}>Продолжить <ArrowRight size={14} /></Link></div></div>
+  return <section className="records"><div className="records-toolbar"><div className="record-select"><BookOpen size={17} /><select aria-label="Выбрать кампанию" disabled={indexing} value={sessionId} onChange={(e) => chooseSession(e.target.value)}>{sessions.map((s) => <option key={s.id} value={s.id}>{s.title} · {s.character.name}</option>)}</select></div><div className="record-actions">{mode === "memory" ? <button className="button secondary" onClick={() => void reindex()} disabled={!hasKey || !settings?.embeddingsEnabled || indexing || !snapshot} title={!hasKey ? "Добавьте ключ Gemini в настройках" : "Переиндексировать память"}>{indexing ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}Обновить индекс</button> : <a className="button secondary" href={`/api/sessions/${sessionId}/export`}><Download size={14} />Скачать историю</a>}<Link className="button primary" href={`/play/${sessionId}`}>Продолжить <ArrowRight size={14} /></Link></div></div>
     {error && <div className="notice error-notice" role="alert"><ShieldCheck size={17} /><p>{error}</p><button className="text-button" onClick={() => void load()}>Повторить</button></div>}
     {mode === "memory" && snapshot && <><div className="memory-metrics"><div><span className="feature-icon violet"><Database size={19} /></span><section><small>ФАКТОВ В ПАМЯТИ</small><strong>{snapshot.embeddings?.nodes ?? snapshot.memories.length}<span>сохранено в каноне</span></strong></section></div><div><span className="feature-icon teal"><BrainCircuit size={19} /></span><section><small>СЕМАНТИЧЕСКИЙ ИНДЕКС</small><strong>{snapshot.embeddings?.ready ?? 0}<span>готово к поиску</span></strong></section></div><div><span className="feature-icon amber"><Layers3 size={19} /></span><section><small>МОДЕЛЬ ПАМЯТИ</small><strong className="model-metric">gemini-embedding-2<span>{settings?.embeddingDims ?? 768} измерений · отдельное пространство кампании</span></strong></section></div></div>{!hasKey && <div className="notice"><Sparkles size={17} /><p>Канон и события уже сохраняются в PostgreSQL. <Link href="/settings">Подключите Gemini</Link>, чтобы искать воспоминания по смыслу, а не только по словам.</p></div>}</>}
     <div className="memory-search-row"><label className="search-field large"><Search size={17} /><input placeholder={mode === "memory" ? "Что вы хотите вспомнить?" : "Найти момент в истории…"} value={query} onChange={(e) => { searchRequest.current++; setSearching(false); setQuery(e.target.value); setResults(null); }} onKeyDown={(e) => { if (e.key === "Enter" && hasKey && mode === "memory") void semanticSearch(); }} aria-label="Поиск по истории" /></label>{mode === "memory" && <button className="button secondary" onClick={() => void semanticSearch()} disabled={!hasKey || !settings?.embeddingsEnabled || !query.trim() || searching}>{searching ? <LoaderCircle className="spin" size={14} /> : <Sparkles size={14} />}Поиск по смыслу</button>}</div>

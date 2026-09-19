@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { memoryEmbeddings, memoryNodes, tokenLogs } from "@/db/schema";
 import { estimateTokens } from "./gemini";
@@ -76,11 +76,12 @@ export async function indexPendingEmbeddings(opts: { sessionId: string; keys: st
   const now = new Date();
   const rows = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`embedding:${opts.sessionId}`}))`);
+    await tx.update(memoryEmbeddings).set({ status: "failed", leaseToken: null, leaseExpiresAt: null, error: "LEASE_RETRY_EXHAUSTED", updatedAt: now }).where(and(eq(memoryEmbeddings.sessionId, opts.sessionId), eq(memoryEmbeddings.status, "processing"), lte(memoryEmbeddings.leaseExpiresAt, now), sql`${memoryEmbeddings.attempts} >= 3`));
     const available = await tx.select().from(memoryEmbeddings).where(and(
-      eq(memoryEmbeddings.sessionId, opts.sessionId), eq(memoryEmbeddings.model, opts.model), eq(memoryEmbeddings.dims, opts.dims),
+      eq(memoryEmbeddings.sessionId, opts.sessionId), eq(memoryEmbeddings.model, opts.model), eq(memoryEmbeddings.dims, opts.dims), lt(memoryEmbeddings.attempts, 3),
       or(and(eq(memoryEmbeddings.status, "pending"), lte(memoryEmbeddings.nextAttemptAt, now)), and(eq(memoryEmbeddings.status, "processing"), lte(memoryEmbeddings.leaseExpiresAt, now))),
     )).orderBy(asc(memoryEmbeddings.updatedAt)).limit(Math.max(1, Math.min(opts.limit ?? 32, 64)));
-    if (available.length) await tx.update(memoryEmbeddings).set({ status: "processing", leaseToken, leaseExpiresAt: new Date(Date.now() + 45000) }).where(inArray(memoryEmbeddings.id, available.map((r) => r.id)));
+    if (available.length) await tx.update(memoryEmbeddings).set({ status: "processing", attempts: sql`${memoryEmbeddings.attempts} + 1`, leaseToken, leaseExpiresAt: new Date(Date.now() + 45000) }).where(inArray(memoryEmbeddings.id, available.map((r) => r.id)));
     return available;
   });
   let indexed = 0, failed = 0;
@@ -108,17 +109,22 @@ export async function indexPendingEmbeddings(opts: { sessionId: string; keys: st
   const [remaining] = await db.select({ n: sql<number>`count(*)` }).from(memoryEmbeddings).where(and(eq(memoryEmbeddings.sessionId, opts.sessionId), inArray(memoryEmbeddings.status, ["pending", "processing"])));
   return { indexed, failed, pending: Number(remaining?.n ?? 0) };
 }
-export async function embeddingStats(sessionId: string) {
-  const rows = await db.select({ status: memoryEmbeddings.status, model: memoryEmbeddings.model, n: sql<number>`count(*)` }).from(memoryEmbeddings).where(eq(memoryEmbeddings.sessionId, sessionId)).groupBy(memoryEmbeddings.status, memoryEmbeddings.model);
-  const [total] = await db.select({ n: sql<number>`count(*)` }).from(memoryNodes).where(eq(memoryNodes.sessionId, sessionId));
+export async function embeddingStats(sessionId: string, reader: Pick<typeof db, "select"> = db) {
+  const rows = await reader.select({ status: memoryEmbeddings.status, model: memoryEmbeddings.model, n: sql<number>`count(*)` }).from(memoryEmbeddings).where(eq(memoryEmbeddings.sessionId, sessionId)).groupBy(memoryEmbeddings.status, memoryEmbeddings.model);
+  const [total] = await reader.select({ n: sql<number>`count(*)` }).from(memoryNodes).where(eq(memoryNodes.sessionId, sessionId));
   const status: Record<string, number> = { ready: 0, pending: 0, processing: 0, failed: 0 };
   for (const row of rows) status[row.status] = Number(row.n);
   return { nodes: Number(total?.n ?? 0), ...status, models: [...new Set(rows.map((r) => r.model))] };
 }
 export type RetrievedNode = { id: string; layer: string; category: string; title: string; content: string; importance: number; salience: number; source: string; sourceTurn: number | null; turnTo: number | null; evidence: string | null; similarity: number; score: number; why: string };
 const queryCache = new Map<string, { vector: number[]; expires: number }>();
-export async function searchMemory(opts: { sessionId: string; query: string; keys: string[]; model: string; dims: number; k?: number; currentTurn?: number; perLayerCap?: number; minSimilarity?: number }): Promise<{ results: RetrievedNode[]; candidates: number; ms: number }> {
+export async function searchMemory(opts: { sessionId: string; query: string; keys: string[]; model: string; dims: number; k?: number; currentTurn?: number; perLayerCap?: number; minSimilarity?: number; timeoutMs?: number }): Promise<{ results: RetrievedNode[]; candidates: number; ms: number }> {
   const started = Date.now();
+  const candidates = await db.select({ node: memoryNodes, vector: memoryEmbeddings.vector, hash: memoryEmbeddings.contentHash }).from(memoryEmbeddings).innerJoin(memoryNodes, eq(memoryEmbeddings.memoryNodeId, memoryNodes.id)).where(and(
+    eq(memoryEmbeddings.sessionId, opts.sessionId), eq(memoryNodes.sessionId, opts.sessionId), eq(memoryEmbeddings.status, "ready"), eq(memoryEmbeddings.model, opts.model), eq(memoryEmbeddings.dims, opts.dims),
+  ));
+  const rows = candidates.filter((row) => isValidVector(row.vector, opts.dims) && row.hash === hashContent(opts.model, String(opts.dims), formatDocument(row.node.title, row.node.content)));
+  if (!rows.length) return { results: [], candidates: 0, ms: Date.now() - started };
   const key = hashContent(opts.sessionId, opts.model, String(opts.dims), opts.query);
   const cached = queryCache.get(key);
   let q = cached && cached.expires > started ? cached.vector : undefined;
@@ -127,9 +133,6 @@ export async function searchMemory(opts: { sessionId: string; query: string; key
     if (queryCache.size >= 128) queryCache.delete(queryCache.keys().next().value!);
     queryCache.set(key, { vector: q, expires: Date.now() + 120000 });
   }
-  const rows = await db.select({ node: memoryNodes, vector: memoryEmbeddings.vector, hash: memoryEmbeddings.contentHash }).from(memoryEmbeddings).innerJoin(memoryNodes, eq(memoryEmbeddings.memoryNodeId, memoryNodes.id)).where(and(
-    eq(memoryEmbeddings.sessionId, opts.sessionId), eq(memoryNodes.sessionId, opts.sessionId), eq(memoryEmbeddings.status, "ready"), eq(memoryEmbeddings.model, opts.model), eq(memoryEmbeddings.dims, opts.dims),
-  ));
   const scored: RetrievedNode[] = [];
   for (const row of rows) {
     const n = row.node;

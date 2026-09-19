@@ -1,0 +1,89 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   READING PREFERENCES — owner-controlled comfort layer
+   Only re-maps tokens. Every theme keeps the same contrast ladder, so AA
+   holds without touching a single component.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Skip link: the first tab stop on every page. */
+.skip-link{position:fixed;top:var(--sp-3);left:var(--sp-3);z-index:200;padding:12px var(--sp-4);border:1px solid var(--accent-line);border-radius:var(--r-sm);background:var(--overlay);color:var(--ink);font-size:var(--t-sm);font-weight:650;box-shadow:var(--e3);transform:translateY(-160%);transition:transform var(--d2) var(--out)}
+.skip-link:focus-visible{transform:translateY(0)}
+
+/* ── Prose scale ──────────────────────────────────────────────────────── */
+html[data-text="compact"]{--t-lg:1rem;--t-md:.9375rem}
+html[data-text="large"]{--t-sm:.9375rem;--t-md:1.0625rem;--t-lg:1.25rem;--t-xl:1.3125rem}
+
+/* ── Line measure ─────────────────────────────────────────────────────── */
+html[data-measure="narrow"]{--measure:54ch}
+html[data-measure="wide"]{--measure:76ch}
+
+/* ── Sepia: warm, low-glare. Lightness steps mirror midnight, so contrast
+      ratios are preserved across the whole ink ladder. ─────────────────── */
+html[data-theme="sepia"]{
+  --bg:oklch(16% .014 74);
+  --sunken:oklch(13.5% .013 74);
+  --surface:oklch(20.5% .016 74);
+  --raised:oklch(24.5% .019 74);
+  --hover:oklch(28.5% .023 74);
+  --overlay:oklch(23% .02 74);
+  --line:oklch(32% .022 74);
+  --line-2:oklch(39% .03 72);
+  --line-3:oklch(49% .055 70);
+  --ink:oklch(95% .015 78);
+  --ink-2:oklch(84% .021 78);
+  --ink-3:oklch(72% .025 78);
+  --ink-4:oklch(64% .027 78);
+  --accent:oklch(79% .115 68);
+  --accent-2:oklch(70% .12 64);
+  --accent-ink:oklch(88% .07 72);
+  --accent-soft:oklch(30% .055 68);
+  --accent-line:oklch(52% .09 68);
+  --on-accent:oklch(20% .04 68);
+  --glow:oklch(62% .13 68/.3);
+}
+
+/* ── High contrast: brighter ink, stronger borders, no soft washes. ───── */
+html[data-theme="contrast"]{
+  --bg:oklch(11% .008 288);
+  --sunken:oklch(8.5% .006 288);
+  --surface:oklch(17% .01 288);
+  --raised:oklch(22% .012 288);
+  --hover:oklch(27% .016 290);
+  --overlay:oklch(19% .011 288);
+  --line:oklch(45% .022 290);
+  --line-2:oklch(56% .032 292);
+  --line-3:oklch(67% .055 294);
+  --ink:oklch(99% 0 0);
+  --ink-2:oklch(93% .005 288);
+  --ink-3:oklch(85% .009 290);
+  --ink-4:oklch(78% .012 290);
+  --accent:oklch(83% .14 296);
+  --accent-2:oklch(74% .16 296);
+  --accent-ink:oklch(93% .06 296);
+  --accent-soft:oklch(28% .07 296);
+  --accent-line:oklch(60% .12 296);
+  --on-accent:oklch(15% .04 296);
+  --ok:oklch(86% .14 163);
+  --warn:oklch(89% .13 85);
+  --bad:oklch(80% .15 18);
+}
+html[data-theme="contrast"] :focus-visible{outline-width:3px}
+
+/* ── Calm motion: owner-level switch, independent of the OS setting. ──── */
+html[data-motion="reduced"] *,
+html[data-motion="reduced"] *::before,
+html[data-motion="reduced"] *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+
+/* ── Preference controls (settings screen) ────────────────────────────── */
+.reading-groups{display:flex;flex-direction:column;gap:var(--sp-5)}
+.reading-group>span{display:block;margin-bottom:var(--sp-2);font-size:var(--t-xs);font-weight:600;color:var(--ink-2)}
+.reading-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--sp-2)}
+.reading-choice{display:flex;flex-direction:column;gap:3px;padding:11px 13px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--sunken);text-align:left;transition:border-color var(--d2) var(--ease),background var(--d2) var(--ease),transform var(--d2) var(--out)}
+.reading-choice:hover:not(:disabled){border-color:var(--line-3);background:var(--raised);transform:translateY(-1px)}
+.reading-choice.selected{border-color:var(--accent-line);background:var(--accent-soft)}
+.reading-choice.selected strong{color:var(--ink)}
+.reading-choice.selected small{color:var(--ink-2)}
+.reading-choice strong{font-size:var(--t-xs);font-weight:650;color:var(--ink)}
+.reading-choice small{font-size:var(--t-2xs);color:var(--ink-4)}
+.reading-preview{margin-top:var(--sp-5);padding:var(--sp-5);border:1px solid var(--line);border-radius:var(--r-md);background:var(--surface)}
+.reading-preview small{display:block;margin-bottom:var(--sp-2);font-size:var(--t-2xs);font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-4)}
+.reading-preview p{max-width:var(--measure);font-size:var(--t-lg);line-height:1.85;color:var(--ink-2)}

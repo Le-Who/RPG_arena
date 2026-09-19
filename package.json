@@ -6,7 +6,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --env-file-if-exists=.env --import tsx --test tests/*.test.ts",
+    "migrate": "node --env-file=.env --import tsx scripts/migrate.ts",
+    "worker": "node --env-file=.env --import tsx scripts/memory-worker.ts",
+    "audit:ui": "node --env-file-if-exists=.env --import tsx scripts/ui-audit.ts",
+    "verify:ui": "node --env-file-if-exists=.env --import tsx scripts/ui-verify.ts",
+    "smoke": "node --env-file=.env --import tsx scripts/smoke.ts",
+    "smoke:v22": "node --env-file=.env --import tsx scripts/v22-smoke.ts",
+    "verify": "npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
     "@playwright/test": "^1.63.0",

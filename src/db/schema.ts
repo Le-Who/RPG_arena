@@ -1,3 +1,6 @@
+import { sql } from "drizzle-orm";
+import type { TurnResponse, TurnStage } from "@/lib/turn-contract";
+import type { CheckpointSnapshot } from "@/lib/checkpoint-types";
 import {
   pgTable,
   uuid,
@@ -29,8 +32,6 @@ export type CharacterState = {
   xp: number;
   hp: number;
   maxHp: number;
-  mana: number;
-  maxMana: number;
   gold: number;
   stats: Record<string, number>; // d20: СИЛ ЛОВ ВЫН ИНТ МУД ХАР; иные профили — может быть пустым
   skills: string[];
@@ -103,6 +104,7 @@ export const gameSessions = pgTable("game_sessions", {
   scenarioId: text("scenario_id").notNull().default("custom"),
   scenarioTitle: text("scenario_title").notNull().default("Своя история"),
   scenarioPrompt: text("scenario_prompt").notNull().default(""),
+  branchOrigin: jsonb("branch_origin").$type<{ sessionId: string; sessionTitle: string; checkpointId: string; checkpointTitle: string; turn: number } | null>().default(null),
   // ARCH-1a: режим и профиль хранятся явно, а не выводятся из scenarioId
   campaignMode: text("campaign_mode").notNull().default("preset").$type<CampaignMode>(),
   rulesProfile: text("rules_profile").notNull().default("d20").$type<RulesProfile>(),
@@ -173,8 +175,6 @@ export const memoryNodes = pgTable(
     parentId: uuid("parent_id").references((): AnyPgColumn => memoryNodes.id, { onDelete: "set null" }),
     turnFrom: integer("turn_from").default(0),
     turnTo: integer("turn_to").default(0),
-    accessCount: integer("access_count").notNull().default(0),
-    lastAccessedAt: timestamp("last_accessed_at").defaultNow(),
     // ── provenance ──
     source: text("source").notNull().default("heuristic").$type<MemorySource>(),
     sourceTurn: integer("source_turn"),
@@ -368,10 +368,6 @@ export const aiSettings = pgTable("ai_settings", {
   customActionModel: text("custom_action_model").notNull().default("gemini-3.8-flash"),
   compactionModel: text("compaction_model").notNull().default("gemini-3.8-flash"),
   fastTaskModel: text("fast_task_model").notNull().default("gemini-3.5-flash-lite"),
-  primaryModel: text("primary_model").notNull().default("gemini-3.5-flash-lite"),
-  fallbackChain: jsonb("fallback_chain")
-    .$type<string[]>()
-    .default(["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]),
   useLiveAI: boolean("use_live_ai").notNull().default(false),
   dailyFlashLimit: integer("daily_flash_limit").notNull().default(20),
   dailyLiteLimit: integer("daily_lite_limit").notNull().default(500),
@@ -413,9 +409,64 @@ export const tokenLogs = pgTable(
 );
 
 /** Local, single-owner workspace. Add ownership/RLS before multi-user deployment. */
+export type ReadingPreferences = {
+  textScale: "compact" | "normal" | "large";
+  measure: "narrow" | "normal" | "wide";
+  theme: "midnight" | "sepia" | "contrast";
+  motion: "full" | "reduced";
+};
+
 export const workspacePreferences = pgTable("workspace_preferences", {
   id: text("id").primaryKey().default("local"),
   displayName: text("display_name").notNull().default("Искатель историй"),
   favorites: jsonb("favorites").notNull().$type<string[]>().default([]),
+  /** Reading comfort lives on the server so it follows the owner across devices. */
+  reading: jsonb("reading").notNull().$type<ReadingPreferences>().default({ textScale: "normal", measure: "normal", theme: "midnight", motion: "full" }),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// A lease fences expensive work before provider calls. Completion is atomic with the turn.
+export const turnRequests = pgTable("turn_requests", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sessionId: uuid("session_id").notNull().references(() => gameSessions.id, { onDelete: "cascade" }),
+  requestId: text("request_id").notNull(), inputHash: text("input_hash").notNull(),
+  action: text("action").notNull(), isFree: boolean("is_free").notNull(), baseTurn: integer("base_turn").notNull(),
+  status: text("status").notNull().$type<"running" | "completed" | "failed">(),
+  stage: text("stage").notNull().$type<TurnStage>().default("context"),
+  leaseToken: uuid("lease_token"), leaseExpiresAt: timestamp("lease_expires_at"),
+  dice: jsonb("dice").$type<DiceResult | null>(), result: jsonb("result").$type<TurnResponse | null>(),
+  error: text("error"), attempts: integer("attempts").notNull().default(1),
+  createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("uq_turn_request_key").on(t.sessionId, t.requestId), uniqueIndex("uq_running_turn_session").on(t.sessionId).where(sql`${t.status} = 'running'`), index("idx_turn_requests_status_updated").on(t.status, t.updatedAt)]);
+
+export type MemoryJobPayload = { narration: string; playerAction: string; profileCanon: string; knownDigest: string };
+export const memoryJobs = pgTable("memory_jobs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sessionId: uuid("session_id").notNull().references(() => gameSessions.id, { onDelete: "cascade" }),
+  turnNumber: integer("turn_number").notNull(), kind: text("kind").notNull().default("semantic"),
+  payload: jsonb("payload").notNull().$type<MemoryJobPayload>(),
+  status: text("status").notNull().default("pending").$type<"pending" | "processing" | "completed" | "failed">(),
+  attempts: integer("attempts").notNull().default(0), leaseToken: uuid("lease_token"), leaseExpiresAt: timestamp("lease_expires_at"),
+  nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(), error: text("error"), factsCount: integer("facts_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("uq_memory_job_turn_kind").on(t.sessionId, t.turnNumber, t.kind), index("idx_memory_jobs_ready").on(t.status, t.nextAttemptAt)]);
+
+export const campaignCheckpoints = pgTable("campaign_checkpoints", {
+  id: uuid("id").defaultRandom().primaryKey(), sessionId: uuid("session_id").notNull().references(() => gameSessions.id, { onDelete: "cascade" }),
+  title: text("title").notNull(), turnNumber: integer("turn_number").notNull(), requestId: text("request_id").notNull(),
+  snapshot: jsonb("snapshot").notNull().$type<CheckpointSnapshot>(), checksum: text("checksum").notNull(),
+  summary: jsonb("summary").notNull().$type<{ character: string; location: string; memories: number; items: number; turns: number; pendingFacts: number }>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("idx_checkpoints_session_turn").on(t.sessionId, t.turnNumber), uniqueIndex("uq_checkpoint_request").on(t.sessionId, t.requestId)]);
+
+export const checkpointForks = pgTable("checkpoint_forks", {
+  id: uuid("id").defaultRandom().primaryKey(), checkpointId: uuid("checkpoint_id").notNull().references(() => campaignCheckpoints.id, { onDelete: "cascade" }),
+  requestId: text("request_id").notNull(), inputHash: text("input_hash").notNull(),
+  branchId: uuid("branch_id").references(() => gameSessions.id, { onDelete: "set null" }), createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("uq_checkpoint_fork_request").on(t.checkpointId, t.requestId)]);
+
+export const workerHeartbeats = pgTable("worker_heartbeats", {
+  id: text("id").primaryKey(), status: text("status").notNull(),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  report: jsonb("report").$type<{ extracted: number; indexed: number; failed: number; elapsedMs: number }>(),
 });

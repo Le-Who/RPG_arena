@@ -1,6 +1,9 @@
 node_modules/
 .next/
 artifacts/
+output/
+accessibility-revision/
+backend-revision/
 *.tsbuildinfo
 .env
 .env.*

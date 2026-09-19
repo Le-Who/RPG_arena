@@ -19,43 +19,29 @@ import {
 } from "@/db/schema";
 import {
   buildDiceBlock,
-  buildExtractionSystemPrompt,
   buildTurnSystemPrompt,
   buildTurnUserPrompt,
   callGeminiWithRotation,
   estimateTokens,
-  EXTRACTION_RESPONSE_SCHEMA,
   isLite,
   RESOLUTION_RESPONSE_SCHEMA,
   type TaskType,
 } from "./gemini";
 import { getAIConfig, logToken, pickModels, type AIConfig } from "./ai-settings";
-import { assembleMemoryDigest, layerForFactType, LAYER_INFO, loadRankedNodes, normalizeExtractedFacts, shouldCompact, upsertMemoryNode, writeStateEvents, type ModelTier } from "./memory";
-import { enqueueEmbeddings, indexPendingEmbeddings, retrievedDigest, searchMemory, type RetrievedNode } from "./embeddings";
-import { applyResolution, emptyChanges, extractJsonObject, parseResolution, type DbOp, type ResolutionPayload } from "./resolution";
+import { assembleMemoryDigest, LAYER_INFO, loadRankedNodes, shouldCompact, upsertMemoryNode, writeStateEvents, type ModelTier } from "./memory";
+import { retrievedDigest, searchMemory, type RetrievedNode } from "./embeddings";
+import { applyResolution, emptyChanges, parseResolution, type DbOp, type ResolutionPayload } from "./resolution";
 import { profileFor } from "./profiles";
-import { runOfflineEngine, serverCheck } from "./engine";
+import { runOfflineEngine } from "./engine";
 import { SCENARIOS } from "./scenarios";
 
-export type TurnResponse = {
-  ok: true;
-  turnNumber: number;
-  narration: string;
-  choices: string[];
-  dice: DiceResult | null;
-  outcome: string;
-  applied: AppliedChanges;
-  modelUsed: string;
-  taskType: TaskType;
-  needsCompaction: boolean;
-  dead: boolean;
-  retrieved: { id: string; title: string; why: string }[];
-  skippedModels: string[];
-  warnings: string[];
-  replay?: boolean;
-};
-
-export type TurnError = { ok: false; code: "NOT_FOUND" | "AI_REQUIRED" | "AI_FAILED" | "BUSY"; message: string; details?: string };
+import type { TurnInput, TurnResponse, TurnError, TurnErrorCode } from "./turn-contract";
+export type { TurnResponse, TurnError } from "./turn-contract";
+import { acquireTurn, normalizeTurnInput, assertTurnLease, completeTurnRequest, failTurnRequest, setTurnStage, type TurnLease } from "./turn-admission";
+import { HttpError } from "./http";
+import { enqueueSemanticJob } from "./memory-jobs";
+import { runMemoryCycle } from "./background";
+import { relevantInventory } from "./context-budget";
 
 const short = (id: string) => id.slice(0, 6);
 
@@ -72,17 +58,17 @@ export function buildCharacterLine(c: CharacterState, rulesProfile: string): str
   }
   return `${c.name} (${c.archetype}${traits}${skills}${conds})`;
 }
-
 function buildDigests(input: {
-  inventory: { id: string; name: string; kind: string; quantity: number; equipped: boolean; description: string }[];
+  inventory: { id: string; name: string; kind: string; quantity: number; equipped: boolean; description: string; power?: number }[];
   questRows: { key: string; title: string; status: string; progress: number; isMain: boolean; description: string }[];
   npcRows: { key: string; name: string; role: string; relation: number; status: string; description: string }[];
   scene: { key: string; name: string; state: string; description: string; locationName: string }[];
   location: string;
+  playerAction: string;
 }) {
-  const inv = [...input.inventory].sort((a, b) => Number(b.kind === "quest") - Number(a.kind === "quest") || Number(b.equipped) - Number(a.equipped));
+  const inv = relevantInventory(input.inventory, input.playerAction);
   const inventoryDigest = inv.length
-    ? inv.slice(0, 14).map((i) => `#${short(i.id)} ${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ""} (${i.kind}${i.equipped ? ", надето" : ""})${i.description ? ` — ${i.description.slice(0, 70)}` : ""}`).join("; ") + (inv.length > 14 ? `; … ещё ${inv.length - 14}` : "")
+    ? inv.slice(0, 14).map((i) => `#${short(i.id)} ${i.name} ×${i.quantity} (${i.kind}${i.equipped ? ", надето" : ""}${i.power ? `, сила свойства: ${i.power}` : ""})${i.description ? ` — ${i.description.slice(0, 70)}` : ""}`).join("; ") + (input.inventory.length > inv.length ? `; … ещё ${input.inventory.length - inv.length} предметов вне контекста` : "")
     : "пусто";
   const active = input.questRows.filter((q) => q.status === "active" || q.status === "hidden");
   const done = input.questRows.filter((q) => q.status === "completed" || q.status === "failed");
@@ -97,61 +83,37 @@ function buildDigests(input: {
   return { inventoryDigest, questsDigest, npcsDigest, sceneDigest };
 }
 
-async function loadReplay(sessionId: string, requestId: string): Promise<TurnResponse | null> {
-  const p = await db
-    .select({ turnNumber: gameTurns.turnNumber })
-    .from(gameTurns)
-    .where(and(eq(gameTurns.sessionId, sessionId), eq(gameTurns.requestId, requestId)))
-    .limit(1);
-  if (!p[0]) return null;
-  const n = await db
-    .select()
-    .from(gameTurns)
-    .where(and(eq(gameTurns.sessionId, sessionId), eq(gameTurns.turnNumber, p[0].turnNumber), eq(gameTurns.role, "narrator")))
-    .limit(1);
-  if (!n[0]) return null;
-  return {
-    ok: true,
-    replay: true,
-    turnNumber: n[0].turnNumber,
-    narration: n[0].content,
-    choices: n[0].choices ?? [],
-    dice: (n[0].dice as DiceResult | null) ?? null,
-    outcome: "replay",
-    applied: (n[0].stateChanges as AppliedChanges | null) ?? emptyApplied(),
-    modelUsed: n[0].modelUsed ?? "",
-    taskType: (n[0].taskType as TaskType) ?? "narration",
-    needsCompaction: false,
-    dead: Boolean(n[0].stateChanges?.dead),
-    retrieved: [],
-    skippedModels: [],
-    warnings: ["replay: повторный запрос с тем же requestId"],
-  };
-}
-
 export function emptyApplied(): AppliedChanges {
   return { hp: 0, xp: 0, gold: 0, danger: 0, levelUp: false, dead: false, location: null, quests: [], npcs: [], inventory: [], sceneObjects: [], conditions: { added: [], removed: [] }, rejected: [] };
 }
 
-export async function performTurn(opts: { sessionId: string; action: string; isFree: boolean; requestId?: string | null }): Promise<TurnResponse | TurnError> {
-  const { sessionId } = opts;
-  const playerAction = opts.action.trim().slice(0, 2000) || "Осмотреться";
-  const requestId = opts.requestId?.slice(0, 80) || null;
-
-  if (requestId) {
-    const replay = await loadReplay(sessionId, requestId);
-    if (replay) return replay;
+export async function performTurn(raw: TurnInput, runtime: { loadAIConfig?: () => Promise<AIConfig> } = {}): Promise<TurnResponse | TurnError> {
+  let lease: TurnLease | undefined;
+  try {
+    const opts = normalizeTurnInput(raw);
+    const admitted = await acquireTurn(opts);
+    if (admitted.kind === "replay") return admitted.result;
+    lease = admitted.lease;
+    const result = await performAdmittedTurn(opts, lease, runtime.loadAIConfig);
+    if (!result.ok) await failTurnRequest(lease, result.code);
+    return result;
+  } catch (error) {
+    if (lease) await failTurnRequest(lease, error instanceof HttpError ? error.code : "INTERNAL").catch(() => {});
+    if (error instanceof HttpError) return { ok: false, code: error.code as TurnErrorCode, message: error.message, ...error.extra };
+    throw error;
   }
+}
 
-  const sRows = await db.select().from(gameSessions).where(eq(gameSessions.id, sessionId));
-  if (!sRows[0]) return { ok: false, code: "NOT_FOUND", message: "Кампания не найдена" };
-  const session = sRows[0];
-  if (session.status !== "active") return { ok: false, code: "BUSY", message: "Кампания находится в архиве. Сначала восстановите её." };
+async function performAdmittedTurn(opts: TurnInput & { requestId: string }, lease: TurnLease, loadConfig: () => Promise<AIConfig> = getAIConfig): Promise<TurnResponse | TurnError> {
+  const sessionId = opts.sessionId;
+  const playerAction = opts.action;
+  const requestId = opts.requestId;
+  const session = lease.session;
   const character: CharacterState = { conditions: [], ...(session.character as CharacterState) };
   const world = session.worldState as WorldState;
   const spec = profileFor(session.rulesProfile);
   const campaignMode = session.campaignMode ?? (session.scenarioId === "custom" ? "free" : "preset");
-  const cfg = await getAIConfig();
+  const cfg = await loadConfig();
 
   // ARCH-1d: свободная кампания — AI-first, без офлайн-шаблона
   if (campaignMode === "free" && !cfg.canUseLive) {
@@ -170,7 +132,7 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
   const recentCharLimit = tier === "flash" ? 1500 : 1000;
 
   const [recentRaw, mems, inventory, questRows, npcRows, scene, locations] = await Promise.all([
-    db.select().from(gameTurns).where(eq(gameTurns.sessionId, sessionId)).orderBy(desc(gameTurns.turnNumber), desc(gameTurns.createdAt)).limit(recentCount),
+    db.select().from(gameTurns).where(eq(gameTurns.sessionId, sessionId)).orderBy(desc(gameTurns.turnNumber), desc(sql`case when ${gameTurns.role} = 'player' then 0 else 1 end`), desc(gameTurns.createdAt)).limit(recentCount),
     loadRankedNodes(sessionId, 60),
     db.select().from(inventoryItems).where(eq(inventoryItems.sessionId, sessionId)).orderBy(asc(inventoryItems.createdAt)),
     db.select().from(quests).where(eq(quests.sessionId, sessionId)).orderBy(asc(quests.createdAt)),
@@ -184,9 +146,7 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
   const nextTurn = (session.turnCount ?? 0) + 1;
 
   // ── Серверная проверка по профилю — ДО вызова AI ──
-  const dice: DiceResult | null = opts.isFree
-    ? serverCheck({ rulesProfile: spec.id, playerAction, stats: character.stats ?? {}, danger: world.danger, turnCount: nextTurn })
-    : null;
+  const dice: DiceResult | null = lease.dice;
 
   // ── Семантический поиск памяти (MEM-2e) ──
   let retrieved: RetrievedNode[] = [];
@@ -202,6 +162,7 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
         dims: cfg.embeddingDims,
         k: 8,
         currentTurn: nextTurn,
+        timeoutMs: 6000,
       });
       retrieved = r.results;
       retrievalMs = r.ms;
@@ -216,7 +177,7 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
     nextTurn,
     retrievedIds,
   );
-  const digests = buildDigests({ inventory, questRows, npcRows, scene, location: world.currentLocation });
+  const digests = buildDigests({ inventory, questRows, npcRows, scene, location: world.currentLocation, playerAction });
   const characterLine = buildCharacterLine(character, spec.id);
   const worldLine = `Мир ${world.worldName}, тон: ${world.tone}, эпоха: ${world.era}, главная цель: ${world.mainQuest}, глава ${world.chapter}, накал ${world.danger}/100${world.factions?.length ? `, фракции: ${world.factions.join(", ")}` : ""}`;
 
@@ -246,6 +207,7 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
     const system = buildTurnSystemPrompt(ctx);
     const user = buildTurnUserPrompt(ctx);
     try {
+      await setTurnStage(lease, "generation");
       const res = await callGeminiWithRotation({
         keys: cfg.keys,
         models,
@@ -254,6 +216,7 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
         maxTokens: tier === "flash" ? 2200 : 1800,
         temperature: 0.8,
         responseSchema: RESOLUTION_RESPONSE_SCHEMA,
+        timeoutMs: 30_000,
         onAttempt: async (a) => {
           if (!a.ok) await logToken({ sessionId, model: a.model, taskType, promptTokens: 0, completionTokens: 0, latencyMs: a.latencyMs, success: false, error: a.error, keyIndex: a.keyIndex });
         },
@@ -266,6 +229,7 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
       warnings.push(...parsed.warnings);
       await logToken({ sessionId, model: res.model, taskType, promptTokens, completionTokens, latencyMs: res.latencyMs, success: true, keyIndex: res.keyIndex });
     } catch (e) {
+      if (e instanceof HttpError) throw e;
       const msg = e instanceof Error ? e.message : String(e);
       if (campaignMode === "free") {
         return { ok: false, code: "AI_FAILED", message: "ИИ-мастер сейчас недоступен. Ход не записан — повторите через минуту.", details: msg.slice(0, 200) };
@@ -332,13 +296,19 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
     ? `${payload.narration}\n\n💀 ${character.name} на грани гибели. История не обрывается — но цена уплачена${spec.resources.gold ? " (−10 средств)" : ""}.`
     : payload.narration;
 
+  const playerCount = await db.select({ c: count() }).from(gameTurns).where(and(eq(gameTurns.sessionId, sessionId), eq(gameTurns.role, "player"), gt(gameTurns.turnNumber, session.lastCompactTurn ?? 0)));
+  const needsCompaction = shouldCompact((playerCount[0]?.c ?? 0) + 1, 0, estimateTokens(recentTurns), tier === "flash" ? 8000 : LAYER_INFO.working.budget);
+  const response: TurnResponse = { ok: true, requestId, turnNumber: nextTurn, narration: narrationOut, choices: payload.choices, dice, outcome: result.outcome, applied: result.applied, modelUsed, taskType, needsCompaction, dead: result.applied.dead, retrieved: retrieved.map((r) => ({ id: r.id, title: r.title, why: r.why })), skippedModels: skipped, warnings };
+  await setTurnStage(lease, "applying");
+
   // ── Транзакция (RES-1f): всё или ничего ──
   let touchedMemoryIds: string[] = [];
   try {
     touchedMemoryIds = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${sessionId}))`);
+      await assertTurnLease(tx, lease);
       const [fresh] = await tx.select({ turnCount: gameSessions.turnCount, status: gameSessions.status }).from(gameSessions).where(eq(gameSessions.id, sessionId));
-      if (!fresh || fresh.turnCount !== session.turnCount || fresh.status !== "active") throw new Error("TURN_CONFLICT");
+      if (!fresh || fresh.turnCount !== session.turnCount || fresh.status !== "active") throw new HttpError(409, "STALE_TURN", "История изменилась до сохранения хода. Обновите сцену.");
       await tx.insert(gameTurns).values({
         sessionId,
         turnNumber: nextTurn,
@@ -397,65 +367,15 @@ export async function performTurn(opts: { sessionId: string; action: string; isF
         );
         if (r.changed) touched.push(r.id);
       }
+      if (cfg.canUseLive && cfg.semanticExtractionEnabled && modelUsed.startsWith("gemini")) await enqueueSemanticJob(tx, { sessionId, turnNumber: nextTurn, payload: { narration: payload!.narration, playerAction, profileCanon: spec.promptCanon, knownDigest: memoryDigest.slice(0, 3000) } });
+      await completeTurnRequest(tx, lease, response);
       return touched;
     });
-  } catch (e) {
-    const code = (e as { code?: string; cause?: { code?: string } })?.code ?? (e as { cause?: { code?: string } })?.cause?.code;
-    if ((code === "23505" || (e instanceof Error && e.message === "TURN_CONFLICT")) && requestId) {
-      const replay = await loadReplay(sessionId, requestId);
-      if (replay) return replay;
-    }
-    if (e instanceof Error && e.message === "TURN_CONFLICT") return { ok: false, code: "BUSY", message: "История уже изменилась в другой вкладке или находится в архиве. Обновите её перед следующим ходом." };
-    throw e;
-  }
-
-  // ── Компакция? ──
-  const lastCompactTurn = session.lastCompactTurn ?? 0;
-  const playerCount = await db
-    .select({ c: count() })
-    .from(gameTurns)
-    .where(and(eq(gameTurns.sessionId, sessionId), eq(gameTurns.role, "player"), gt(gameTurns.turnNumber, lastCompactTurn)));
-  const needsCompaction = shouldCompact(playerCount[0]?.c ?? 0, 0, estimateTokens(recentTurns), tier === "flash" ? 8000 : LAYER_INFO.working.budget);
-
-  // ── Фон (MEM-1d, MEM-2c): не блокируем ответ ──
-  const narrationForExtraction = payload.narration;
-  const knownDigest = memoryDigest.slice(0, 3000);
-  schedule(async () => {
-    const extra: string[] = [];
-    if (cfg.canUseLive && cfg.semanticExtractionEnabled && modelUsed.startsWith("gemini")) {
-      try {
-        extra.push(...(await runSemanticExtraction({ sessionId, turnNumber: nextTurn, narration: narrationForExtraction, playerAction, cfg, profileCanon: spec.promptCanon, knownDigest })));
-      } catch (e) {
-        console.warn("[extract]", e instanceof Error ? e.message : e);
-      }
-    }
-    if (cfg.canUseLive && cfg.embeddingsEnabled) {
-      try {
-        await enqueueEmbeddings(sessionId, [...touchedMemoryIds, ...extra], cfg.embeddingModel, cfg.embeddingDims);
-        await indexPendingEmbeddings({ sessionId, keys: cfg.keys, model: cfg.embeddingModel, dims: cfg.embeddingDims, limit: 32 });
-      } catch (e) {
-        console.warn("[embed]", e instanceof Error ? e.message : e);
-      }
-    }
-  });
-
-  return {
-    ok: true,
-    turnNumber: nextTurn,
-    narration: narrationOut,
-    choices: payload.choices,
-    dice,
-    outcome: result.outcome,
-    applied: result.applied,
-    modelUsed,
-    taskType,
-    needsCompaction,
-    dead: result.applied.dead,
-    retrieved: retrieved.map((r) => ({ id: r.id, title: r.title, why: r.why })),
-    skippedModels: skipped,
-    warnings,
-  };
+  } catch (error) { throw error; }
+  schedule(async () => { try { await runMemoryCycle({ sessionId, source: "after" }); } catch { console.warn("[memory worker] tick failed; durable tasks remain queued"); } });
+  return response;
 }
+
 
 function schedule(fn: () => Promise<void>) {
   try {
@@ -518,61 +438,4 @@ async function executeOps(tx: Tx, sessionId: string, ops: DbOp[], turnNumber: nu
         break;
     }
   }
-}
-
-// ─────────────────────────────────────────────────────────────
-//  MEM-1b/d: асинхронный, идемпотентный semantic-extractor
-// ─────────────────────────────────────────────────────────────
-export async function runSemanticExtraction(input: {
-  sessionId: string;
-  turnNumber: number;
-  narration: string;
-  playerAction: string;
-  cfg: AIConfig;
-  profileCanon: string;
-  knownDigest: string;
-}): Promise<string[]> {
-  const existing = await db
-    .select({ id: memoryNodes.id })
-    .from(memoryNodes)
-    .where(and(eq(memoryNodes.sessionId, input.sessionId), eq(memoryNodes.source, "ai-semantic"), eq(memoryNodes.sourceTurn, input.turnNumber)))
-    .limit(1);
-  if (existing[0]) return []; // уже извлекали для этого хода
-
-  const { models } = await pickModels("fast", input.cfg);
-  if (!models.length) return [];
-  const res = await callGeminiWithRotation({
-    keys: input.cfg.keys,
-    models,
-    system: buildExtractionSystemPrompt(input.profileCanon, input.knownDigest),
-    user: `Действие игрока: ${input.playerAction}\n\nТекст хода:\n${input.narration}`,
-    maxTokens: 900,
-    temperature: 0.2,
-    responseSchema: EXTRACTION_RESPONSE_SCHEMA,
-    timeoutMs: 30_000,
-    onAttempt: async (a) => {
-      if (!a.ok) await logToken({ sessionId: input.sessionId, model: a.model, taskType: "fast", promptTokens: 0, completionTokens: 0, latencyMs: a.latencyMs, success: false, error: a.error, keyIndex: a.keyIndex });
-    },
-  });
-  await logToken({ sessionId: input.sessionId, model: res.model, taskType: "fast", promptTokens: res.promptTokens, completionTokens: res.completionTokens, latencyMs: res.latencyMs, success: true, keyIndex: res.keyIndex });
-  const facts = normalizeExtractedFacts(extractJsonObject(res.text), input.narration, input.playerAction);
-  const ids: string[] = [];
-  for (const f of facts) {
-    const r = await upsertMemoryNode({
-      sessionId: input.sessionId,
-      layer: layerForFactType(f.type),
-      category: f.type === "npc" ? "npc" : f.type === "character" ? "character" : f.type === "relationship" ? "npc" : f.type === "event" || f.type === "promise" ? "event" : "world",
-      title: f.title,
-      content: f.content,
-      importance: f.importance,
-      source: "ai-semantic",
-      sourceTurn: input.turnNumber,
-      entityKey: f.entityKey ? `${f.entityKey}` : null,
-      mode: f.entityKey ? "upsert" : "append",
-      confidence: f.confidence,
-      evidence: f.evidence,
-    });
-    if (r.changed) ids.push(r.id);
-  }
-  return ids;
 }
