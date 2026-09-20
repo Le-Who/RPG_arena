@@ -140,7 +140,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   const world = session.worldState as WorldState;
   const spec = profileFor(session.rulesProfile);
   const campaignMode = session.campaignMode ?? (session.scenarioId === "custom" ? "free" : "preset");
-  const cfg = await (runtime.loadAIConfig ?? getAIConfig)();
+  const cfg = await (runtime.loadAIConfig ? runtime.loadAIConfig() : getAIConfig(session.ownerId ?? undefined));
 
   // ARCH-1d: свободная кампания — AI-first, без офлайн-шаблона
   if (campaignMode === "free" && !cfg.canUseLive) {

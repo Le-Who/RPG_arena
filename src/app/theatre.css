@@ -93,9 +93,12 @@
 .gx-dice.is-cost .gx-dice-verdict{color:var(--warn)}
 
 /* Applied changes */
-.gx-applied{display:flex;flex-wrap:wrap;gap:6px;margin-top:var(--sp-4)}
+.gx-applied{display:flex;flex-wrap:wrap;gap:6px;margin:var(--sp-4) 0 0;padding:0;list-style:none}
 .gx-applied-chip{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border:1px solid var(--line-2);border-radius:var(--r-xs);background:var(--surface);font-size:var(--t-2xs);font-weight:600;color:var(--ink-2);animation:pop var(--d3) var(--out) both}
-.gx-applied-chip svg{color:var(--ok)}
+.gx-applied-chip{max-width:100%;overflow-wrap:anywhere}
+.gx-applied-chip svg{flex-shrink:0;color:var(--ink-3)}
+.gx-applied-chip.is-positive svg{color:var(--ok)}
+.gx-applied-chip.is-negative svg{color:var(--bad)}
 .gx-rejected{margin-top:var(--sp-3);font-size:var(--t-xs)}
 .gx-rejected summary{cursor:pointer;font-weight:600;color:var(--warn);list-style:none}
 .gx-rejected summary::-webkit-details-marker{display:none}

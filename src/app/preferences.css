@@ -110,3 +110,10 @@ html[data-motion="reduced"] *::after{animation-duration:.01ms!important;animatio
   .gx-sidebar{max-height:none}
   .gx-input-cta{flex-basis:100%}
 }
+.campaign-visibility{display:flex;align-items:flex-start;gap:12px;margin:20px 0;padding:16px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface)}
+.campaign-visibility input{margin-top:4px;accent-color:var(--accent)}
+.campaign-visibility span{display:grid;gap:6px}
+.campaign-visibility small{color:var(--ink-3);line-height:1.5}
+.published-campaigns{margin-top:40px}
+.campaign-copy{display:grid;gap:8px;margin-top:16px}
+.campaign-copy small{font-size:var(--t-xs);color:var(--ink-3);line-height:1.5}

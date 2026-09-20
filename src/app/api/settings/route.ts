@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { aiSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { MODEL_CATALOG, ROUTING_PROFILES, RoutingProfile, envKeys } from "@/lib/gemini";
+import { MODEL_CATALOG, ROUTING_PROFILES, RoutingProfile } from "@/lib/gemini";
 import { getSettingsRow } from "@/lib/ai-settings";
 import { EMBEDDING_MODEL_ALIASES } from "@/lib/embeddings";
 
@@ -21,7 +21,7 @@ function view(s: Awaited<ReturnType<typeof getSettingsRow>>) {
   return {
     keysMasked: mask(keys),
     keysCount: keys.length,
-    envKeysCount: envKeys().length,
+    envKeysCount: 0,
     routingProfile: s.routingProfile ?? "balanced",
     narrationModel: s.narrationModel,
     customActionModel: s.customActionModel,
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
         customActionModel,
         compactionModel,
         fastTaskModel,
-        useLiveAI: boolInAuto(body.useLiveAI, s.useLiveAI, keys.length + envKeys().length),
+        useLiveAI: boolInAuto(body.useLiveAI, s.useLiveAI, keys.length),
         dailyFlashLimit: intIn(body.dailyFlashLimit, 1, 100000, s.dailyFlashLimit),
         dailyLiteLimit: intIn(body.dailyLiteLimit, 1, 1000000, s.dailyLiteLimit),
         enforceLimits: boolIn(body.enforceLimits, s.enforceLimits),
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
         semanticExtractionEnabled: boolIn(body.semanticExtractionEnabled, s.semanticExtractionEnabled),
         updatedAt: new Date(),
       })
-      .where(eq(aiSettings.id, "global"));
+      .where(eq(aiSettings.id, s.id));
 
     const fresh = await getSettingsRow();
     return NextResponse.json({ ok: true, ...view(fresh) });

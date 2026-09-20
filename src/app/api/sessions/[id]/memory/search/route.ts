@@ -1,3 +1,4 @@
+import { withCampaignAccess } from "@/lib/campaign-access";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { gameSessions } from "@/db/schema";
@@ -8,7 +9,7 @@ import { searchMemory } from "@/lib/embeddings";
 export const dynamic = "force-dynamic";
 
 /** GET /api/sessions/:id/memory/search?q=…&k=8 — семантический поиск по памяти кампании (MEM-2f). */
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleGET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const url = new URL(req.url);
   const q = (url.searchParams.get("q") ?? "").trim().slice(0, 500);
@@ -26,3 +27,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: "SEARCH_FAILED", message: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }
 }
+
+export const GET = withCampaignAccess("owner", handleGET);

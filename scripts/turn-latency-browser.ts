@@ -62,7 +62,7 @@ async function main() {
       return;
     }
     await commitGates.get(scenario)?.promise;
-    const turnNumber = scenario === "stream" || scenario === "hung" || scenario === "legacy" ? 4 : 5;
+    const turnNumber = ["stream", "hung", "legacy", "continuity"].includes(scenario) ? 4 : 5;
     committedScenarios.add(scenario);
     res.end(`${JSON.stringify({ type: "committed", result: committed(requestId, turnNumber, `Сохранённый рассказ ${scenario}`, String(requests[scenario].action), scenario !== "legacy") })}\n`);
   });
@@ -72,6 +72,66 @@ async function main() {
   const mockAct = `http://127.0.0.1:${address.port}`;
   const browser = await chromium.launch();
   try {
+    // The same article and prose nodes survive preview, commit, and an accepted DB snapshot.
+    const continuityPage = await browser.newPage();
+    const continuityErrors = await configurePage(continuityPage);
+    const continuityCommit = gate(); commitGates.set("continuity", continuityCommit);
+    const continuityRefresh = gate();
+    const stalePoll = gate();
+    await continuityPage.route("**/requests/*", async route => {
+      await stalePoll.promise;
+      await route.fulfill({ json: { requestId: requests.continuity?.requestId, status: "running", stage: "context", baseTurn: 3, retryAfter: 1, error: null, result: null } });
+    });
+    await continuityPage.route(`**/api/sessions/${mockSessionId}?*`, async route => {
+      if (committedScenarios.has("continuity")) await continuityRefresh.promise;
+      await route.fulfill({ json: committedScenarios.has("continuity") ? snapshotAt(4, "Сохранённый рассказ continuity") : mockSnapshot });
+    });
+    await continuityPage.route("**/act", route => route.continue({ url: `${mockAct}/continuity` }));
+    await continuityPage.goto(`${base}/play/${mockSessionId}`);
+    await submit(continuityPage, "Проверить непрерывность рассказа");
+    await expect(continuityPage.locator("#turn-4 .gx-prose")).toHaveText("Первые строки continuity");
+    await expect(continuityPage.locator("#turn-4-player .gx-prose")).toHaveText("Проверить непрерывность рассказа");
+    const tracked = await continuityPage.evaluateHandle(() => {
+      const article = document.querySelector("#turn-4")!;
+      const prose = article.querySelector(".gx-prose")!;
+      const player = document.querySelector("#turn-4-player")!;
+      const state = { article, prose, player, removed: 0, regressed: false, observer: null as MutationObserver | null };
+      state.observer = new MutationObserver(records => {
+        for (const record of records) for (const node of record.removedNodes) {
+          if ([article, prose, player].some(original => node === original || node.contains(original))) state.removed++;
+        }
+        if (document.querySelector(".gx-thinking strong")?.textContent === "Вспоминаем мир и проверяем действие") state.regressed = true;
+      });
+      state.observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      return state;
+    });
+    const assertContinuity = async (phase: string) => {
+      assert.deepEqual(await tracked.evaluate(state => ({
+        article: state.article === document.querySelector("#turn-4") && state.article.isConnected,
+        prose: state.prose === document.querySelector("#turn-4 .gx-prose") && state.prose.isConnected,
+        player: state.player === document.querySelector("#turn-4-player") && state.player.isConnected,
+        playerBeforeNarrator: state.article.previousElementSibling === state.player,
+        removed: state.removed, regressed: state.regressed,
+      })), { article: true, prose: true, player: true, playerBeforeNarrator: true, removed: 0, regressed: false }, phase);
+    };
+    const pollResponse = continuityPage.waitForResponse(response => response.url().includes("/requests/"));
+    stalePoll.open();
+    await (await pollResponse).finished();
+    await expect(continuityPage.locator(".gx-thinking strong")).toHaveText("Рассказчик готовит продолжение");
+    await assertContinuity("late context poll must not regress generation or replace preview nodes");
+    continuityCommit.open();
+    await expect(continuityPage.locator("#turn-4 .gx-prose")).toHaveText("Сохранённый рассказ continuity");
+    await expect(continuityPage.locator("#turn-4")).not.toHaveAttribute("aria-busy", "true");
+    await assertContinuity("committed response must update existing streamed nodes");
+    continuityRefresh.open();
+    // Snapshot fixture uses offline-engine rather than the committed gemini-test marker.
+    await expect(continuityPage.locator("#turn-4 .gx-turn-tag")).toHaveText("Офлайн");
+    await assertContinuity("DB UUID replacement must preserve committed article and prose nodes");
+    await tracked.evaluate(state => state.observer?.disconnect());
+    await tracked.dispose();
+    assert.deepEqual(continuityErrors, [], `continuity page errors: ${continuityErrors.join(" | ")}`);
+    await continuityPage.close();
+
     // Real streamed preview, hidden item identity, two stateful commits ahead of a stale bulk refresh, and map edge.
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     const errors = await configurePage(page);
@@ -198,9 +258,10 @@ async function main() {
     assert.deepEqual(staleErrors, [], `stale page errors: ${staleErrors.join(" | ")}`);
     await stalePage.close();
 
-    console.log("PASS: streamed latency, hidden item bindings, refresh recovery, hung-stream polling, version guard, and map edge");
+    console.log("PASS: DOM continuity through preview/commit/snapshot, monotonic polled stage, streamed latency, hidden item bindings, refresh recovery, hung-stream polling, version guard, and map edge");
   } finally {
     await browser.close();
+    server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
 }

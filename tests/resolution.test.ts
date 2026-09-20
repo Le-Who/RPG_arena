@@ -33,6 +33,38 @@ test("parseResolution: текстовый фолбэк без JSON", () => {
   assert.deepEqual(r.payload.choices, ["Сесть", "Уйти", "Спросить"]);
 });
 
+test("applied resource deltas match final counters after caps, recovery and level-up", () => {
+  const initial = baseInput();
+  const cases = [
+    baseInput({ character: { ...initial.character, hp: 39, gold: 3 }, world: { ...initial.world, danger: 99 }, payload: parseResolution(JSON.stringify({ effects: { hp: 10, gold: -100, danger: 10 } })).payload }),
+    baseInput({ character: { ...initial.character, hp: 1, gold: 3 }, payload: parseResolution(JSON.stringify({ outcome: "failure", effects: { hp: -20 } })).payload }),
+    baseInput({ character: { ...initial.character, xp: 119 }, payload: parseResolution(JSON.stringify({ effects: { xp: 1 } })).payload }),
+    baseInput({ character: { ...initial.character, hp: 39 }, payload: parseResolution(JSON.stringify({ effects: { hp: 10 }, stateChanges: { inventory: [{ op: "consume", ref: "#aaaaaa", quantity: 1 }] } })).payload }),
+  ];
+  for (const input of cases) {
+    const result = applyResolution(input);
+    for (const resource of ["hp", "xp", "gold"] as const) assert.equal(result.applied[resource], result.character[resource] - input.character[resource], resource);
+    assert.equal(result.applied.danger, result.world.danger - input.world.danger);
+  }
+});
+
+test("equipping unchanged or depleted inventory does not announce a successful change", () => {
+  const initial = baseInput();
+  const unchanged = applyResolution(baseInput({ inventory: initial.inventory.map(i => ({ ...i, equipped: true })), payload: parseResolution(JSON.stringify({ stateChanges: { inventory: [{ op: "equip", ref: "#aaaaaa" }] } })).payload }));
+  assert.equal(unchanged.applied.inventory.length, 0);
+  assert.equal(unchanged.ops.filter(op => op.t === "inv.update").length, 0);
+  const removed = applyResolution(baseInput({ payload: parseResolution(JSON.stringify({ stateChanges: { inventory: [{ op: "remove", ref: "#aaaaaa" }, { op: "equip", ref: "#aaaaaa" }] } })).payload }));
+  assert.deepEqual(removed.applied.inventory.map(i => i.ok), [true, false]);
+  assert.equal(removed.ops.filter(op => op.t === "inv.update").length, 0);
+});
+
+test("new completed quests report 100 percent and capped relationships report the actual delta", () => {
+  const result = applyResolution(baseInput({ npcs: [{ id: "n1", key: "ally", name: "Союзник", role: "", description: "", relation: 98, status: "alive" }], payload: parseResolution(JSON.stringify({ stateChanges: { quests: [{ title: "Новая цель", status: "completed", progress: 10 }], npcs: [{ ref: "ally", relationDelta: 20 }] } })).payload }));
+  assert.equal(result.applied.quests[0].progress, 100);
+  assert.equal(result.ops.find(op => op.t === "quest.insert")?.row.progress, 100);
+  assert.equal(result.applied.npcs[0].delta, 2);
+});
+
 test("parseResolution: нормализует и клампит JSON", () => {
   const r = parseResolution(JSON.stringify({ narration: "x", outcome: "weird", choices: ["a"], effects: { hp: -999, xp: "7" }, stateChanges: { flags: [{ key: "k", value: "v" }], inventory: [{ op: "consume", ref: "#aaaaaa", name: "Аптечка", quantity: 1 }] } }));
   assert.equal(r.payload.outcome, "neutral");

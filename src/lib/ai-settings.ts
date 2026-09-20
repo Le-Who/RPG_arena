@@ -2,10 +2,13 @@
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { aiSettings, tokenLogs } from "@/db/schema";
-import { envKeys, filterByDailyLimits, routeModelsFor, type RoutingConfig, type TaskType } from "./gemini";
+import { filterByDailyLimits, routeModelsFor, type RoutingConfig, type TaskType } from "./gemini";
+import { currentProfileId } from "./identity";
+import { sessionOwnerId } from "./campaign-access";
 import { DEFAULT_EMBEDDING_DIMS } from "./embeddings";
 
 export type AIConfig = {
+  ownerId?: string;
   keys: string[];
   dbKeyCount: number;
   envKeyCount: number;
@@ -21,7 +24,6 @@ export type AIConfig = {
 };
 
 const DEFAULT_ROW = {
-  id: "global",
   keys: [] as string[],
   useLiveAI: false,
   routingProfile: "balanced",
@@ -31,23 +33,24 @@ const DEFAULT_ROW = {
   fastTaskModel: "gemini-3.5-flash-lite",
 };
 
-export async function getSettingsRow() {
-  const rows = await db.select().from(aiSettings).where(eq(aiSettings.id, "global"));
+export async function getSettingsRow(ownerId?: string) {
+  const id = ownerId ?? await currentProfileId();
+  const rows = await db.select().from(aiSettings).where(eq(aiSettings.id, id));
   if (rows[0]) return rows[0];
-  await db.insert(aiSettings).values(DEFAULT_ROW).onConflictDoNothing();
-  const fresh = await db.select().from(aiSettings).where(eq(aiSettings.id, "global"));
+  await db.insert(aiSettings).values({ ...DEFAULT_ROW, id }).onConflictDoNothing();
+  const fresh = await db.select().from(aiSettings).where(eq(aiSettings.id, id));
   return fresh[0];
 }
 
-export async function getAIConfig(): Promise<AIConfig> {
-  const s = await getSettingsRow();
+export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
+  const s = await getSettingsRow(ownerId);
   const dbKeys = ((s.keys as string[]) ?? []).filter(Boolean);
-  const env = envKeys();
-  const keys = [...new Set([...dbKeys, ...env])];
+  const keys = [...new Set(dbKeys)];
   return {
+    ownerId: s.id,
     keys,
     dbKeyCount: dbKeys.length,
-    envKeyCount: env.length,
+    envKeyCount: 0,
     useLiveAI: s.useLiveAI,
     canUseLive: s.useLiveAI && keys.length > 0,
     routingConfig: {
@@ -73,11 +76,12 @@ function dayStart() {
 }
 
 /** Число вызовов генеративных моделей сегодня (успешных и неуспешных — квота тратится в обоих случаях). */
-export async function todayUsageByModel(): Promise<Record<string, number>> {
+export async function todayUsageByModel(ownerId?: string): Promise<Record<string, number>> {
+  const id = ownerId ?? await currentProfileId();
   const rows = await db
     .select({ model: tokenLogs.model, c: sql<number>`count(*)` })
     .from(tokenLogs)
-    .where(and(gte(tokenLogs.createdAt, dayStart()), sql`${tokenLogs.model} like 'gemini-%'`))
+    .where(and(eq(tokenLogs.ownerId, id), gte(tokenLogs.createdAt, dayStart()), sql`${tokenLogs.model} like 'gemini-%'`))
     .groupBy(tokenLogs.model);
   const out: Record<string, number> = {};
   for (const r of rows) out[r.model] = Number(r.c);
@@ -88,7 +92,7 @@ export async function todayUsageByModel(): Promise<Record<string, number>> {
 export async function pickModels(task: TaskType, cfg: AIConfig): Promise<{ models: string[]; skipped: string[] }> {
   const routed = routeModelsFor(task, cfg.routingConfig);
   if (!cfg.enforceLimits) return { models: routed, skipped: [] };
-  const usage = await todayUsageByModel();
+  const usage = await todayUsageByModel(cfg.ownerId);
   const { allowed, skipped } = filterByDailyLimits(routed, usage, cfg.limits, cfg.keys.length);
   return { models: allowed, skipped };
 }
@@ -106,6 +110,7 @@ export async function logToken(row: {
 }) {
   try {
     await db.insert(tokenLogs).values({
+      ownerId: row.sessionId ? await sessionOwnerId(row.sessionId) : await currentProfileId(),
       sessionId: row.sessionId,
       model: row.model,
       taskType: row.taskType,

@@ -1,3 +1,4 @@
+import { withCampaignAccess } from "@/lib/campaign-access";
 import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
@@ -8,7 +9,7 @@ import { runMemoryCycle } from "@/lib/background";
 import { httpError, HttpError, requireUuid } from "@/lib/http";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePOST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params; requireUuid(id);
     const [session] = await db.select({ id: gameSessions.id }).from(gameSessions).where(eq(gameSessions.id, id));
@@ -22,3 +23,5 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
     return Response.json({ ok: true, backfill, ...result, stats: await embeddingStats(id), model: cfg.embeddingModel, dims: cfg.embeddingDims });
   } catch (error) { return httpError(error); }
 }
+
+export const POST = withCampaignAccess("owner", handlePOST);

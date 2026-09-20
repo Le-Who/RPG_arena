@@ -1,3 +1,4 @@
+import { smokeFetch, smokeOwnerId, cleanupSmokeIdentity } from "./smoke-identity";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
@@ -16,7 +17,7 @@ const base = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const nativeFetch = globalThis.fetch;
 const owned: string[] = [];
 async function call<T = Record<string, unknown>>(path: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
-  const response = await nativeFetch(base + path, { method, headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const response = await smokeFetch(base + path, { method, headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   return { status: response.status, data: await response.json() as T };
 }
 async function create(scenarioId: string) {
@@ -25,7 +26,7 @@ async function create(scenarioId: string) {
 }
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>((r) => { resolve = r; }); return { promise, resolve }; };
 async function run() {
-  const config = await getAIConfig();
+  const config = await getAIConfig(smokeOwnerId);
   assert.ok(!config.canUseLive && !config.keys.length, "Run in a disposable offline workspace: never replace configured provider credentials.");
   const fakeConfig = { ...config, keys: ["mock-provider-not-a-real-key"], canUseLive: true, useLiveAI: true, enforceLimits: false };
   const source = await create("echo-station");
@@ -127,6 +128,8 @@ async function run() {
     calls++; await new Promise((resolve) => setTimeout(resolve, 40));
     return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ facts: [] }) }] } }] });
   };
+  // Explicit readiness keeps fixtures independent of database session timezone.
+  await db.update(memoryJobs).set({ nextAttemptAt: new Date(0) }).where(eq(memoryJobs.sessionId, arena.id));
   const extraction = await Promise.all([processSemanticJob({ sessionId: arena.id, cfg: fakeConfig }), processSemanticJob({ sessionId: arena.id, cfg: fakeConfig }), processSemanticJob({ sessionId: arena.id, cfg: fakeConfig })]);
   assert.equal(calls, 1); assert.equal(extraction.reduce((n, r) => n + r.processed, 0), 1);
   const [empty] = await db.select().from(memoryJobs).where(and(eq(memoryJobs.sessionId, arena.id), eq(memoryJobs.turnNumber, 2))); assert.equal(empty.status, "completed"); assert.equal(empty.factsCount, 0);
@@ -137,6 +140,7 @@ async function run() {
     if (!String(input).includes("generativelanguage.googleapis.com")) return nativeFetch(input, init);
     return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ facts: [{ type: "promise", entityKey: "test:promise", title: "Обещание навигатора", content: phrase, evidence: phrase, importance: 70, confidence: .9 }] }) }] } }] });
   };
+  await db.update(memoryJobs).set({ nextAttemptAt: new Date(0) }).where(eq(memoryJobs.sessionId, arena.id));
   const populated = await processSemanticJob({ sessionId: arena.id, cfg: fakeConfig }); assert.equal(populated.extracted, 1);
   const [fact] = await db.select().from(memoryNodes).where(and(eq(memoryNodes.sessionId, arena.id), eq(memoryNodes.entityKey, "test:promise"))); assert.ok(fact);
   const [embedding] = await db.select().from(memoryEmbeddings).where(eq(memoryEmbeddings.memoryNodeId, fact.id)); assert.equal(embedding.status, "pending");
@@ -145,6 +149,7 @@ async function run() {
   const pending = await db.transaction(async (tx) => { await enqueueSemanticJob(tx, { sessionId: branch.session.id, turnNumber: 1, payload: { narration: phrase, playerAction: "Слушать", profileCanon: "Narrative.", knownDigest: "" } }); return tx.select().from(memoryJobs).where(eq(memoryJobs.sessionId, branch.session.id)); });
   const lateGate = deferred(), lateEntered = deferred();
   globalThis.fetch = async () => { lateEntered.resolve(); await lateGate.promise; return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ facts: [{ type: "promise", entityKey: "test:late", title: "Поздний ответ", content: phrase, evidence: phrase, importance: 70, confidence: .9 }] }) }] } }] }); };
+  await db.update(memoryJobs).set({ nextAttemptAt: new Date(0) }).where(eq(memoryJobs.sessionId, branch.session.id));
   const inflight = processSemanticJob({ sessionId: branch.session.id, cfg: fakeConfig }); await lateEntered.promise;
   await db.update(memoryJobs).set({ leaseToken: randomUUID(), leaseExpiresAt: new Date(Date.now() + 60000) }).where(eq(memoryJobs.id, pending[0].id));
   lateGate.resolve(); assert.equal((await inflight).processed, 0);
@@ -158,7 +163,7 @@ async function run() {
   assert.equal(sourceAfter.session.lastCompactTurn, sourceAfter.session.turnCount);
   assert.equal((await compactSession(source.id)).created, 0);
   const seq = sourceAfter.turns.filter((t) => t.turnNumber === 2).map((t) => t.role); assert.deepEqual(seq, ["player", "narrator"]);
-  assert.equal((await runMemoryCycle({ source: "manual" })).paused, true);
+  assert.equal((await runMemoryCycle({ source: "manual", sessionId: source.id, ownerId: smokeOwnerId })).paused, true);
   const status = await call<{ version: string; database: string }>("/api/system/status"); assert.equal(status.status, 200); assert.equal(status.data.version, "2.5"); assert.equal(status.data.database, "connected");
   assert.equal((await call("/api/system/process", { action: "process" })).status, 409);
 
@@ -175,5 +180,6 @@ async function run() {
 run().catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => {
   globalThis.fetch = nativeFetch;
   if (owned.length) { await db.delete(tokenLogs).where(inArray(tokenLogs.sessionId, owned)); await db.delete(gameSessions).where(inArray(gameSessions.id, owned)); }
+  await cleanupSmokeIdentity();
   await pool.end();
 });

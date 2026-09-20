@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { tokenLogs } from "@/db/schema";
-import { desc, gte } from "drizzle-orm";
+import { and, eq, desc, gte } from "drizzle-orm";
+import { currentProfileId } from "@/lib/identity";
 import { getAIConfig } from "@/lib/ai-settings";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +16,11 @@ function dayStart() {
 export async function GET() {
   try {
     const since = dayStart();
+    const owner = eq(tokenLogs.ownerId, await currentProfileId());
     const [today, cfg, recent] = await Promise.all([
-      db.select().from(tokenLogs).where(gte(tokenLogs.createdAt, since)).orderBy(desc(tokenLogs.createdAt)).limit(2000),
+      db.select().from(tokenLogs).where(and(owner, gte(tokenLogs.createdAt, since))).orderBy(desc(tokenLogs.createdAt)).limit(2000),
       getAIConfig(),
-      db.select().from(tokenLogs).orderBy(desc(tokenLogs.createdAt)).limit(20),
+      db.select().from(tokenLogs).where(owner).orderBy(desc(tokenLogs.createdAt)).limit(20),
     ]);
     const byModel: Record<string, { requests: number; tokens: number; errors: number; avgLatencyMs: number }> = {};
     const byTask: Record<string, { requests: number; tokens: number }> = {};

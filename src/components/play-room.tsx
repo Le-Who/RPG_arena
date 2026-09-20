@@ -1,4 +1,5 @@
 "use client";
+import { buildNarrativeFeed } from "@/lib/narrative-feed";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type React from "react";
@@ -6,9 +7,10 @@ import { ArrowDown, ArrowLeft, ArrowRight, Backpack, BookOpen, BookOpenText, Bra
 import { useApp } from "./app-shell";
 import { api, jsonBody } from "@/lib/api-client";
 import { coverFor, PROFILE_LABELS, SOURCE_LABELS, type Snapshot } from "@/lib/ui-data";
-import type { AppliedChanges } from "@/db/schema";
+import { AppliedChips } from "./applied-changes";
 import type { TurnResponse } from "@/lib/turn-contract";
 import { TURN_STAGE_LABELS } from "@/lib/turn-contract";
+import { CampaignCopyButton } from "./campaign-copy-button";
 import { CheckpointDialog } from "./checkpoint-dialog";
 import { useTurnRequest } from "./use-turn-request";
 import { classifyAction } from "@/lib/action-kind";
@@ -109,7 +111,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     return () => io.disconnect();
   }, [snapshot]);
   const act = useCallback(async (text: string) => {
-    if (busy || !text.trim() || !snapshot) return;
+    if (busy || !text.trim() || !snapshot || snapshot.isOwner === false) return;
     const pending = turnRequest.pending;
     const fresh = classifyAction(text, lastNarratorChoices(snapshot));
     const { action: submitted, custom, choice } = pending && pending.action === text.trim() ? { action: pending.action, custom: pending.custom, choice: -1 } : fresh;
@@ -153,9 +155,10 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const character = session.character;
   const world = session.worldState;
   const live = Boolean(settings?.useLiveAI && settings.keysCount + settings.envKeysCount > 0);
-  const turns = withCommittedTurn([...older, ...snapshot.turns], committedTurn, sessionId).filter((turn, index, all) => all.findIndex((t) => t.id === turn.id) === index);
+  const turns = buildNarrativeFeed(withCommittedTurn([...older, ...snapshot.turns], committedTurn, sessionId), turnRequest.pending, turnRequest.preview);
   const lastNarrator = [...snapshot.turns].reverse().find((turn) => turn.role === "narrator");
-  const active = session.status === "active";
+  const isOwner = snapshot.isOwner !== false;
+  const active = isOwner && session.status === "active";
   const canAct = active && !busy;
 
   return <div className={`gx-room ${reading ? "gx-reading" : ""}`}>
@@ -164,7 +167,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
       <div className="gx-topbar-title"><MapPin size={13} />{world.currentLocation}</div>
       <div className="gx-topbar-actions">
         <span className={`gx-save ${busy ? "is-busy" : ""}`}>{busy ? <LoaderCircle size={13} className="spin" /> : <Check size={13} />}<span>{busy ? "Ход в обработке" : "Сохранено"}</span></span>
-        <button className="gx-tool" aria-label="Развилки истории" title="Развилки истории" onClick={() => setShowCheckpoints(true)} disabled={busy}><GitBranch size={16} /><span>Развилки</span></button>
+        <button className="gx-tool" aria-label="Развилки истории" title="Развилки истории" onClick={() => setShowCheckpoints(true)} disabled={!isOwner || busy}><GitBranch size={16} /><span>Развилки</span></button>
         <a className="gx-tool icon-only" href={`/api/sessions/${sessionId}/export`} title="Скачать историю" aria-label="Скачать историю"><Download size={16} /></a>
         <button className="gx-tool icon-only" onClick={() => setReading(!reading)} aria-label={reading ? "Выйти из режима чтения" : "Режим чтения"} title={reading ? "Обычный режим" : "Режим чтения"}>{reading ? <Minimize2 size={16} /> : <BookOpenText size={17} />}</button>
       </div>
@@ -197,12 +200,12 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
 
         <div className="gx-feed">
           {turns[0]?.turnNumber > 1 && <button className="gx-load-earlier" onClick={() => void loadEarlier()} disabled={loadingOlder}>{loadingOlder ? <LoaderCircle size={14} className="spin" /> : <ChevronUp size={14} />}Предыдущие главы</button>}
-          {turns.map((turn) => <article className={`gx-turn ${turn.role === "player" ? "is-player" : "is-narrator"}`} key={turn.id} id={`turn-${turn.turnNumber}${turn.role === "player" ? "-player" : ""}`}>
+          {turns.map((turn) => <article className={`gx-turn ${turn.role === "player" ? "is-player" : "is-narrator"}`} key={turn.key} aria-busy={turn.pending || undefined} id={`turn-${turn.turnNumber}${turn.role === "player" ? "-player" : ""}`}>
             <div className="gx-turn-head">
               <span className="gx-turn-avatar">{turn.role === "player" ? <UserRound size={15} /> : <Feather size={15} />}</span>
               <strong>{turn.role === "player" ? character.name : "Рассказчик"}</strong>
               <span className="gx-turn-no">Ход {turn.turnNumber}</span>
-              {turn.role !== "player" && <span className="gx-turn-tag">{turn.modelUsed?.startsWith("gemini") ? "AI" : turn.modelUsed?.includes("intro") ? "Пролог" : "Офлайн"}</span>}
+              {turn.role !== "player" && <span className="gx-turn-tag">{turn.pending ? "Продолжение формируется" : turn.modelUsed?.startsWith("gemini") ? "AI" : turn.modelUsed?.includes("intro") ? "Пролог" : "Офлайн"}</span>}
             </div>
             <div className="gx-prose">{turn.content}</div>
             {turn.dice && <div className={`gx-dice ${turn.dice.success ? "is-success" : "is-failure"} ${turn.dice.band === "cost" ? "is-cost" : ""}`}>
@@ -212,7 +215,6 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             </div>}
             {turn.stateChanges && <AppliedChips applied={turn.stateChanges} />}
           </article>)}
-          {turnRequest.preview && !currentCommit && <article className="gx-turn is-narrator" aria-label="Рассказ формируется" aria-busy="true"><div className="gx-turn-head"><span className="gx-turn-avatar"><Feather size={15} /></span><strong>Рассказчик</strong><span className="gx-turn-tag">Продолжение формируется</span></div><div className="gx-prose">{turnRequest.preview}</div></article>}
           {syncError && <div className="notice" role="alert"><p>{syncError}</p><button className="text-button" onClick={() => void reload().catch(() => setSyncError("Связь пока не восстановлена. Ход сохранён; попробуйте обновить сцену ещё раз."))}>Обновить сцену</button></div>}
           {busy && <div className="gx-thinking" aria-live="polite"><span className="gx-thinking-orb"><Sparkles size={18} /></span><div><strong>{currentCommit ? "Ход сохранён · обновляем мир" : TURN_STAGE_LABELS[turnRequest.stage]}</strong><small>Запрос сохранён. Перезагрузка страницы не создаст двойной ход.</small></div><span className="gx-thinking-dots"><i /><i /><i /></span></div>}
         </div>
@@ -220,7 +222,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
         <div className="gx-composer-wrap" ref={actionZoneRef}>
           {turnRequest.pending && !busy && <div className="gx-recovery"><ShieldCheck size={19} /><div><strong>Ваше действие не потерялось</strong><p>«{turnRequest.pending.action}»</p><small>Повтор использует тот же requestId и сохранённый сервером бросок.</small><div className="gx-recovery-actions"><button className="button secondary" onClick={() => void turnRequest.retry()}><RefreshCw size={13} />Повторить безопасно</button><button className="text-button" onClick={turnRequest.dismiss}>Отложить действие</button></div></div></div>}
 
-          {!active ? <div className="gx-archived"><span className="gx-archived-icon"><BookOpen size={22} /></span><div><strong>Эта история ждёт в архиве</strong><p>Прочитайте предыдущие главы или вернитесь к приключению.</p></div><button className="button primary" onClick={() => void restore()}>Продолжить историю <ArrowRight size={15} /></button></div> : <div className={`gx-composer ${canAct ? "is-ready" : ""}`}>
+          {!isOwner ? <div className="notice"><BookOpen size={18} /><div><p>Вы читаете общую кампанию. Создайте свою приватную копию, чтобы играть со своим прогрессом и своим API-ключом.</p><CampaignCopyButton sessionId={sessionId} /></div></div> : !active ? <div className="gx-archived"><span className="gx-archived-icon"><BookOpen size={22} /></span><div><strong>Эта история ждёт в архиве</strong><p>Прочитайте предыдущие главы или вернитесь к приключению.</p></div><button className="button primary" onClick={() => void restore()}>Продолжить историю <ArrowRight size={15} /></button></div> : <div className={`gx-composer ${canAct ? "is-ready" : ""}`}>
             <div className="gx-composer-head"><Sparkles size={16} /><h3>Что вы сделаете дальше?</h3></div>
             <p className="gx-composer-hint">{choices.length ? "Нажмите цифру, чтобы выбрать вариант, или клавишу «/», чтобы описать своё действие." : "Опишите действие своими словами — мир ответит на него."}</p>
             {lastNarrator?.choices?.length ? <div className="gx-choices">{lastNarrator.choices.map((choice, i) => <button className="gx-choice" key={`${i}-${choice}`} onClick={() => void act(choice)} disabled={busy} style={{ animationDelay: `${i * 55}ms` }}><span className="gx-choice-no">{selectedChoice === i ? <LoaderCircle size={14} className="spin" /> : i + 1}</span><p>{choice}</p><ArrowRight className="gx-choice-arrow" size={16} /></button>)}</div> : <p className="gx-free-note">Первое слово — за вами. Опишите действие, с которого начнётся история.</p>}
@@ -236,7 +238,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
           </div>}
 
           {actionError && <div className="notice error-notice gx-error" role="alert"><ShieldCheck size={17} /><p>{actionError}{!live && session.campaignMode === "free" && <> <Link href="/settings">Открыть настройки</Link></>}</p></div>}
-          {compactNeeded && <div className="notice gx-compact"><BrainCircuit size={18} /><p>Приключение стало длиннее. Сохраните последние главы в долгосрочной памяти.</p><button className="text-button" disabled={compacting} onClick={() => void compact()}>{compacting ? "Сохраняем…" : "Обобщить"}</button></div>}
+          {isOwner && compactNeeded && <div className="notice gx-compact"><BrainCircuit size={18} /><p>Приключение стало длиннее. Сохраните последние главы в долгосрочной памяти.</p><button className="text-button" disabled={compacting} onClick={() => void compact()}>{compacting ? "Сохраняем…" : "Обобщить"}</button></div>}
         </div>
       </section>
 
@@ -288,11 +290,6 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     <footer className="gx-footer"><span><Compass size={14} />Это ваша история. Делайте её своей.</span><Link href="/blueprint">Chronicle Engine v2.5 <ArrowRight size={13} /></Link></footer>
     <p className="sr-only" role="status" aria-live="polite">{busy ? "Ход обрабатывается" : `Ход ${session.turnCount}. ${lastNarrator?.content.slice(0, 160) ?? ""}`}</p>
     {canAct && !actionVisible && <button className="gx-jump" onClick={() => { actionZoneRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); composerRef.current?.focus(); }}><ArrowDown size={17} />Ваш ход</button>}
-    {showCheckpoints && <CheckpointDialog session={session} onClose={closeCheckpoints} />}
+    {isOwner && showCheckpoints && <CheckpointDialog session={session} onClose={closeCheckpoints} />}
   </div>;
-}
-
-function AppliedChips({ applied }: { applied: AppliedChanges }) {
-  const changes = [applied.location && `Локация: ${applied.location.to}`, applied.hp && `Здоровье ${applied.hp > 0 ? "+" : ""}${applied.hp}`, applied.xp && `Опыт +${applied.xp}`, applied.gold && `Средства ${applied.gold > 0 ? "+" : ""}${applied.gold}`, ...applied.inventory.filter((item) => item.ok).map((item) => `${item.op === "add" ? "+" : item.op === "consume" || item.op === "remove" ? "−" : ""} ${item.name} ×${item.quantity}`), ...applied.quests.map((quest) => `${quest.title}: ${quest.progress}%`), ...applied.conditions.added.map((condition) => `Состояние: ${condition}`)].filter(Boolean);
-  return <>{!!changes.length && <div className="gx-applied">{changes.map((change, i) => <span key={i} className="gx-applied-chip"><Check size={11} />{change}</span>)}</div>}{!!applied.rejected.length && <details className="gx-rejected"><summary>Сервер не применил {applied.rejected.length} изменений</summary>{applied.rejected.map((reason, i) => <p key={i}>{reason}</p>)}</details>}</>;
 }

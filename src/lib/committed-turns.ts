@@ -1,5 +1,10 @@
 import type { Snapshot } from "./ui-data";
 import type { TurnResponse } from "./turn-contract";
+/** Keep the preview available until its committed replacement has been applied. */
+export async function publishCommittedTurn(result: TurnResponse, publish: (result: TurnResponse) => Promise<void>, retirePreview: () => void): Promise<void> {
+  await publish(result);
+  retirePreview();
+}
 export function applyCommittedSnapshot(snapshot: Snapshot | null, result: TurnResponse): Snapshot | null {
   if (!snapshot || !result.state || snapshot.session.turnCount > result.turnNumber) return snapshot;
   return { ...snapshot, session: { ...snapshot.session, ...result.state, turnCount: result.turnNumber, updatedAt: new Date() }, turns: withCommittedTurn(snapshot.turns, result, snapshot.session.id) };

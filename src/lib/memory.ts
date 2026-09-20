@@ -108,7 +108,7 @@ export async function writeMemoryNodes(inputs: UpsertNodeInput[], tx: Tx = db, o
   const results = [];
   for (const input of inputs) results.push(await upsertLocked(input, tx, queued));
   if (queued.size) {
-    const dims = options.dims ?? (await tx.select({ dims: aiSettings.embeddingDims }).from(aiSettings).where(eq(aiSettings.id, "global")))[0]?.dims ?? DEFAULT_EMBEDDING_DIMS;
+    const dims = options.dims ?? (await tx.select({ dims: aiSettings.embeddingDims }).from(aiSettings).where(sql`${aiSettings.id} = (select owner_id from game_sessions where id = ${sessionId})`))[0]?.dims ?? DEFAULT_EMBEDDING_DIMS;
     const rows = [...queued.values()].map(node => ({ sessionId, memoryNodeId: node.memoryNodeId, model: EMBEDDING_MODEL, dims,
       contentHash: hashContent(EMBEDDING_MODEL, String(dims), formatDocument(node.title, node.content)), status: "pending" as const,
       vector: null, attempts: 0, error: "", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(), updatedAt: new Date() }));

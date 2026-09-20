@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { db } from "@/db";
 import { gameSessions, gameTurns, inventoryItems, worldLocations, quests, type CampaignMode, type RulesProfile } from "@/db/schema";
-import { desc, eq, getTableColumns } from "drizzle-orm";
+import { and, desc, eq, isNotNull, getTableColumns } from "drizzle-orm";
+import { currentProfileId } from "@/lib/identity";
 import { SCENARIOS } from "@/lib/scenarios";
 import { estimateTokens } from "@/lib/gemini";
 import { openingChoices } from "@/lib/engine";
@@ -15,13 +16,16 @@ import { enqueueEmbeddings, indexPendingEmbeddings } from "@/lib/embeddings";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const ownerId = await currentProfileId();
+  const shared = new URL(req.url).searchParams.get("scope") === "public";
   const { scenarioPrompt: _omit, ...listColumns } = getTableColumns(gameSessions);
-  const sessions = await db.select(listColumns).from(gameSessions).orderBy(desc(gameSessions.updatedAt)).limit(100);
+  const sessions = await db.select(listColumns).from(gameSessions).where(shared ? and(eq(gameSessions.visibility, "public"), isNotNull(gameSessions.ownerId)) : eq(gameSessions.ownerId, ownerId)).orderBy(desc(gameSessions.updatedAt)).limit(100);
   return NextResponse.json({ sessions });
 }
 
 type CreateBody = {
+  visibility?: "private" | "public";
   mode?: "preset" | "free" | "custom";
   scenarioId?: string;
   characterIndex?: number;
@@ -47,6 +51,8 @@ export async function POST(req: Request) {
   const raw = await readJsonObject(req, 32768);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
   const body = raw as CreateBody;
+  const ownerId = await currentProfileId();
+  if (body.visibility !== undefined && !["private", "public"].includes(body.visibility)) return NextResponse.json({ error: "Некорректный доступ" }, { status: 400 });
   if (body.mode !== "preset" && body.mode !== "free" && body.mode !== "custom") return NextResponse.json({ error: "Укажите режим кампании" }, { status: 400 });
   if (body.mode === "preset" && !SCENARIOS.some((s) => s.id === body.scenarioId)) return NextResponse.json({ error: "Сценарий не найден" }, { status: 400 });
   if (body.mode !== "preset" && (typeof body.customScenario?.title !== "string" || !body.customScenario.title.trim())) return NextResponse.json({ error: "Назовите вашу историю" }, { status: 400 });
@@ -144,6 +150,8 @@ export async function POST(req: Request) {
   const inserted = await tx
     .insert(gameSessions)
     .values({
+      ownerId,
+      visibility: body.visibility ?? "private",
       title,
       scenarioId,
       scenarioTitle,
@@ -205,7 +213,7 @@ export async function POST(req: Request) {
   // Индексация стартовых нод — в фоне
   after(async () => {
     try {
-      const cfg = await getAIConfig();
+      const cfg = await getAIConfig(ownerId);
       if (!cfg.keys.length || !cfg.embeddingsEnabled) return;
       await enqueueEmbeddings(session.id, seedIds, cfg.embeddingModel, cfg.embeddingDims);
       await indexPendingEmbeddings({ sessionId: session.id, keys: cfg.keys, model: cfg.embeddingModel, dims: cfg.embeddingDims });

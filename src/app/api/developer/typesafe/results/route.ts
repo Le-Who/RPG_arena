@@ -2,6 +2,7 @@ import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { gameSessions, memoryJobs } from "@/db/schema";
 import { httpError } from "@/lib/http";
+import { currentProfileId } from "@/lib/identity";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export async function GET() {
     }).from(memoryJobs)
       .innerJoin(gameSessions, eq(memoryJobs.sessionId, gameSessions.id))
       .where(and(
+        eq(gameSessions.ownerId, await currentProfileId()),
         eq(memoryJobs.status, "completed"),
         isNotNull(memoryJobs.typesafeReport),
         sql`jsonb_typeof(${memoryJobs.typesafeReport}) = 'object'`,

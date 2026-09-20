@@ -1,3 +1,4 @@
+import { withCampaignAccess } from "@/lib/campaign-access";
 import { after, NextResponse } from "next/server";
 import { prewarmSessionChoices } from "@/lib/choice-prewarm";
 import { db } from "@/db";
@@ -7,12 +8,13 @@ import { embeddingStats } from "@/lib/embeddings";
 import { lockSession, assertNoRunningTurn } from "@/lib/turn-admission";
 import { httpError, readJsonObject } from "@/lib/http";
 import { PROFILE_SPECS } from "@/lib/profiles";
+import { currentProfileId } from "@/lib/identity";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleGET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  after(() => prewarmSessionChoices(id));
+  const profileId = await currentProfileId();
   const requested = Number(new URL(req.url).searchParams.get("memories"));
   const memoryLimit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.trunc(requested), 200) : 80;
   try { return await db.transaction(async (tx) => {
@@ -31,7 +33,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   ]);
   const turns = turnsDesc.reverse();
   const session = s[0];
+  if (session.ownerId === profileId) after(() => prewarmSessionChoices(id));
   return NextResponse.json({
+    isOwner: session.ownerId === profileId,
     session,
     profile: PROFILE_SPECS[session.rulesProfile] ?? PROFILE_SPECS.d20,
     turns,
@@ -46,7 +50,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }); } catch (error) { return httpError(error); }
 }
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleDELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
     await db.transaction(async (tx) => { await lockSession(tx, id); await assertNoRunningTurn(tx, id); await tx.delete(gameSessions).where(eq(gameSessions.id, id)); });
@@ -54,15 +58,19 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   } catch (error) { return httpError(error); }
 }
 
-export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
   const body = await readJsonObject(req);
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
-  const patch: { title?: string; status?: string; updatedAt: Date } = { updatedAt: new Date() };
+  const patch: { title?: string; status?: string; visibility?: "private" | "public"; updatedAt: Date } = { updatedAt: new Date() };
+  if (body.visibility !== undefined) {
+    if (body.visibility !== "private" && body.visibility !== "public") return NextResponse.json({ error: "Некорректный доступ" }, { status: 400 });
+    patch.visibility = body.visibility;
+  }
   if (typeof body.title === "string" && body.title.trim()) patch.title = body.title.trim().slice(0, 80);
   if (typeof body.status === "string" && ["active", "archived", "paused", "finished"].includes(body.status)) patch.status = body.status;
-  if (!patch.title && !patch.status) return NextResponse.json({ error: "Нет изменений" }, { status: 400 });
+  if (!patch.title && !patch.status && !patch.visibility) return NextResponse.json({ error: "Нет изменений" }, { status: 400 });
   const row = await db.transaction(async (tx) => {
     await lockSession(tx, id);
     await assertNoRunningTurn(tx, id);
@@ -71,3 +79,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   return row[0] ? NextResponse.json({ session: row[0] }) : NextResponse.json({ error: "Кампания не найдена" }, { status: 404 });
   } catch (error) { return httpError(error); }
 }
+
+export const GET = withCampaignAccess("read", handleGET);
+
+export const DELETE = withCampaignAccess("owner", handleDELETE);
+
+export const PATCH = withCampaignAccess("owner", handlePATCH);

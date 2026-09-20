@@ -1,3 +1,4 @@
+import { smokeOwnerId, cleanupSmokeIdentity } from "./smoke-identity";
 /** Run only against an isolated migrated test database. All provider traffic is mocked. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -16,7 +17,6 @@ import { mockSession } from "./ui-mock";
 async function main() {
   assert.equal(process.env.ARENA_ISOLATED_TEST_DB, "1", "Refusing to change settings outside an explicitly isolated test database");
   const nativeFetch = globalThis.fetch;
-  const [originalSettings] = await db.select().from(aiSettings).where(eq(aiSettings.id, "global"));
   let sessionId = "", embeddings = 0, generation = 0, receivedPrompt = "";
   let release!: () => void; const gate = new Promise<void>(r => { release=r; });
   let preview!: () => void; const previewReady = new Promise<void>(r => { preview=r; });
@@ -41,14 +41,14 @@ async function main() {
     }}),{headers:{"Content-Type":"text/event-stream"}});
   };
   try {
-    await db.insert(aiSettings).values({id:"global",keys:["fake-a","fake-b"],useLiveAI:true,enforceLimits:false,embeddingsEnabled:true,embeddingDims:128,semanticExtractionEnabled:false}).onConflictDoUpdate({target:aiSettings.id,set:{keys:["fake-a","fake-b"],useLiveAI:true,enforceLimits:false,embeddingsEnabled:true,embeddingDims:128,semanticExtractionEnabled:false}});
-    const [session] = await db.insert(gameSessions).values({title:"Isolated turn latency smoke",campaignMode:"free",rulesProfile:"narrative",turnCount:1,character:mockSession.character,worldState:mockSession.worldState}).returning(); sessionId=session.id;
+    await db.insert(aiSettings).values({id:smokeOwnerId,keys:["fake-a","fake-b"],useLiveAI:true,enforceLimits:false,embeddingsEnabled:true,embeddingDims:128,semanticExtractionEnabled:false}).onConflictDoUpdate({target:aiSettings.id,set:{keys:["fake-a","fake-b"],useLiveAI:true,enforceLimits:false,embeddingsEnabled:true,embeddingDims:128,semanticExtractionEnabled:false}});
+    const [session] = await db.insert(gameSessions).values({ownerId:smokeOwnerId,title:"Isolated turn latency smoke",campaignMode:"free",rulesProfile:"narrative",turnCount:1,character:mockSession.character,worldState:mockSession.worldState}).returning(); sessionId=session.id;
     const action="Использовать «Набор инструментов»: изучить карту";
     await db.insert(gameTurns).values({sessionId,turnNumber:1,role:"narrator",content:"Вы в гавани.",choices:[action,"Осмотреться","Поговорить"]});
     await db.insert(worldLocations).values({sessionId,name:"Тихая гавань",current:true,discovered:true,x:0,y:0,connectedTo:[]});
     const [item] = await db.insert(inventoryItems).values({sessionId,name:"Набор инструментов",kind:"tool",quantity:1}).returning();
     await writeMemoryNodes(Array.from({length:8},(_,i)=>({sessionId,layer:"semantic" as const,category:"world",title:`Факт ${i}`,content:`Каноническое воспоминание ${i}`,importance:50,source:"seed" as const,sourceTurn:1,entityKey:`fact:${i}`})));
-    const cfg=await getAIConfig();
+    const cfg=await getAIConfig(smokeOwnerId);
     await indexPendingEmbeddings({sessionId,keys:cfg.keys,model:cfg.embeddingModel,dims:128});
     await prewarmSessionChoices(sessionId); const warmedCalls=embeddings;
     const requestId=randomUUID();
@@ -82,8 +82,7 @@ async function main() {
   } finally {
     release();globalThis.fetch=nativeFetch;
     if(sessionId) await db.delete(gameSessions).where(eq(gameSessions.id,sessionId));
-    if (originalSettings) await db.update(aiSettings).set(originalSettings).where(eq(aiSettings.id,"global"));
-    else await db.delete(aiSettings).where(eq(aiSettings.id,"global"));
+    await cleanupSmokeIdentity();
     await pool.end();
   }
 }

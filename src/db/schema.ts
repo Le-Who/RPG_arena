@@ -102,6 +102,8 @@ export type TurnContextMeta = {
 // ─────────────────────────────────────────────────────────────
 export const gameSessions = pgTable("game_sessions", {
   id: uuid("id").defaultRandom().primaryKey(),
+  ownerId: text("owner_id"),
+  visibility: text("visibility").notNull().default("private").$type<"private" | "public">(),
   title: text("title").notNull(),
   scenarioId: text("scenario_id").notNull().default("custom"),
   scenarioTitle: text("scenario_title").notNull().default("Своя история"),
@@ -363,7 +365,7 @@ export const sceneObjects = pgTable(
 //  Настройки ИИ (ключи, маршрутизация, эмбеддинги)
 // ─────────────────────────────────────────────────────────────
 export const aiSettings = pgTable("ai_settings", {
-  id: text("id").primaryKey(), // singleton: 'global'
+  id: text("id").primaryKey(), // authenticated profile identifier; legacy 'global' is quarantined
   keys: jsonb("keys").$type<string[]>().default([]),
   routingProfile: text("routing_profile").notNull().default("balanced"),
   narrationModel: text("narration_model").notNull().default("gemini-3.5-flash-lite"),
@@ -393,6 +395,7 @@ export const tokenLogs = pgTable(
   "token_logs",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    ownerId: text("owner_id"),
     sessionId: uuid("session_id").references(() => gameSessions.id, { onDelete: "set null" }),
     model: text("model").notNull(),
     taskType: text("task_type").notNull(), // narration | resolution | compaction | fast | embedding
@@ -412,7 +415,7 @@ export const tokenLogs = pgTable(
   ],
 );
 
-/** Local, single-owner workspace. Add ownership/RLS before multi-user deployment. */
+/** Reading preferences belong to the current authenticated or guest profile. */
 export type ReadingPreferences = {
   textScale: "compact" | "normal" | "large";
   measure: "narrow" | "normal" | "wide";
@@ -421,10 +424,10 @@ export type ReadingPreferences = {
 };
 
 export const workspacePreferences = pgTable("workspace_preferences", {
-  id: text("id").primaryKey().default("local"),
+  id: text("id").primaryKey(),
   displayName: text("display_name").notNull().default("Искатель историй"),
   favorites: jsonb("favorites").notNull().$type<string[]>().default([]),
-  /** Reading comfort lives on the server so it follows the owner across devices. */
+  /** Guest profiles persist while the browser retains its identity cookie. */
   reading: jsonb("reading").notNull().$type<ReadingPreferences>().default({ textScale: "normal", measure: "normal", theme: "midnight", motion: "full" }),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

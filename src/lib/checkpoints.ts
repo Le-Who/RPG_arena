@@ -71,7 +71,8 @@ export async function forkCheckpoint(input: { sessionId: string; checkpointId: s
     if (snapshotChecksum(checkpoint.snapshot) !== checkpoint.checksum) throw new HttpError(409, "SNAPSHOT_INTEGRITY", "Контрольная сумма не совпадает. Ветка не создана.");
     assertSnapshot(checkpoint.snapshot);
     const branchId = randomUUID(); const copy = remapSnapshot(checkpoint.snapshot, branchId);
-    const [session] = await tx.insert(gameSessions).values({ ...copy.session, id: branchId, title: input.title, status: "active", branchOrigin: { sessionId: input.sessionId, sessionTitle: checkpoint.snapshot.session.title, checkpointId: checkpoint.id, checkpointTitle: checkpoint.title, turn: checkpoint.turnNumber } }).returning();
+    const [source] = await tx.select({ ownerId: gameSessions.ownerId }).from(gameSessions).where(eq(gameSessions.id, input.sessionId));
+    const [session] = await tx.insert(gameSessions).values({ ...copy.session, ownerId: source.ownerId, visibility: "private", id: branchId, title: input.title, status: "active", branchOrigin: { sessionId: input.sessionId, sessionTitle: checkpoint.snapshot.session.title, checkpointId: checkpoint.id, checkpointTitle: checkpoint.title, turn: checkpoint.turnNumber } }).returning();
     for (const rows of chunk(copy.inventory.map((r) => ({ ...r, createdAt: new Date(r.createdAt) })))) await tx.insert(inventoryItems).values(rows);
     for (const rows of chunk(copy.locations)) await tx.insert(worldLocations).values(rows);
     for (const rows of chunk(copy.quests.map((r) => ({ ...r, createdAt: new Date(r.createdAt) })))) await tx.insert(quests).values(rows);
@@ -81,7 +82,7 @@ export async function forkCheckpoint(input: { sessionId: string; checkpointId: s
     for (const rows of chunk(copy.memories.map((r) => ({ ...r, parentId: null, contentHash: hashContent(r.layer, r.category, r.title, r.content), createdAt: new Date(r.createdAt), updatedAt: new Date(r.updatedAt) })))) await tx.insert(memoryNodes).values(rows);
     for (const memory of copy.memories) if (memory.parentId) await tx.update(memoryNodes).set({ parentId: memory.parentId }).where(and(eq(memoryNodes.id, memory.id), eq(memoryNodes.sessionId, branchId)));
     for (const rows of chunk(copy.links)) await tx.insert(memoryLinks).values(rows);
-    const [settings] = await tx.select({ dims: aiSettings.embeddingDims }).from(aiSettings).where(eq(aiSettings.id, "global"));
+    const [settings] = await tx.select({ dims: aiSettings.embeddingDims }).from(aiSettings).where(eq(aiSettings.id, source.ownerId ?? "unowned"));
     const dims = settings?.dims ?? DEFAULT_EMBEDDING_DIMS;
     for (const rows of chunk(copy.memories.map((r) => ({ memoryNodeId: r.id, sessionId: branchId, model: EMBEDDING_MODEL, dims, contentHash: hashContent(EMBEDDING_MODEL, String(dims), formatDocument(r.title, r.content)), status: "pending" as const })))) await tx.insert(memoryEmbeddings).values(rows);
     await tx.insert(checkpointForks).values({ checkpointId: checkpoint.id, branchId, requestId: input.requestId, inputHash });

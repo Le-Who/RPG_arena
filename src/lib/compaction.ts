@@ -2,6 +2,7 @@ import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { gameSessions, gameTurns } from "@/db/schema";
 import { getAIConfig, logToken, pickModels } from "./ai-settings";
+import { sessionOwnerId } from "./campaign-access";
 import { callGeminiWithRotation } from "./gemini";
 import { extractJsonObject } from "./resolution";
 import { upsertMemoryNode, type UpsertNodeInput } from "./memory";
@@ -25,7 +26,7 @@ export async function compactSession(sessionId: string) {
     return { session, narrators, players, through };
   });
   if (!batch) return { ok: true, created: 0, mode: "up-to-date", turnTo: null };
-  const cfg = await getAIConfig(); const summaries = new Map<number, { content: string; evidence: string }>();
+  const cfg = await getAIConfig(await sessionOwnerId(sessionId)); const summaries = new Map<number, { content: string; evidence: string }>();
   if (cfg.canUseLive) {
     try {
       const { models } = await pickModels("compaction", cfg);

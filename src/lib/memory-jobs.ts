@@ -10,13 +10,15 @@ import { layerForFactType, normalizeExtractedFacts, upsertMemoryNode } from "./m
 import { runTypeSafePilotSafely } from "./typesafe-pilot";
 import { getTypeSafePilotConfig } from "./typesafe-settings";
 import { TYPE_SAFE_MODEL, verifyTypeSafeFacts } from "./typesafe";
+import { sessionOwnerId } from "./campaign-access";
 export const MEMORY_JOB_LEASE_MS = 60_000;
 export function retryDelayMs(attempt: number): number { return Math.min(300_000, 5000 * 2 ** Math.max(0, Math.min(attempt, 6))); }
 export async function enqueueSemanticJob(tx: DbTransaction, input: { sessionId: string; turnNumber: number; payload: MemoryJobPayload }) {
   await tx.insert(memoryJobs).values({ sessionId: input.sessionId, turnNumber: input.turnNumber, kind: "semantic", payload: input.payload }).onConflictDoNothing({ target: [memoryJobs.sessionId, memoryJobs.turnNumber, memoryJobs.kind] });
 }
 export async function processSemanticJob(opts: { sessionId?: string; cfg?: AIConfig } = {}): Promise<{ processed: number; extracted: number; failed: number; delayed: boolean }> {
-  const cfg = opts.cfg ?? await getAIConfig();
+  if (!opts.sessionId) throw new Error("A campaign is required for scoped memory processing");
+  const cfg = opts.cfg ?? await getAIConfig(await sessionOwnerId(opts.sessionId));
   if (!cfg.canUseLive || !cfg.semanticExtractionEnabled) return { processed: 0, extracted: 0, failed: 0, delayed: false };
   const token = randomUUID(); const now = new Date();
   const scope = opts.sessionId ? eq(memoryJobs.sessionId, opts.sessionId) : undefined;
@@ -47,7 +49,7 @@ export async function processSemanticJob(opts: { sessionId?: string; cfg?: AICon
       facts,
       narration: job.payload.narration,
       playerAction: job.payload.playerAction,
-      loadConfig: getTypeSafePilotConfig,
+      loadConfig: () => getTypeSafePilotConfig(cfg.ownerId),
       verify: async (input) => {
         typesafeAttempted = true;
         return verifyTypeSafeFacts(input);

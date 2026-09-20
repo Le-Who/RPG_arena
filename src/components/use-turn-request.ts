@@ -4,6 +4,11 @@ import { api, ApiError } from "@/lib/api-client";
 import type { TurnRequestView, TurnResponse, TurnStage } from "@/lib/turn-contract";
 import { readTurnStream, TurnStreamError } from "@/lib/turn-stream";
 import { normalizeItemIds } from "@/lib/item-bindings";
+import { publishCommittedTurn } from "@/lib/committed-turns";
+export function advanceTurnStage(current: TurnStage, next: TurnStage): TurnStage {
+  const rank: Record<TurnStage, number> = { context: 0, generation: 1, applying: 2, failed: 3, completed: 4 };
+  return rank[next] > rank[current] ? next : current;
+}
 export type PendingTurn = { itemIds?: string[]; id: string; sessionId: string; action: string; custom: boolean; expectedTurn: number };
 export function readPendingTurn(value: string | null, sessionId: string): PendingTurn | null {
   try {
@@ -40,11 +45,11 @@ export function useTurnRequest(sessionId: string, onCommitted: (result: TurnResp
     result = { ...result, playerAction: result.playerAction ?? pendingRef.current?.action };
     handled.current = id;
     if (activeSend.current?.id === id) { activeSend.current.controller.abort(); activeSend.current = null; }
-    sendingRef.current = false; setSending(false);
-    setPreview(""); remember(null); setRemoteRunning(false); setStage("completed"); setError("");
+    setStage("completed"); setError("");
     if (startedRef.current !== null) performance.measure("chronicle:turn:committed", { start: startedRef.current, detail: { requestId: id, server: result.timings } });
-    try { await committed.current(result); }
+    try { await publishCommittedTurn(result, committed.current, () => { setPreview(""); remember(null); }); }
     catch { setError("Ход сохранён, но обновление экрана не удалось. Перезагрузите страницу — действие не нужно повторять."); }
+    finally { sendingRef.current = false; setSending(false); setRemoteRunning(false); }
   }, [remember]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -61,8 +66,10 @@ export function useTurnRequest(sessionId: string, onCommitted: (result: TurnResp
       if (checking) return; checking = true;
       try {
         const view = await api<TurnRequestView>(`/api/sessions/${sessionId}/requests/${encodeURIComponent(pending.id)}`);
-        if (!alive || pendingRef.current?.id !== pending.id) return;
-        setStage(view.stage); setRemoteRunning(view.status === "running");
+        if (!alive || pendingRef.current?.id !== pending.id || handled.current === pending.id) return;
+        // A poll begun before a retry can still describe the failed previous attempt.
+        if (view.status === "failed" && sendingRef.current) return;
+        setStage(current => advanceTurnStage(current, view.stage)); setRemoteRunning(view.status === "running");
         if (view.status === "completed" && view.result) await finish(pending.id, view.result);
         if (view.status === "failed" && !sendingRef.current) { setPreview(""); setError((old) => old.startsWith("Найден") ? "Предыдущая попытка не завершилась. Можно безопасно повторить тот же запрос." : old); }
       } catch (e) {
@@ -86,7 +93,7 @@ export function useTurnRequest(sessionId: string, onCommitted: (result: TurnResp
       let result: TurnResponse;
       if (response.headers.get("content-type")?.includes("application/x-ndjson")) result = await readTurnStream(response, event => {
         if (handled.current === request.id || pendingRef.current?.id !== request.id) return;
-        if (event.type === "stage") setStage(event.stage);
+        if (event.type === "stage") setStage(current => advanceTurnStage(current, event.stage));
         if (event.type === "narration") {
           setPreview(event.text);
           if (event.text && !firstText) { firstText = true; performance.measure("chronicle:turn:first-text", { start: startedRef.current!, detail: { requestId: request.id } }); }

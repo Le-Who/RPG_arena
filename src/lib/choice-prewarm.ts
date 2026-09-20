@@ -2,6 +2,7 @@ import { and, count, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { gameSessions, gameTurns, memoryEmbeddings, memoryNodes } from "@/db/schema";
 import { getAIConfig } from "./ai-settings";
+import { sessionOwnerId } from "./campaign-access";
 import { embedTexts, formatQuery } from "./embeddings";
 import { hashContent } from "./memory";
 import { buildMemoryQuery, queryVectorCache } from "./query-vectors";
@@ -28,7 +29,7 @@ export async function prewarmSessionChoices(sessionId: string): Promise<void> {
 
 async function runPrewarm(sessionId: string): Promise<void> {
   const deadline = Date.now() + PREWARM_TIMEOUT_MS;
-  const cfg = await getAIConfig();
+  const cfg = await getAIConfig(await sessionOwnerId(sessionId));
   if (!cfg.canUseLive || !cfg.embeddingsEnabled || !cfg.keys.length) return;
   const [[session], [last], [nodes], [ready]] = await Promise.all([
     db.select({ worldState: gameSessions.worldState }).from(gameSessions).where(eq(gameSessions.id, sessionId)).limit(1),

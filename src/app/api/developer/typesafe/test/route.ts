@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function POST() {
   try {
     const config = await getTypeSafePilotConfig();
-    if (!config.apiKey) return Response.json({ ok: false, code: "NO_KEY", message: "Сначала сохраните ключ TypeSafe или задайте TYPESAFE_API_KEY." }, { status: 409 });
+    if (!config.apiKey) return Response.json({ ok: false, code: "NO_KEY", message: "Сначала сохраните ключ TypeSafe в своём профиле." }, { status: 409 });
     const report = await verifyTypeSafeFacts({
       enabled: true,
       apiKey: config.apiKey,

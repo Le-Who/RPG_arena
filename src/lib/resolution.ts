@@ -656,8 +656,9 @@ export function applyResolution(input: ApplyInput): ApplyResult {
       const key = slugify(q.title);
       if (input.quests.some((x) => x.key === key)) continue;
       const status = q.status && q.status !== "hidden" ? q.status : "active";
-      ops.push({ t: "quest.insert", row: { key, title: q.title, description: q.note, status, progress: q.progress ?? 0, isMain: false } });
-      questsApplied.push({ title: q.title, status, progress: q.progress ?? 0, isNew: true });
+      const progress = status === "completed" ? 100 : q.progress ?? 0;
+      ops.push({ t: "quest.insert", row: { key, title: q.title, description: q.note, status, progress, isMain: false } });
+      questsApplied.push({ title: q.title, status, progress, isNew: true });
       events.push({
         layer: "episodic",
         category: "quest",
@@ -688,7 +689,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         id: existing.id,
         patch: { relation, status, role: n.role || undefined, description: n.note ? `${existing.description ? existing.description + " " : ""}[ход ${turnNumber}] ${n.note}`.slice(0, 1200) : undefined, lastLocation: world.currentLocation },
       });
-      npcsApplied.push({ name: existing.name, relation, delta, status, isNew: false });
+      npcsApplied.push({ name: existing.name, relation, delta: relation - existing.relation, status, isNew: false });
       if (Math.abs(delta) >= 10 || status !== existing.status || n.note) {
         events.push({
           layer: "semantic",
@@ -789,12 +790,14 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         mode: "upsert",
       });
     } else {
-      if (!found) {
+      if (!found || found.quantity <= 0) {
         rejected.push(`Нельзя ${op.op === "equip" ? "экипировать" : "снять"} «${op.name || op.ref}»: предмета нет`);
         invApplied.push({ op: op.op, name: op.name || String(op.ref), quantity: 1, ok: false, reason: "нет предмета" });
         continue;
       }
-      found.equipped = op.op === "equip";
+      const equipped = op.op === "equip";
+      if (found.equipped === equipped) continue;
+      found.equipped = equipped;
       ops.push({ t: "inv.update", id: found.id, patch: { equipped: found.equipped } });
       invApplied.push({ op: op.op, name: found.name, quantity: 1, ok: true });
     }
@@ -879,10 +882,10 @@ export function applyResolution(input: ApplyInput): ApplyResult {
     ops,
     events,
     applied: {
-      hp,
-      xp,
-      gold,
-      danger,
+      hp: character.hp - input.character.hp,
+      xp: character.xp - input.character.xp,
+      gold: character.gold - input.character.gold,
+      danger: world.danger - input.world.danger,
       levelUp,
       dead,
       location: locationApplied,

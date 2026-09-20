@@ -2,7 +2,7 @@ import type { gameSessions, gameTurns, inventoryItems, worldLocations, quests, n
 type Plain<T> = { [K in keyof T]: T[K] extends Date ? string : T[K] extends Date | null ? string | null : T[K] };
 export type CheckpointSnapshot = {
   schemaVersion: 1;
-  session: Omit<Plain<typeof gameSessions.$inferSelect>, "createdAt" | "updatedAt" | "branchOrigin">;
+  session: Omit<Plain<typeof gameSessions.$inferSelect>, "createdAt" | "updatedAt" | "branchOrigin" | "ownerId" | "visibility">;
   turns: Plain<typeof gameTurns.$inferSelect>[];
   inventory: Plain<typeof inventoryItems.$inferSelect>[];
   locations: Plain<typeof worldLocations.$inferSelect>[];

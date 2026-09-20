@@ -27,15 +27,15 @@ export function maskTypeSafeKey(key: string): string {
   return trimmed.length > 8 ? `••••${trimmed.slice(-4)}` : "••••";
 }
 
-export async function getTypeSafePilotConfig(): Promise<TypeSafePilotConfig> {
-  const row = await getSettingsRow();
-  const resolved = resolveTypeSafeKey(row.typesafeKey, process.env.TYPESAFE_API_KEY);
+export async function getTypeSafePilotConfig(ownerId?: string): Promise<TypeSafePilotConfig> {
+  const row = await getSettingsRow(ownerId);
+  const resolved = resolveTypeSafeKey(row.typesafeKey, undefined);
   return { enabled: row.typesafePilotEnabled ?? false, ...resolved };
 }
 
 export async function getTypeSafeSettingsView(): Promise<TypeSafeSettingsView> {
   const row = await getSettingsRow();
-  const resolved = resolveTypeSafeKey(row.typesafeKey, process.env.TYPESAFE_API_KEY);
+  const resolved = resolveTypeSafeKey(row.typesafeKey, undefined);
   return {
     configured: Boolean(resolved.apiKey),
     storedConfigured: Boolean(row.typesafeKey?.trim()),
@@ -56,6 +56,6 @@ export async function updateTypeSafeSettings(input: { key?: string; clearKey?: b
     typesafeKey: key,
     typesafePilotEnabled: input.pilotEnabled ?? row.typesafePilotEnabled ?? false,
     updatedAt: new Date(),
-  }).where(eq(aiSettings.id, "global"));
+  }).where(eq(aiSettings.id, row.id));
   return getTypeSafeSettingsView();
 }

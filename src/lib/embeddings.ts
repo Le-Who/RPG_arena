@@ -6,6 +6,8 @@ import { estimateTokens } from "./gemini";
 import { hashContent } from "./memory";
 import { EMBEDDING_MODEL, DEFAULT_EMBEDDING_DIMS, cosine, formatDocument, formatQuery, isValidVector } from "./vector";
 import { queryVectorCache } from "./query-vectors";
+import { sessionOwnerId } from "./campaign-access";
+import { currentProfileId } from "./identity";
 export { DEFAULT_EMBEDDING_DIMS, cosine, formatDocument, formatQuery };
 export const EMBEDDING_MODEL_ALIASES = [EMBEDDING_MODEL];
 
@@ -49,7 +51,7 @@ export async function embedTexts(opts: { keys: string[]; model: string; dims: nu
 }
 async function logEmbeddingCall(opts: { sessionId?: string | null; texts: string[] }, latencyMs: number, success: boolean, error: string, keyIndex: number) {
   const promptTokens = opts.texts.reduce((sum, text) => sum + estimateTokens(text), 0);
-  try { await db.insert(tokenLogs).values({ sessionId: opts.sessionId ?? null, model: EMBEDDING_MODEL, taskType: "embedding", promptTokens, completionTokens: 0, totalTokens: promptTokens, latencyMs, success, error, keyIndex }); } catch { /* telemetry must not break play */ }
+  try { await db.insert(tokenLogs).values({ ownerId: opts.sessionId ? await sessionOwnerId(opts.sessionId) : await currentProfileId(), sessionId: opts.sessionId ?? null, model: EMBEDDING_MODEL, taskType: "embedding", promptTokens, completionTokens: 0, totalTokens: promptTokens, latencyMs, success, error, keyIndex }); } catch { /* telemetry must not break play */ }
 }
 export async function enqueueEmbeddings(sessionId: string, nodeIds: string[], model: string, dims: number) {
   if (!nodeIds.length) return;

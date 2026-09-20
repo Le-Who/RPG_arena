@@ -1,3 +1,4 @@
+import { smokeFetch, cleanupSmokeIdentity } from "./smoke-identity";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
@@ -11,7 +12,7 @@ const base = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const ids: string[] = [];
 const nativeFetch = globalThis.fetch;
 async function call<T = Record<string, unknown>>(path: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
-  const response = await fetch(base + path, { method, headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const response = await smokeFetch(base + path, { method, headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   return { status: response.status, data: await response.json() as T };
 }
 async function run() {
@@ -55,7 +56,7 @@ async function run() {
   assert.equal((await call(`/api/sessions/${sessionId}`, { status: "archived", title: "Smoke archive" }, "PATCH")).status, 200);
   assert.equal((await call(`/api/sessions/${sessionId}/act`, { action: "Продолжить", custom: true })).status, 429);
   assert.equal((await call(`/api/sessions/${sessionId}`, { status: "active" }, "PATCH")).status, 200);
-  const exportResponse = await fetch(`${base}/api/sessions/${sessionId}/export`);
+  const exportResponse = await smokeFetch(`${base}/api/sessions/${sessionId}/export`);
   assert.equal(exportResponse.status, 200); assert.ok((await exportResponse.text()).includes("Smoke archive"));
   const free = await call<{ session: Session }>("/api/sessions", { mode: "free", rulesProfile: "narrative", customScenario: { title: "Smoke realistic drama", pitch: "Семейная встреча в современном городе.", tone: "реалистичная бытовая драма", startLocation: "Кухня" }, customCharacter: { name: "Ада", archetype: "Журналист" } });
   assert.equal(free.status, 200); ids.push(free.data.session.id);
@@ -111,6 +112,7 @@ async function run() {
 run().then(() => console.log("ALL INTEGRATION CHECKS PASSED")).catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => {
   globalThis.fetch = nativeFetch;
   if (ids.length) await db.delete(tokenLogs).where(inArray(tokenLogs.sessionId, ids));
-  for (const id of ids) await nativeFetch(`${base}/api/sessions/${id}`, { method: "DELETE" }).catch(() => {});
+  for (const id of ids) await smokeFetch(`${base}/api/sessions/${id}`, { method: "DELETE" }).catch(() => {});
+  await cleanupSmokeIdentity();
   await pool.end();
 });
