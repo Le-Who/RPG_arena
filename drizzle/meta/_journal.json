@@ -43,6 +43,13 @@
       "when": 1790000000001,
       "tag": "0005_user_isolation",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790000000002,
+      "tag": "0006_database_memory_search",
+      "breakpoints": true
     }
   ]
 }

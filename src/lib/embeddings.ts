@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
-import { db } from "@/db";
+import { db, pool } from "@/db";
 import { memoryEmbeddings, memoryNodes, tokenLogs } from "@/db/schema";
 import { estimateTokens } from "./gemini";
 import { hashContent } from "./memory";
@@ -8,6 +8,9 @@ import { EMBEDDING_MODEL, DEFAULT_EMBEDDING_DIMS, cosine, formatDocument, format
 import { queryVectorCache } from "./query-vectors";
 import { sessionOwnerId } from "./campaign-access";
 import { currentProfileId } from "./identity";
+import { buildMemorySearchQuery, describeRetrievedNode, type DatabaseSearchResult, type RetrievedNode } from "./memory-search";
+import { runSearchQuery } from "./search-database";
+export type { RetrievedNode } from "./memory-search";
 export { DEFAULT_EMBEDDING_DIMS, cosine, formatDocument, formatQuery };
 export const EMBEDDING_MODEL_ALIASES = [EMBEDDING_MODEL];
 
@@ -119,12 +122,57 @@ export async function embeddingStats(sessionId: string, reader: Pick<typeof db, 
   for (const row of rows) status[row.status] = Number(row.n);
   return { nodes: Number(total?.n ?? 0), ...status, models: [...new Set(rows.map((r) => r.model))] };
 }
-export type RetrievedNode = { id: string; layer: string; category: string; title: string; content: string; importance: number; salience: number; source: string; sourceTurn: number | null; turnTo: number | null; evidence: string | null; similarity: number; score: number; why: string };
-export async function searchMemory(opts: { sessionId: string; query: string; keys: string[]; model: string; dims: number; k?: number; currentTurn?: number; perLayerCap?: number; minSimilarity?: number; timeoutMs?: number }): Promise<{ results: RetrievedNode[]; candidates: number; ms: number }> {
+type SearchOptions = { sessionId: string; query: string; keys: string[]; model: string; dims: number; k?: number; currentTurn?: number; perLayerCap?: number; minSimilarity?: number; timeoutMs?: number };
+export async function searchMemory(opts: SearchOptions) {
   const started = Date.now();
-  const candidates = await db.select({ node: memoryNodes, vector: memoryEmbeddings.vector, hash: memoryEmbeddings.contentHash }).from(memoryEmbeddings).innerJoin(memoryNodes, eq(memoryEmbeddings.memoryNodeId, memoryNodes.id)).where(and(
-    eq(memoryEmbeddings.sessionId, opts.sessionId), eq(memoryNodes.sessionId, opts.sessionId), eq(memoryEmbeddings.status, "ready"), eq(memoryEmbeddings.model, opts.model), eq(memoryEmbeddings.dims, opts.dims),
-  ));
+  const deadline = started + Math.max(1, Math.min(opts.timeoutMs ?? 15000, 30000));
+  const [availability] = await runSearchQuery<{ migrated: boolean; ready: boolean }>(pool, {
+    text: `SELECT to_regprocedure('chronicle_memory_vector(real[],integer)') IS NOT NULL
+      AND to_regprocedure('chronicle_embedding_hash(text,integer,text,text)') IS NOT NULL AS migrated,
+      EXISTS (SELECT 1 FROM memory_embeddings e JOIN memory_nodes n ON n.id = e.memory_node_id
+        WHERE e.session_id = $1::uuid AND n.session_id = $1::uuid AND e.model = $2 AND e.dims = $3 AND e.status = 'ready') AS ready`,
+    values: [opts.sessionId, opts.model, opts.dims],
+  }, deadline);
+  let databaseMs = Date.now() - started;
+  if (!availability.ready) return { results: [] as RetrievedNode[], candidates: 0, ms: databaseMs, databaseMs, embeddingMs: 0, backend: availability.migrated ? "postgres" as const : "legacy" as const };
+  // Rolling deployment only. A SQL error/timeout must never trigger a full-vector retry.
+  if (!availability.migrated) {
+    const result = await searchMemoryLegacy({ ...opts, timeoutMs: Math.max(1, deadline - Date.now()) });
+    return { ...result, ms: Date.now() - started, databaseMs: null, embeddingMs: null, backend: "legacy" as const };
+  }
+  // Keep the old no-provider-call behavior when all ready rows are stale or invalid.
+  const [usable] = await runSearchQuery<{ ready: boolean }>(pool, {
+    text: `SELECT EXISTS (SELECT 1 FROM memory_embeddings e JOIN memory_nodes n ON n.id=e.memory_node_id
+      WHERE e.session_id=$1::uuid AND n.session_id=$1::uuid AND e.model=$2 AND e.dims=$3 AND e.status='ready'
+        AND e.content_hash=chronicle_embedding_hash(e.model,e.dims,n.title,n.content)
+        AND chronicle_memory_vector(e.vector,$3::integer) IS NOT NULL) AS ready`,
+    values: [opts.sessionId, opts.model, opts.dims],
+  }, deadline);
+  databaseMs = Date.now() - started;
+  if (!usable.ready) return { results: [] as RetrievedNode[], candidates: 0, ms: databaseMs, databaseMs, embeddingMs: 0, backend: "postgres" as const };
+  const embeddingStarted = Date.now();
+  const key = hashContent(opts.sessionId, opts.model, String(opts.dims), opts.query);
+  const q = await queryVectorCache.get(key, async () => {
+    const remaining = deadline - Date.now();
+    if (remaining < 250) throw new Error("MEMORY_SEARCH_TIMEOUT");
+    return (await embedTexts({ ...opts, timeoutMs: remaining, texts: [formatQuery(opts.query)] })).vectors[0];
+  }, { waitMs: Math.max(0, Math.min(750, deadline - Date.now() - 1000)) });
+  const embeddingMs = Date.now() - embeddingStarted;
+  const searchStarted = Date.now();
+  const [result] = await runSearchQuery<DatabaseSearchResult>(pool, buildMemorySearchQuery({ ...opts, vector: q }), deadline);
+  databaseMs += Date.now() - searchStarted;
+  return { results: result.results.map(describeRetrievedNode), candidates: result.candidates, ms: Date.now() - started, databaseMs, embeddingMs, backend: "postgres" as const };
+}
+
+async function searchMemoryLegacy(opts: SearchOptions): Promise<{ results: RetrievedNode[]; candidates: number; ms: number }> {
+  const started = Date.now();
+  const candidates = await runSearchQuery<{ node: Omit<RetrievedNode, "similarity" | "score" | "why">; vector: number[]; hash: string }>(pool, {
+    text: `SELECT jsonb_build_object('id',n.id,'layer',n.layer,'category',n.category,'title',n.title,'content',n.content,
+      'importance',n.importance,'salience',n.salience,'source',n.source,'sourceTurn',n.source_turn,'turnTo',n.turn_to,'evidence',n.evidence) AS node,
+      e.vector,e.content_hash AS hash FROM memory_embeddings e JOIN memory_nodes n ON n.id=e.memory_node_id
+      WHERE e.session_id=$1::uuid AND n.session_id=$1::uuid AND e.status='ready' AND e.model=$2 AND e.dims=$3`,
+    values: [opts.sessionId, opts.model, opts.dims],
+  }, started + (opts.timeoutMs ?? 15000));
   const rows = candidates.filter((row) => isValidVector(row.vector, opts.dims) && row.hash === hashContent(opts.model, String(opts.dims), formatDocument(row.node.title, row.node.content)));
   if (!rows.length) return { results: [], candidates: 0, ms: Date.now() - started };
   const key = hashContent(opts.sessionId, opts.model, String(opts.dims), opts.query);

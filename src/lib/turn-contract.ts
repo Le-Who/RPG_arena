@@ -8,7 +8,7 @@ export type TurnResponse = {
   playerAction?: string; timings?: TurnTimings;
   state?: { character: CharacterState; worldState: WorldState };
 };
-export type TurnTimings = { admissionMs?: number; contextMs?: number; retrievalMs?: number; generationMs?: number; validationMs?: number; writesMs?: number; serverMs?: number; firstTextMs?: number; attempts?: number; thoughtTokens?: number; cachedTokens?: number };
+export type TurnTimings = { admissionMs?: number; contextMs?: number; retrievalMs?: number; retrievalDatabaseMs?: number; retrievalEmbeddingMs?: number; retrievalCandidates?: number; retrievalBackend?: "postgres" | "legacy"; generationMs?: number; validationMs?: number; writesMs?: number; serverMs?: number; firstTextMs?: number; attempts?: number; thoughtTokens?: number; cachedTokens?: number };
 export type TurnErrorCode = "NOT_FOUND" | "AI_REQUIRED" | "AI_FAILED" | "BUSY" | "INVALID_INPUT" | "STALE_TURN" | "IDEMPOTENCY_CONFLICT" | "LEASE_EXPIRED" | "INTERNAL";
 export type TurnError = { ok: false; code: TurnErrorCode; message: string; details?: string; retryAfter?: number; currentTurn?: number };
 export type TurnInput = { sessionId: string; action: string; isFree: boolean; requestId?: string | null; expectedTurn?: number; itemIds?: string[] };

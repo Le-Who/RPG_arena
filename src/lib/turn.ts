@@ -197,6 +197,10 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       });
       retrieved = r.results;
       retrievalMs = r.ms;
+      timings.retrievalBackend = r.backend;
+      timings.retrievalCandidates = r.candidates;
+      if (r.databaseMs !== null) timings.retrievalDatabaseMs = r.databaseMs;
+      if (r.embeddingMs !== null) timings.retrievalEmbeddingMs = r.embeddingMs;
     } catch (e) {
       warnings.push(`retrieval: ${e instanceof Error ? e.message.slice(0, 80) : "err"}`);
     }

@@ -4,11 +4,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:deploy": "npm run migrate && npm run build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "node --env-file-if-exists=.env --import tsx --test tests/*.test.ts",
-    "migrate": "node --env-file=.env --import tsx scripts/migrate.ts",
+    "migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
     "worker": "node --env-file=.env --import tsx scripts/memory-worker.ts",
     "audit:ui": "node --env-file-if-exists=.env --import tsx scripts/ui-audit.ts",
     "verify:ui": "node --env-file-if-exists=.env --import tsx scripts/ui-verify.ts",
@@ -32,6 +33,8 @@
     "tsx": "^4.23.13"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-pgvector": "^0.0.9",
     "@tailwindcss/postcss": "4.1.17",
     "@types/node": "22.19.15",
     "@types/pg": "8.18.0",
