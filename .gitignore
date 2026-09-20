@@ -2,6 +2,7 @@ node_modules/
 .next/
 artifacts/
 output/
+.playwright-cli/
 accessibility-revision/
 backend-revision/
 *.tsbuildinfo

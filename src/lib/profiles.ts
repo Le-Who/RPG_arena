@@ -83,8 +83,16 @@ export function profileFor(id: string | null | undefined): ProfileSpec {
   return PROFILE_SPECS[(isRulesProfile(id) ? id : "d20") as RulesProfile];
 }
 
+/** Only self-contained observation is unconditionally trivial. Additional actions,
+ * obstacles, stealth and requests for resources remain subject to profile checks. */
+export function isTrivialAction(action: string): boolean {
+  const normalized = action.toLocaleLowerCase("ru").trim().replace(/[.!?]+$/, "").trim().replace(/\s+/g, " ");
+  return /^(?:(?:просто|спокойно|внимательно|тихо) )?(?:оглядываюсь|осмотреться(?: внимательнее)?|смотрю (?:вокруг|по сторонам)|осматриваю (?:комнату|помещение|местность|окрестности))$/.test(normalized);
+}
+
 /** Оценка риска для rules-light: «safe» → проверка не нужна, иначе 2d6. */
 export function assessRisk(action: string, danger: number): "safe" | "risky" | "desperate" {
+  if (isTrivialAction(action)) return "safe";
   const a = action.toLowerCase();
   const violent = /атак|удар|бой|драк|стрел|напад|взлом|проник|пробир|тайк|тайно|незамет|крад|украд|бег|прыг|погон|угрож|ложь|солг|обман|взорв|поджеч|сбеж|лаз|ныря|взбир|карабк|рискн|бросаюсь|хвата/.test(a);
   const social = /убед|уговор|переговор|торг|подкуп|флирт|соблазн|допрос|обвин/.test(a);

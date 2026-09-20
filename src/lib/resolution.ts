@@ -23,6 +23,7 @@ import { profileFor, type ProfileSpec } from "./profiles";
 export type ResolutionOutcome = "success" | "partial" | "failure" | "neutral";
 
 export type InventoryOp = {
+  checkDependency?: "independent";
   op: "add" | "consume" | "remove" | "equip" | "unequip";
   ref: string | null;
   name: string;
@@ -313,6 +314,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
       kind: str(i.kind, 20, "misc") || "misc",
       quantity: clampInt(i.quantity, 1, 20, 1),
       description: str(i.description, 300),
+      ...(i.checkDependency === "independent" ? { checkDependency: "independent" as const } : {}),
     }))
     .filter((i) => i.name || i.ref);
 
@@ -377,7 +379,7 @@ export type SceneRow = { id: string; key: string; name: string; state: string; l
 export type LocRow = { id: string; name: string; x: number; y: number; current: boolean; discovered: boolean; danger: number; connectedTo?: string[] | null };
 
 export type DbOp =
-  | { t: "inv.insert"; row: { name: string; kind: string; description: string; quantity: number; icon: string } }
+  | { t: "inv.insert"; row: { id: string; name: string; kind: string; description: string; quantity: number; icon: string } }
   | { t: "inv.update"; id: string; patch: { quantity?: number; equipped?: boolean } }
   | { t: "inv.delete"; id: string }
   | { t: "quest.insert"; row: { key: string; title: string; description: string; status: QuestStatus; progress: number; isMain: boolean } }
@@ -416,9 +418,13 @@ export type ApplyInput = {
   turnNumber: number;
   rng?: () => number;
   makeLocationId?: () => string;
+  makeInventoryId?: () => string;
+  /** Only the guarded live orchestrator may commit these candidates after independent verification. */
+  allowProvisionalIndependentAdds?: boolean;
 };
 
 export type ApplyResult = {
+  provisionalIndependentAdds: InventoryOp[];
   character: CharacterState;
   world: WorldState;
   applied: AppliedChanges;
@@ -434,6 +440,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
   const { payload, dice, turnNumber } = input;
   const rng = input.rng ?? Math.random;
   const makeLocationId = input.makeLocationId ?? randomUUID;
+  const makeInventoryId = input.makeInventoryId ?? randomUUID;
   const ops: DbOp[] = [];
   const events: MemoryEvent[] = [];
   const rejected: string[] = [];
@@ -723,6 +730,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
 
   // ── Инвентарь (INV-1c/d): владение и количество проверяет сервер ──
   const invApplied: AppliedChanges["inventory"] = [];
+  const provisionalIndependentAdds: InventoryOp[] = [];
   const invState = input.inventory.map((i) => ({ ...i }));
   let adds = 0;
   for (const op of payload.stateChanges.inventory) {
@@ -735,7 +743,8 @@ export function applyResolution(input: ApplyInput): ApplyResult {
     }
     if (op.op === "add") {
       if (!op.name) continue;
-      if (outcome === "failure" && dice) {
+      const provisional = outcome === "failure" && !!dice && op.checkDependency === "independent" && input.allowProvisionalIndependentAdds === true;
+      if (outcome === "failure" && dice && !provisional) {
         rejected.push(`Предмет «${op.name}» не получен: действие провалено`);
         invApplied.push({ op: "add", name: op.name, quantity: op.quantity, ok: false, reason: "провал" });
         continue;
@@ -746,12 +755,15 @@ export function applyResolution(input: ApplyInput): ApplyResult {
       }
       adds++;
       const qty = Math.min(5, op.quantity);
+      if (provisional) provisionalIndependentAdds.push({ ...op, name: found?.name ?? op.name, ref: found?.id ?? null, quantity: qty });
       if (found) {
         found.quantity += qty;
         ops.push({ t: "inv.update", id: found.id, patch: { quantity: found.quantity } });
         invApplied.push({ op: "add", name: found.name, quantity: qty, ok: true });
       } else {
-        ops.push({ t: "inv.insert", row: { name: op.name, kind: op.kind, description: op.description, quantity: qty, icon: iconForKind(op.kind) } });
+        const row = { id: makeInventoryId(), name: op.name, kind: op.kind, description: op.description, quantity: qty, icon: iconForKind(op.kind) };
+        ops.push({ t: "inv.insert", row });
+        invState.push({ ...row, equipped: false, power: 0 });
         invApplied.push({ op: "add", name: op.name, quantity: qty, ok: true });
       }
       events.push({
@@ -771,8 +783,10 @@ export function applyResolution(input: ApplyInput): ApplyResult {
       }
       const qty = op.op === "remove" ? Math.min(found.quantity, Math.max(1, op.quantity)) : Math.min(found.quantity, op.quantity);
       found.quantity -= qty;
-      if (found.quantity <= 0) ops.push({ t: "inv.delete", id: found.id });
-      else ops.push({ t: "inv.update", id: found.id, patch: { quantity: found.quantity } });
+      if (found.quantity <= 0) {
+        ops.push({ t: "inv.delete", id: found.id });
+        invState.splice(invState.indexOf(found), 1);
+      } else ops.push({ t: "inv.update", id: found.id, patch: { quantity: found.quantity } });
       invApplied.push({ op: op.op, name: found.name, quantity: qty, ok: true });
       // расходник — лечение по power только для профилей с HP
       if (op.op === "consume" && spec.resources.hp && found.kind === "consumable" && found.power > 0) {
@@ -878,6 +892,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
   return {
     character,
     world,
+    provisionalIndependentAdds,
     outcome,
     ops,
     events,

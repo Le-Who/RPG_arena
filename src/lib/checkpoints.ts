@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { agreementEvents } from "@/db/schema";
+import { loadAgreementHistory } from "./narrative-agreements";
 import { and, asc, count, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { aiSettings, campaignCheckpoints, checkpointForks, gameSessions, gameTurns, inventoryItems, memoryEmbeddings, memoryJobs, memoryLinks, memoryNodes, npcs, quests, sceneObjects, worldLocations } from "@/db/schema";
@@ -30,11 +32,12 @@ export async function createCheckpoint(input: { sessionId: string; title: string
     const npcRows = await tx.select().from(npcs).where(eq(npcs.sessionId, input.sessionId)).limit(1001);
     const scene = await tx.select().from(sceneObjects).where(eq(sceneObjects.sessionId, input.sessionId)).limit(1001);
     const memories = await tx.select().from(memoryNodes).where(eq(memoryNodes.sessionId, input.sessionId)).limit(1001);
+    const agreements = await loadAgreementHistory(tx, input.sessionId, session.turnCount + 1);
     if (turns.length > 2000 || [inventory, locations, questRows, npcRows, scene, memories].some((rows) => rows.length > 1000)) throw new HttpError(413, "CHECKPOINT_TOO_LARGE", "История превышает лимит быстрого снимка: 2000 записей или 1000 сущностей. Данные не усекались.");
     const mids = memories.map((m) => m.id);
     const links = mids.length ? await tx.select().from(memoryLinks).where(and(inArray(memoryLinks.fromId, mids), inArray(memoryLinks.toId, mids))) : [];
     const { createdAt: _created, updatedAt: _updated, branchOrigin: _origin, ...state } = session;
-    const snapshot = plain<CheckpointSnapshot>({ schemaVersion: 1, session: state, turns: turns.map((turn) => ({ ...turn, requestId: null })), inventory, locations, quests: questRows, npcs: npcRows, sceneObjects: scene, memories, links });
+    const snapshot = plain<CheckpointSnapshot>({ schemaVersion: 1, session: state, turns: turns.map((turn) => ({ ...turn, requestId: null })), inventory, locations, quests: questRows, npcs: npcRows, sceneObjects: scene, memories, links, agreements });
     assertSnapshot(snapshot);
     const [pending] = await tx.select({ n: count() }).from(memoryJobs).where(and(eq(memoryJobs.sessionId, input.sessionId), inArray(memoryJobs.status, ["pending", "processing"])));
     const [saved] = await tx.insert(campaignCheckpoints).values({ sessionId: input.sessionId, title: input.title, requestId: input.requestId, turnNumber: session.turnCount, snapshot, checksum: snapshotChecksum(snapshot), summary: { character: session.character.name, location: session.worldState.currentLocation, memories: memories.length, items: inventory.length, turns: turns.length, pendingFacts: pending.n } }).returning({ id: campaignCheckpoints.id, title: campaignCheckpoints.title, turnNumber: campaignCheckpoints.turnNumber });
@@ -79,6 +82,7 @@ export async function forkCheckpoint(input: { sessionId: string; checkpointId: s
     for (const rows of chunk(copy.npcs.map((r) => ({ ...r, createdAt: new Date(r.createdAt) })))) await tx.insert(npcs).values(rows);
     for (const rows of chunk(copy.sceneObjects.map((r) => ({ ...r, createdAt: new Date(r.createdAt) })))) await tx.insert(sceneObjects).values(rows);
     for (const rows of chunk(copy.turns.map((r) => ({ ...r, requestId: null, createdAt: new Date(r.createdAt) })))) await tx.insert(gameTurns).values(rows);
+    for (const revision of [...(copy.agreements ?? [])].sort((a, b) => a.turnNumber - b.turnNumber || a.version - b.version)) await tx.insert(agreementEvents).values(revision);
     for (const rows of chunk(copy.memories.map((r) => ({ ...r, parentId: null, contentHash: hashContent(r.layer, r.category, r.title, r.content), createdAt: new Date(r.createdAt), updatedAt: new Date(r.updatedAt) })))) await tx.insert(memoryNodes).values(rows);
     for (const memory of copy.memories) if (memory.parentId) await tx.update(memoryNodes).set({ parentId: memory.parentId }).where(and(eq(memoryNodes.id, memory.id), eq(memoryNodes.sessionId, branchId)));
     for (const rows of chunk(copy.links)) await tx.insert(memoryLinks).values(rows);

@@ -50,6 +50,34 @@
       "when": 1790000000002,
       "tag": "0006_database_memory_search",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790000000003,
+      "tag": "0007_narrative_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790000000004,
+      "tag": "0008_agreement_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790000000005,
+      "tag": "0009_narrative_evidence_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790000000006,
+      "tag": "0010_narrative_diagnostics",
+      "breakpoints": true
     }
   ]
 }

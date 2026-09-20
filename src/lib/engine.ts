@@ -4,7 +4,7 @@
 
 import { rollD20, roll2d6, dcFor, statModifier } from "./dice";
 import type { DiceResult } from "@/db/schema";
-import { assessRisk, profileFor } from "./profiles";
+import { assessRisk, isTrivialAction, profileFor } from "./profiles";
 import { seededRandom } from "./rng";
 
 export type EngineInput = {
@@ -75,14 +75,15 @@ export function detectSkill(action: string): { skill: string; stat: string } {
 export function serverCheck(input: { rulesProfile: string; playerAction: string; stats: Record<string, number>; danger: number; turnCount: number }): DiceResult | null {
   const spec = profileFor(input.rulesProfile);
   if (spec.check === "none") return null;
+  if (isTrivialAction(input.playerAction)) return null;
   if (spec.check === "2d6") {
     const risk = assessRisk(input.playerAction, input.danger);
     if (risk === "safe") return null;
-    return roll2d6(risk === "desperate" ? "Отчаянный риск" : "Риск", risk === "desperate" ? -1 : 0);
+    return { ...roll2d6(risk === "desperate" ? "Отчаянный риск" : "Риск", risk === "desperate" ? -1 : 0), goal: input.playerAction };
   }
   const { skill, stat } = detectSkill(input.playerAction);
   const mod = statModifier(input.stats[stat] ?? 11);
-  return rollD20(skill, mod, dcFor(input.danger, input.turnCount));
+  return { ...rollD20(skill, mod, dcFor(input.danger, input.turnCount)), goal: input.playerAction };
 }
 
 export function runOfflineEngine(input: EngineInput): EngineOutput {

@@ -1,5 +1,6 @@
 import type { gameSessions, gameTurns, inventoryItems, worldLocations, quests, npcs, sceneObjects, memoryNodes, memoryLinks, campaignCheckpoints } from "@/db/schema";
 type Plain<T> = { [K in keyof T]: T[K] extends Date ? string : T[K] extends Date | null ? string | null : T[K] };
+import type { AgreementRevision } from "./narrative-agreements";
 export type CheckpointSnapshot = {
   schemaVersion: 1;
   session: Omit<Plain<typeof gameSessions.$inferSelect>, "createdAt" | "updatedAt" | "branchOrigin" | "ownerId" | "visibility">;
@@ -11,6 +12,8 @@ export type CheckpointSnapshot = {
   sceneObjects: Plain<typeof sceneObjects.$inferSelect>[];
   memories: Plain<typeof memoryNodes.$inferSelect>[];
   links: Plain<typeof memoryLinks.$inferSelect>[];
+  /** Optional for existing v1 checkpoints created before the agreement journal. */
+  agreements?: AgreementRevision[];
 };
 export type CheckpointSummary = Omit<typeof campaignCheckpoints.$inferSelect, "snapshot" | "checksum" | "requestId" | "createdAt"> & { createdAt: string; branches: { id: string; title: string; turnCount: number }[] };
 export const CHECKPOINT_LIMIT = 12;

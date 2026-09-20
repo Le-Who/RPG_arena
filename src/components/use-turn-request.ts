@@ -6,7 +6,7 @@ import { readTurnStream, TurnStreamError } from "@/lib/turn-stream";
 import { normalizeItemIds } from "@/lib/item-bindings";
 import { publishCommittedTurn } from "@/lib/committed-turns";
 export function advanceTurnStage(current: TurnStage, next: TurnStage): TurnStage {
-  const rank: Record<TurnStage, number> = { context: 0, generation: 1, applying: 2, failed: 3, completed: 4 };
+  const rank: Record<TurnStage, number> = { context: 0, generation: 1, checking: 2, applying: 3, failed: 4, completed: 5 };
   return rank[next] > rank[current] ? next : current;
 }
 export type PendingTurn = { itemIds?: string[]; id: string; sessionId: string; action: string; custom: boolean; expectedTurn: number };

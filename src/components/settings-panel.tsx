@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DeveloperSettings } from "./developer-settings";
+import { NarrativeSettings } from "./narrative-settings";
 import { useDirtyHistory } from "./use-dirty-history";
 import { ArrowRight, BookOpenText, BrainCircuit, Check, ChevronDown, Crown, Database, Eye, EyeOff, ExternalLink, KeyRound, Leaf, LoaderCircle, LockKeyhole, Save, Settings2, ShieldCheck, Sparkles, Trash2, UserRound, Wifi, Zap } from "lucide-react";
 import { useApp } from "./app-shell";
@@ -31,6 +32,9 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
   const [showKey, setShowKey] = useState(false);
   const [name, setName] = useState(workspace.displayName);
   const [saving, setSaving] = useState(false);
+  const [narrativeDirty, setNarrativeDirty] = useState(false);
+  const narrativeSave = useRef<(() => Promise<boolean>) | null>(null);
+  const onNarrativeSaveReady = useCallback((save: (() => Promise<boolean>) | null) => { narrativeSave.current = save; }, []);
   const [testing, setTesting] = useState(false);
   const [connection, setConnection] = useState<{ ok: boolean; message: string } | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
@@ -39,6 +43,7 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
   const save = async () => {
     if (!draft) return false; setSaving(true);
     try {
+      if (narrativeSave.current && !await narrativeSave.current()) return false;
       await api("/api/settings", jsonBody({ ...draft, embeddingModel: "gemini-embedding-2", ...(keyText.trim() ? { keysText: keyText, append: true, useLiveAI: true } : {}) }));
       const saved = await api<Settings>("/api/settings"); setDraft(saved); setBaseline(JSON.stringify(saved));
       setKeyText(""); await refresh(); notify("Настройки сохранены. Ваш мир готов к новым историям."); return true;
@@ -51,7 +56,7 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
   };
   const removeKey = async (index: number) => { try { await api("/api/settings", jsonBody({ removeIndex: [index] })); const saved = await api<Settings>("/api/settings"); setDraft(old => ({ ...old, keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, useLiveAI: saved.keysCount + saved.envKeysCount === 0 ? false : old.useLiveAI !== JSON.parse(baseline).useLiveAI ? old.useLiveAI : saved.useLiveAI })); setBaseline(old => JSON.stringify({ ...JSON.parse(old), keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, useLiveAI: saved.useLiveAI })); await refresh(); notify("Ключ удалён"); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } };
   const saveProfile = async () => { setSaving(true); try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ displayName: name }) }); await refresh(); notify("Имя профиля сохранено"); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } finally { setSaving(false); } };
-  const dirty = JSON.stringify(draft) !== baseline || !!keyText.trim() || name !== workspace.displayName;
+  const dirty = JSON.stringify(draft) !== baseline || !!keyText.trim() || name !== workspace.displayName || narrativeDirty;
   const releaseHistory = useDirtyHistory(dirty, leave => { closeAction.current = leave; setConfirmClose(true); }, onClose);
   const requestClose = useCallback(() => { if (saving) return; closeAction.current = () => releaseHistory(onClose); if (dirty) setConfirmClose(true); else releaseHistory(onClose); }, [dirty, saving, onClose, releaseHistory]);
   const openDeveloper = () => { if (saving) return; closeAction.current = () => releaseHistory(onDeveloper); if (dirty) setConfirmClose(true); else releaseHistory(onDeveloper); };
@@ -90,6 +95,7 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
         { key: "theme", title: "Палитра" },
         { key: "motion", title: "Анимации" },
       ] as { key: keyof ReadingPreferences; title: string }[]).map((group) => <div className="reading-group" key={group.key}><span>{group.title}</span><div className="reading-choices">{READING_OPTIONS[group.key].map((option) => <button type="button" key={option.value} className={`reading-choice ${workspace.reading[group.key] === option.value ? "selected" : ""}`} aria-pressed={workspace.reading[group.key] === option.value} onClick={() => void updateReading({ ...workspace.reading, [group.key]: option.value })}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</div></div>)}</div><div className="reading-preview"><small>Предпросмотр</small><p>Туман стелется над причалом, и где-то в тишине бьёт колокол. Вы делаете шаг вперёд — история запоминает каждое ваше решение.</p></div></section>
+      <NarrativeSettings onDirtyChange={setNarrativeDirty} onSaveReady={onNarrativeSaveReady} />
       <section className="settings-card" id="profile"><div className="settings-card-heading"><span className="feature-icon violet"><UserRound size={20} /></span><div><h2>Как к вам обращаться?</h2><p>Небольшая деталь, которая делает пространство вашим.</p></div></div><div className="profile-edit"><span className="avatar">{name[0] || "И"}</span><label className="field"><input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} aria-label="Имя профиля" /></label><button className="button secondary" disabled={saving || !name.trim()} onClick={() => void saveProfile()}>Сохранить</button></div></section>
     </div><aside className="settings-aside"><div className="settings-card usage-card"><div className="side-section-title no-top-margin"><Database size={14} />СЕГОДНЯ В ПРОСТРАНСТВЕ</div><div className="usage-metric"><strong>{usage?.today.totalReq ?? 0}</strong><span>запросов к AI</span></div><div className="usage-small"><span>Токенов использовано</span><strong>{new Intl.NumberFormat("ru").format(usage?.today.totalTokens ?? 0)}</strong></div><div className="usage-small"><span>Запросов embeddings</span><strong>{usage?.today.embeddingReq ?? 0}</strong></div><div className="usage-small"><span>Ошибок провайдера</span><strong>{usage?.today.errors ?? 0}</strong></div><div className="settings-divider" /><SettingToggle title="Дневные лимиты" description="Ограничивать генеративные запросы на сервере." value={draft.enforceLimits} onChange={(value) => change("enforceLimits", value)} /><div className="fields quota-fields"><label className="field"><span>Flash · на модель и ключ</span><input type="number" min={1} max={100000} value={draft.dailyFlashLimit} onChange={(e) => change("dailyFlashLimit", Math.max(1, Number(e.target.value)))} /></label><label className="field"><span>Flash Lite · на ключ</span><input type="number" min={1} max={1000000} value={draft.dailyLiteLimit} onChange={(e) => change("dailyLiteLimit", Math.max(1, Number(e.target.value)))} /></label></div><p className="settings-footnote">Это ваши ограничения, не обещание квот Google. Реальные лимиты зависят от проекта и тарифа провайдера.</p></div><div className="settings-tip"><Sparkles size={22} /><h3>Начать можно без ключа</h3><p>Авторские пресеты доступны в автономном режиме. Подключите Gemini, когда захотите больше свободы и живых диалогов.</p>{!onClose && <Link href="/worlds" className="text-link">Выбрать мир <ArrowRight size={13} /></Link>}</div><div className="settings-card"><h3>Для разработки</h3><p>Экспериментальная проверка извлечённой памяти через Jev. Оценки не меняют канон.</p><button className="button secondary" disabled={saving} onClick={openDeveloper}>Для разработки <ArrowRight size={13} /></button></div><div className="privacy-note"><LockKeyhole size={16} /><p>Приватное пространство для одного владельца. Перед публичным размещением необходимы авторизация и шифрование ключей в БД.</p></div></aside></div><footer className="workspace-footer"><span><ShieldCheck size={13} />Ваши истории хранятся в PostgreSQL.</span>{!onClose && <Link href="/blueprint">Как устроен движок <ArrowRight size={12} /></Link>}</footer></div>;
 }

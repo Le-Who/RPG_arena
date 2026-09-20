@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { AgreementRevision, AgreementStatus } from "@/lib/narrative-agreements";
 import type { TurnResponse, TurnStage } from "@/lib/turn-contract";
 import type { CheckpointSnapshot } from "@/lib/checkpoint-types";
 import type { TypeSafeReport } from "@/lib/typesafe-report";
@@ -56,6 +57,8 @@ export type WorldState = {
 };
 
 export type DiceResult = {
+  /** Server-bound action being checked; legacy rolls infer it from the saved player turn. */
+  goal?: string;
   d20: number;
   modifier: number;
   total: number;
@@ -88,6 +91,14 @@ export type AppliedChanges = {
 };
 
 export type TurnContextMeta = {
+  narrativeVerification?: {
+    version: 1; reasons: string[]; repaired: boolean; emittedCharacters: number;
+    textSha256?: string;
+    checks: import("../lib/narrative-verifier").NarrativeVerification[];
+    checkSelections?: import("../lib/narrative-policy").NarrativeCheckSelection[];
+    reviews?: { attempt: number; result: import("../lib/narrative-review").NarrativeReview; model: string; latencyMs: number }[];
+    evidence: import("../lib/narrative-evidence").NarrativeEvidence;
+  };
   timings?: import("../lib/turn-contract").TurnTimings;
   model: string;
   rulesProfile: RulesProfile;
@@ -135,6 +146,8 @@ export const gameTurns = pgTable(
     turnNumber: integer("turn_number").notNull(),
     role: text("role").notNull(), // narrator | player | system | dice | memory
     content: text("content").notNull(),
+    // Migration 0009 owns the DB-only generated evidence_search vector and GIN index.
+    // Keep it out of ORM row selection, client snapshots and campaign copies.
     choices: jsonb("choices").$type<string[]>().default([]),
     dice: jsonb("dice").$type<DiceResult | null>().default(null),
     modelUsed: text("model_used"),
@@ -385,6 +398,9 @@ export const aiSettings = pgTable("ai_settings", {
   semanticExtractionEnabled: boolean("semantic_extraction_enabled").notNull().default(true),
   typesafeKey: text("typesafe_key").notNull().default(""),
   typesafePilotEnabled: boolean("typesafe_pilot_enabled").notNull().default(false),
+  narrativeGuardEnabled: boolean("narrative_guard_enabled").notNull().default(true),
+  narrativeGuardProvider: text("narrative_guard_provider").notNull().default("openrouter"),
+  narrativeGuardKey: text("narrative_guard_key").notNull().default(""),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -478,3 +494,21 @@ export const workerHeartbeats = pgTable("worker_heartbeats", {
   lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
   report: jsonb("report").$type<{ extracted: number; indexed: number; failed: number; elapsedMs: number }>(),
 });
+
+/** Append-only accepted agreement revisions. Existing campaign prose is never auto-imported. */
+export const agreementEvents = pgTable("agreement_events", {
+  id: uuid("id").primaryKey(),
+  agreementId: uuid("agreement_id").notNull(),
+  sessionId: uuid("session_id").notNull().references(() => gameSessions.id, { onDelete: "cascade" }),
+  turnNumber: integer("turn_number").notNull(),
+  version: integer("version").notNull(),
+  previousRevisionId: uuid("previous_revision_id"),
+  parties: jsonb("parties").notNull().$type<string[]>(),
+  object: text("object").notNull(),
+  consideration: text("consideration").notNull(),
+  conditions: jsonb("conditions").notNull().$type<string[]>(),
+  status: text("status").notNull().$type<AgreementStatus>(),
+  rulesVersion: integer("rules_version").notNull().$type<1>(),
+  source: jsonb("source").notNull().$type<AgreementRevision["source"]>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => [uniqueIndex("uq_agreement_revision").on(t.agreementId, t.version), index("idx_agreement_session_turn").on(t.sessionId, t.turnNumber)]);

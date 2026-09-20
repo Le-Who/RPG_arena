@@ -223,13 +223,13 @@ export function buildTurnUserPrompt(c: TurnPromptContext): string {
   return `Последние события:\n${c.recentTurns}\n\n${c.mode === "free" ? "Свободное действие игрока" : "Выбранный вариант"}: ${c.playerAction}`;
 }
 
-export function buildDiceBlock(d: { kind?: string; skill: string; d20: number; modifier: number; total: number; dc: number; success: boolean; critical: string | null; band?: string } | null): string {
+export function buildDiceBlock(d: { goal?: string; kind?: string; skill: string; d20: number; modifier: number; total: number; dc: number; success: boolean; critical: string | null; band?: string } | null): string {
   if (!d) return "";
   if (d.kind === "2d6") {
     const a = Math.floor(d.d20 / 10);
     const b = d.d20 % 10;
     const bandRu = d.band === "full" ? "ПОЛНЫЙ УСПЕХ" : d.band === "cost" ? "УСПЕХ С ЦЕНОЙ (цель достигнута, но есть осложнение или потеря)" : "ПРОВАЛ (цель не достигнута, ситуация ухудшается)";
-    return `\nРЕЗУЛЬТАТ РИСК-ПРОВЕРКИ (факт сервера, не меняй): ${d.skill}: 2d6 = ${a}+${b}${d.modifier ? (d.modifier > 0 ? `+${d.modifier}` : d.modifier) : ""} → ${bandRu}. Нарратив ОБЯЗАН соответствовать этому исходу.`;
+    return `${d.goal ? `\nПРОВЕРЯЕМАЯ ЦЕЛЬ: ${JSON.stringify(d.goal)}.` : ""}\nРЕЗУЛЬТАТ РИСК-ПРОВЕРКИ (факт сервера, не меняй): ${d.skill}: 2d6 = ${a}+${b}${d.modifier ? (d.modifier > 0 ? `+${d.modifier}` : d.modifier) : ""} → ${bandRu}. Нарратив ОБЯЗАН соответствовать этому исходу.`;
   }
   const outcomeRu =
     d.critical === "crit"
@@ -239,7 +239,7 @@ export function buildDiceBlock(d: { kind?: string; skill: string; d20: number; m
         : d.success
           ? `УСПЕХ (${d.total} ≥ DC ${d.dc})`
           : `НЕУДАЧА (${d.total} < DC ${d.dc})`;
-  return `\nРЕЗУЛЬТАТ БРОСКА (факт сервера, не меняй): навык «${d.skill}», d20=${d.d20}${d.modifier >= 0 ? "+" : ""}${d.modifier} = ${d.total} vs DC ${d.dc} → ${outcomeRu}. Если УСПЕХ — цель достигнута (полностью или в основном); если НЕУДАЧА — цель не достигнута и есть последствия. Нарратив ОБЯЗАН соответствовать.`;
+  return `${d.goal ? `\nПРОВЕРЯЕМАЯ ЦЕЛЬ: ${JSON.stringify(d.goal)}.` : ""}\nРЕЗУЛЬТАТ БРОСКА (факт сервера, не меняй): навык «${d.skill}», d20=${d.d20}${d.modifier >= 0 ? "+" : ""}${d.modifier} = ${d.total} vs DC ${d.dc} → ${outcomeRu}. Если УСПЕХ — цель достигнута (полностью или в основном); если НЕУДАЧА — цель не достигнута и есть последствия. Нарратив ОБЯЗАН соответствовать.`;
 }
 
 export function buildCompactionSystemPrompt(profileCanon: string): string {

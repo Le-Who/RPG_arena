@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { agreementEvents } from "@/db/schema";
+import { loadAgreementHistory } from "./narrative-agreements";
 import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { aiSettings, gameSessions, gameTurns, inventoryItems, memoryEmbeddings, memoryLinks, memoryNodes, npcs, quests, sceneObjects, worldLocations } from "@/db/schema";
@@ -39,11 +41,12 @@ export async function copyCampaign(input: { sessionId: string; profileId: string
     const npcRows = await tx.select().from(npcs).where(eq(npcs.sessionId, source.id)).limit(1001);
     const scene = await tx.select().from(sceneObjects).where(eq(sceneObjects.sessionId, source.id)).limit(1001);
     const memories = await tx.select().from(memoryNodes).where(eq(memoryNodes.sessionId, source.id)).limit(1001);
+    const agreements = await loadAgreementHistory(tx, source.id, source.turnCount + 1);
     if (turns.length > 2000 || [inventory, locations, questRows, npcRows, scene, memories].some(rows => rows.length > 1000)) throw new HttpError(413, "CHECKPOINT_TOO_LARGE", "История превышает лимит копии: 2000 записей или 1000 сущностей. Данные не усекались.");
     const mids = memories.map(memory => memory.id);
     const links = mids.length ? await tx.select().from(memoryLinks).where(and(inArray(memoryLinks.fromId, mids), inArray(memoryLinks.toId, mids))) : [];
     const { createdAt: _created, updatedAt: _updated, ownerId: _owner, visibility: _visibility, branchOrigin: _origin, ...state } = source;
-    const snapshot = JSON.parse(JSON.stringify({ schemaVersion: 1, session: state, turns, inventory, locations, quests: questRows, npcs: npcRows, sceneObjects: scene, memories, links })) as CheckpointSnapshot;
+    const snapshot = JSON.parse(JSON.stringify({ schemaVersion: 1, session: state, turns, inventory, locations, quests: questRows, npcs: npcRows, sceneObjects: scene, memories, links, agreements })) as CheckpointSnapshot;
     assertSnapshot(snapshot);
     const copy = remapSnapshot(snapshot, copyId);
     const [session] = await tx.insert(gameSessions).values({ ...copy.session, id: copyId, ownerId: input.profileId, visibility: "private", branchOrigin: null, title: `${source.title.slice(0, 67)} · моя копия`, status: "active" }).returning();
@@ -53,6 +56,7 @@ export async function copyCampaign(input: { sessionId: string; profileId: string
     for (const rows of chunk(copy.npcs.map(row => ({ ...row, createdAt: new Date(row.createdAt) })))) await tx.insert(npcs).values(rows);
     for (const rows of chunk(copy.sceneObjects.map(row => ({ ...row, createdAt: new Date(row.createdAt) })))) await tx.insert(sceneObjects).values(rows);
     for (const rows of chunk(copy.turns.map(row => ({ ...row, requestId: null, createdAt: new Date(row.createdAt) })))) await tx.insert(gameTurns).values(rows);
+    for (const revision of [...(copy.agreements ?? [])].sort((a, b) => a.turnNumber - b.turnNumber || a.version - b.version)) await tx.insert(agreementEvents).values(revision);
     for (const rows of chunk(copy.memories.map(row => ({ ...row, parentId: null, contentHash: hashContent(row.layer, row.category, row.title, row.content), createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt) })))) await tx.insert(memoryNodes).values(rows);
     for (const memory of copy.memories) if (memory.parentId) await tx.update(memoryNodes).set({ parentId: memory.parentId }).where(and(eq(memoryNodes.id, memory.id), eq(memoryNodes.sessionId, copyId)));
     for (const rows of chunk(copy.links)) await tx.insert(memoryLinks).values(rows);
