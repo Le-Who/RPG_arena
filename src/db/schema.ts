@@ -88,6 +88,7 @@ export type AppliedChanges = {
 };
 
 export type TurnContextMeta = {
+  timings?: import("../lib/turn-contract").TurnTimings;
   model: string;
   rulesProfile: RulesProfile;
   digestChars: number;

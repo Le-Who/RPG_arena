@@ -5,6 +5,10 @@
 export type GraphNode = { id: string; name: string; x: number; y: number; connectedTo?: string[] | null };
 export type GraphEdge<T> = { a: T; b: T };
 
+export function visibleMapLocations<T extends { discovered: boolean }>(locations: T[]): T[] {
+  return locations.filter((location) => location.discovered);
+}
+
 /** Уникальные рёбра: A→B и B→A дают одну линию. Висячие ссылки отбрасываются. */
 export function mapEdges<T extends GraphNode>(nodes: T[]): GraphEdge<T>[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));

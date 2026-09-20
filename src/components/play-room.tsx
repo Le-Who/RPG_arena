@@ -13,6 +13,8 @@ import { CheckpointDialog } from "./checkpoint-dialog";
 import { useTurnRequest } from "./use-turn-request";
 import { classifyAction } from "@/lib/action-kind";
 import { WorldMap } from "./world-map";
+import { retainedItemBindings, type ItemBinding } from "@/lib/item-bindings";
+import { withCommittedTurn, applyCommittedSnapshot } from "@/lib/committed-turns";
 
 const SIDE_TABS = [
   { id: "hero", icon: UserRound, title: "Герой" },
@@ -32,6 +34,9 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loadError, setLoadError] = useState("");
   const [action, setAction] = useState("");
+  const [itemBindings, setItemBindings] = useState<ItemBinding[]>([]);
+  const [committedTurn, setCommittedTurn] = useState<TurnResponse | null>(null);
+  const [syncError, setSyncError] = useState("");
   const [showCheckpoints, setShowCheckpoints] = useState(false);
   const closeCheckpoints = useCallback(() => setShowCheckpoints(false), []);
   const [sideTab, setSideTab] = useState<(typeof SIDE_TABS)[number]["id"]>("hero");
@@ -56,16 +61,31 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const [actionVisible, setActionVisible] = useState(true);
   const reload = useCallback(async () => {
     const result = await api<Snapshot>(`/api/sessions/${sessionId}?memories=8`);
-    setSnapshot(result); setLoadError(""); return result;
+    setSnapshot(old => old && old.session.turnCount > result.session.turnCount ? old : result);
+    setCommittedTurn(old => old && result.session.turnCount < old.turnNumber ? old : null);
+    setSyncError(""); setLoadError(""); return result;
   }, [sessionId]);
   const onCommitted = useCallback(async (result: TurnResponse) => {
     const suppressScroll = !!document.querySelector('[role="dialog"]');
-    setCompactNeeded(result.needsCompaction); setAction("");
-    await reload(); void refresh();
+    setCommittedTurn(result); setSnapshot(current => applyCommittedSnapshot(current, result)); setCompactNeeded(result.needsCompaction); setAction(""); setItemBindings([]); setSyncError("");
+    const refreshStarted = performance.now();
+    void reload().then(snapshot => {
+      if (snapshot.session.turnCount < result.turnNumber) throw new Error("Состояние сцены ещё обновляется.");
+      performance.measure("chronicle:turn:snapshot", { start: refreshStarted, detail: { requestId: result.requestId } });
+      void refresh();
+    }).catch(() => setSyncError(result.state ? "Ход сохранён. Дополнительные сведения пока не обновились; вы можете продолжать историю." : "Ход сохранён. Не удалось обновить состояние мира — обновите сцену перед следующим действием."));
     if (!suppressScroll) setTimeout(() => { if (!document.querySelector('[role="dialog"]')) document.getElementById(`turn-${result.turnNumber}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
   }, [reload, refresh]);
   const turnRequest = useTurnRequest(sessionId, onCommitted);
-  const { busy, error: actionError } = turnRequest;
+  const busy = turnRequest.busy || (!!committedTurn && (!committedTurn.state || !snapshot || snapshot.session.turnCount < committedTurn.turnNumber));
+  const currentCommit = committedTurn && (!turnRequest.pending || turnRequest.pending.id === committedTurn.requestId);
+  const actionError = turnRequest.error;
+  useEffect(() => {
+    if (!committedTurn || !currentCommit || turnRequest.startedAt === null) return;
+    const started = turnRequest.startedAt;
+    const frame = requestAnimationFrame(() => performance.measure("chronicle:turn:paint", { start: started, detail: { requestId: committedTurn.requestId } }));
+    return () => cancelAnimationFrame(frame);
+  }, [committedTurn, currentCommit, turnRequest.startedAt]);
   const sendTurn = turnRequest.send;
   useEffect(() => {
     if (!turnRequest.pending) return;
@@ -75,7 +95,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     let active = true;
     api<Snapshot>(`/api/sessions/${sessionId}?memories=8`).then((result) => {
-      if (!active) return; setSnapshot(result);
+      if (!active) return; setSnapshot(old => old && old.session.turnCount > result.session.turnCount ? old : result);
       if (window.location.hash && !document.querySelector('[role="dialog"]')) setTimeout(() => { if (!document.querySelector('[role="dialog"]')) document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ behavior: "smooth", block: "center" }); }, 150);
     }).catch((e) => { if (active) setLoadError(e.message); });
     return () => { active = false; };
@@ -94,9 +114,9 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     const fresh = classifyAction(text, lastNarratorChoices(snapshot));
     const { action: submitted, custom, choice } = pending && pending.action === text.trim() ? { action: pending.action, custom: pending.custom, choice: -1 } : fresh;
     setSelectedChoice(choice);
-    try { const ok = await sendTurn(submitted, custom, snapshot.session.turnCount); if (!ok) await reload().catch(() => {}); }
+    try { const ok = await sendTurn(submitted, custom, snapshot.session.turnCount, custom ? retainedItemBindings(submitted, itemBindings).map(i => i.id) : []); if (!ok) await reload().catch(() => {}); }
     finally { setSelectedChoice(-1); }
-  }, [busy, reload, sendTurn, snapshot, turnRequest.pending]);
+  }, [busy, reload, sendTurn, snapshot, turnRequest.pending, itemBindings]);
   const submit = (e: FormEvent) => { e.preventDefault(); void act(action); };
   const choices = lastNarratorChoices(snapshot);
   const shortcutRef = useRef<(event: KeyboardEvent) => void>(() => {});
@@ -116,7 +136,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, []);
-  const addItemToAction = (name: string, id: string) => { setAction(`Использовать «${name}» #${id.slice(0, 6)}: `); composerRef.current?.focus(); };
+  const addItemToAction = (name: string, id: string) => { setAction(`Использовать «${name}»: `); setItemBindings([{id, name}]); composerRef.current?.focus(); };
   const loadEarlier = async () => {
     if (!snapshot) return;
     const before = Math.min(...[...older, ...snapshot.turns].map((turn) => turn.turnNumber));
@@ -133,7 +153,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const character = session.character;
   const world = session.worldState;
   const live = Boolean(settings?.useLiveAI && settings.keysCount + settings.envKeysCount > 0);
-  const turns = [...older, ...snapshot.turns].filter((turn, index, all) => all.findIndex((t) => t.id === turn.id) === index);
+  const turns = withCommittedTurn([...older, ...snapshot.turns], committedTurn, sessionId).filter((turn, index, all) => all.findIndex((t) => t.id === turn.id) === index);
   const lastNarrator = [...snapshot.turns].reverse().find((turn) => turn.role === "narrator");
   const active = session.status === "active";
   const canAct = active && !busy;
@@ -192,7 +212,9 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             </div>}
             {turn.stateChanges && <AppliedChips applied={turn.stateChanges} />}
           </article>)}
-          {busy && <div className="gx-thinking" aria-live="polite"><span className="gx-thinking-orb"><Sparkles size={18} /></span><div><strong>{TURN_STAGE_LABELS[turnRequest.stage]}</strong><small>Запрос сохранён. Перезагрузка страницы не создаст двойной ход.</small></div><span className="gx-thinking-dots"><i /><i /><i /></span></div>}
+          {turnRequest.preview && !currentCommit && <article className="gx-turn is-narrator" aria-label="Рассказ формируется" aria-busy="true"><div className="gx-turn-head"><span className="gx-turn-avatar"><Feather size={15} /></span><strong>Рассказчик</strong><span className="gx-turn-tag">Продолжение формируется</span></div><div className="gx-prose">{turnRequest.preview}</div></article>}
+          {syncError && <div className="notice" role="alert"><p>{syncError}</p><button className="text-button" onClick={() => void reload().catch(() => setSyncError("Связь пока не восстановлена. Ход сохранён; попробуйте обновить сцену ещё раз."))}>Обновить сцену</button></div>}
+          {busy && <div className="gx-thinking" aria-live="polite"><span className="gx-thinking-orb"><Sparkles size={18} /></span><div><strong>{currentCommit ? "Ход сохранён · обновляем мир" : TURN_STAGE_LABELS[turnRequest.stage]}</strong><small>Запрос сохранён. Перезагрузка страницы не создаст двойной ход.</small></div><span className="gx-thinking-dots"><i /><i /><i /></span></div>}
         </div>
 
         <div className="gx-composer-wrap" ref={actionZoneRef}>
@@ -204,7 +226,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             {lastNarrator?.choices?.length ? <div className="gx-choices">{lastNarrator.choices.map((choice, i) => <button className="gx-choice" key={`${i}-${choice}`} onClick={() => void act(choice)} disabled={busy} style={{ animationDelay: `${i * 55}ms` }}><span className="gx-choice-no">{selectedChoice === i ? <LoaderCircle size={14} className="spin" /> : i + 1}</span><p>{choice}</p><ArrowRight className="gx-choice-arrow" size={16} /></button>)}</div> : <p className="gx-free-note">Первое слово — за вами. Опишите действие, с которого начнётся история.</p>}
             <div className="gx-or"><span />или напишите своё<span /></div>
             <form onSubmit={submit} className="gx-input">
-              <textarea ref={composerRef} id="action-input" aria-label="Ваше действие" placeholder="Я хочу… — опишите своё действие, и мир ответит" value={action} onChange={(e) => setAction(e.target.value)} maxLength={2000} rows={2} disabled={busy} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void act(action); } }} />
+              <textarea ref={composerRef} id="action-input" aria-label="Ваше действие" placeholder="Я хочу… — опишите своё действие, и мир ответит" value={action} onChange={(e) => { setAction(e.target.value); setItemBindings(old => retainedItemBindings(e.target.value, old)); }} maxLength={2000} rows={2} disabled={busy} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void act(action); } }} />
               <div className="gx-input-foot">
                 <span className="gx-action-kind">{((turnRequest.pending?.action === action.trim() ? turnRequest.pending.custom : classifyAction(action, choices).custom)) ? "Свободное действие" : "Предложенное действие"}</span><span className="gx-counter">{action.length ? `${action.length} / 2000` : "Любое действие имеет значение"}</span>
                 <div className="gx-input-cta"><span className="gx-hint"><CornerDownLeft size={12} />Ctrl + Enter</span><button className="button primary" disabled={busy || !action.trim()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />}Сделать ход</button></div>
@@ -239,12 +261,13 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
           {sideTab === "inventory" && <div className="gx-side-section">
             <div className="gx-side-title">С собой · {inventory.length}</div>
             <p className="gx-side-hint">Вещи — часть мира. Укажите предмет в своём действии, и рассказчик его учтёт.</p>
-            <div className="gx-inv">{inventory.map((item) => <div className="gx-inv-item" key={item.id}><span className="gx-inv-icon">{item.icon}</span><div className="gx-inv-body"><h3>{item.name}{item.quantity > 1 && <span className="gx-inv-qty">×{item.quantity}</span>}</h3><p>{item.description}</p>{item.equipped && <small className="gx-inv-eq"><Check size={11} />Экипировано</small>}<button onClick={() => addItemToAction(item.name, item.id)} className="gx-inv-use" disabled={busy || !active}>Добавить в действие <Plus size={12} /></button></div></div>)}</div>
+            {!!committedTurn && <p className="gx-side-hint" role="status">Список вещей обновляется. Продолжить историю можно в поле действия.</p>}
+            <div className="gx-inv">{inventory.map((item) => <div className="gx-inv-item" key={item.id}><span className="gx-inv-icon">{item.icon}</span><div className="gx-inv-body"><h3>{item.name}{item.quantity > 1 && <span className="gx-inv-qty">×{item.quantity}</span>}</h3><p>{item.description}</p>{item.equipped && <small className="gx-inv-eq"><Check size={11} />Экипировано</small>}<button onClick={() => addItemToAction(item.name, item.id)} className="gx-inv-use" disabled={busy || !!committedTurn || !active}>Добавить в действие <Plus size={12} /></button></div></div>)}</div>
             {!inventory.length && <p className="gx-empty-hint">С собой пока ничего нет.</p>}
           </div>}
           {sideTab === "world" && <div className="gx-side-section">
             <div className="gx-here"><MapPin size={22} /><small>Вы находитесь здесь</small><h3>{world.currentLocation}</h3><p>{world.worldName}</p></div>
-            {locations.length > 1 && <WorldMap locations={locations.filter((location) => location.discovered)} currentLocation={world.currentLocation} onLocationClick={(name) => { if (active && !busy) { setAction(`Отправиться в «${name}»`); composerRef.current?.focus(); } }} />}
+            {locations.length > 0 && <WorldMap locations={locations.filter((location) => location.discovered)} currentLocation={world.currentLocation} onLocationClick={(name) => { if (active && !busy) { setAction(`Отправиться в «${name}»`); composerRef.current?.focus(); } }} />}
             <div className="gx-side-title">Известные локации</div>
             <div className="gx-locs">{locations.filter((location) => location.discovered).map((location) => <div key={location.id} className={`gx-loc ${location.current ? "current" : ""}`}><Compass size={16} /><span><strong>{location.name}</strong><small>{location.description}</small></span>{location.current && <Check size={14} />}</div>)}</div>
             {!!sceneObjects.filter((o) => o.locationName === world.currentLocation).length && <><div className="gx-side-title">Окружение</div>{sceneObjects.filter((object) => object.locationName === world.currentLocation).map((object) => <div className="gx-scene" key={object.id}><div className="gx-scene-head"><strong>{object.name}</strong><span>{object.state}</span></div><p>{object.description}</p></div>)}</>}

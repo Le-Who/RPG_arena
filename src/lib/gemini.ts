@@ -156,6 +156,7 @@ export type TurnPromptContext = {
   questsDigest: string;
   npcsDigest: string;
   sceneDigest: string;
+  locationsDigest?: string;
   memoryDigest: string;
   retrievedDigest: string;
   recentTurns: string;
@@ -192,6 +193,7 @@ ${c.profileCanon}
 ЦЕЛИ/КВЕСТЫ: ${c.questsDigest}
 ИЗВЕСТНЫЕ ПЕРСОНАЖИ (NPC): ${c.npcsDigest}
 ОБЪЕКТЫ СЦЕНЫ: ${c.sceneDigest}
+ИЗВЕСТНАЯ КАРТА: ${c.locationsDigest ?? "Начало исследования"}
 
 ПАМЯТЬ КАНОНА (не противоречь): ${c.memoryDigest}
 ${c.retrievedDigest ? `РЕЛЕВАНТНЫЕ ВОСПОМИНАНИЯ ДЛЯ ЭТОГО ДЕЙСТВИЯ: ${c.retrievedDigest}` : ""}
@@ -204,6 +206,9 @@ ${c.diceBlock}
 · outcome — success | partial | failure | neutral (при наличии результата проверки — согласуй с ним).
 · effects — целые числа; в профилях без HP/опыта/золота ставь 0. danger — изменение накала сцены.
 · stateChanges.location — action "move" только если герой РЕАЛЬНО переместился в другое место; "discover" — если узнал о новом месте; иначе "none".
+· stateChanges.locations — все места, о которых герой действительно узнал в этом ходе (например, изучая карту); допускается несколько. Для известных мест ref — точный ID или уникальное имя из карты; для новых ref пустой, укажи name, description, danger.
+· stateChanges.routes — только явно установленные в рассказе проходимые связи: from/to — точные ID или уникальные имена известных или открытых в этом ходе мест. Не выдумывай связь из простого совместного упоминания. Найденная карта должна отразиться в locations и routes согласно её содержанию.
+· Служебные ID/ref используются только в структурированных изменениях; не показывай их в narration и choices.
 · stateChanges.quests — обновляй существующие по ref (key), новые цели — с пустым ref. Не завершай квест без реального выполнения.
 · stateChanges.npcs — ref = key известного NPC; relationDelta −30…+30; новых персонажей вводи только если они появились в сцене.
 · stateChanges.inventory — op consume/remove/equip/unequip только с ref из инвентаря; op add — с описанием и kind (weapon, armor, consumable, quest, tool, document, tech, misc).
@@ -289,76 +294,4 @@ ${profileCanon}
 // ─────────────────────────────────────────────────────────────
 //  Вызов Gemini REST (v1beta) с ротацией ключей и цепочкой моделей
 // ─────────────────────────────────────────────────────────────
-export type AttemptInfo = { model: string; keyIndex: number; ok: boolean; latencyMs: number; error?: string; promptTokens?: number; completionTokens?: number };
-
-export async function callGeminiWithRotation(opts: {
-  keys: string[];
-  models: string[];
-  system: string;
-  user: string;
-  maxTokens?: number;
-  temperature?: number;
-  responseSchema?: Record<string, unknown>;
-  timeoutMs?: number;
-  signal?: AbortSignal;
-  onAttempt?: (info: AttemptInfo) => Promise<void> | void;
-}): Promise<{ text: string; model: string; keyIndex: number; latencyMs: number; promptTokens: number; completionTokens: number }> {
-  const { keys, models, system, user } = opts;
-  if (!keys.length) throw new Error("NO_KEYS");
-  if (!models.length) throw new Error("NO_MODELS_AVAILABLE");
-  let lastErr = "unknown";
-  const deadline = Date.now() + Math.min(opts.timeoutMs ?? 35_000, 45_000);
-  for (const model of models) {
-    for (let ki = 0; ki < keys.length; ki++) {
-      opts.signal?.throwIfAborted();
-      const remaining = deadline - Date.now();
-      if (remaining < 250) throw new Error(`AI_DEADLINE: ${lastErr}`);
-      const started = Date.now();
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), remaining);
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": keys[ki] },
-          signal: opts.signal ? AbortSignal.any([ctrl.signal, opts.signal]) : ctrl.signal,
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: system }] },
-            contents: [{ role: "user", parts: [{ text: user }] }],
-            generationConfig: {
-              temperature: opts.temperature ?? 0.85,
-              maxOutputTokens: opts.maxTokens ?? 1600,
-              ...(opts.responseSchema ? { responseMimeType: "application/json", responseSchema: opts.responseSchema } : {}),
-            },
-          }),
-        });
-        const latencyMs = Date.now() - started;
-        if (!res.ok) {
-          lastErr = `HTTP ${res.status}: Gemini временно недоступен`;
-          await opts.onAttempt?.({ model, keyIndex: ki, ok: false, latencyMs, error: lastErr });
-          // 400 на конкретную модель (например, неизвестная модель) — нет смысла перебирать ключи
-          if (res.status === 400 || res.status === 404) break;
-          continue;
-        }
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
-        const promptTokens = Number(data?.usageMetadata?.promptTokenCount ?? 0) || estimateTokens(system + user);
-        const completionTokens = Number(data?.usageMetadata?.candidatesTokenCount ?? 0) || estimateTokens(text);
-        if (!text) {
-          lastErr = `EMPTY_RESPONSE${data?.candidates?.[0]?.finishReason ? ` (${data.candidates[0].finishReason})` : ""}`;
-          await opts.onAttempt?.({ model, keyIndex: ki, ok: false, latencyMs, error: lastErr });
-          continue;
-        }
-        await opts.onAttempt?.({ model, keyIndex: ki, ok: true, latencyMs, promptTokens, completionTokens });
-        return { text, model, keyIndex: ki, latencyMs, promptTokens, completionTokens };
-      } catch (e) {
-        const latencyMs = Date.now() - started;
-        lastErr = e instanceof Error ? (e.name === "AbortError" ? "TIMEOUT" : e.message) : String(e);
-        await opts.onAttempt?.({ model, keyIndex: ki, ok: false, latencyMs, error: lastErr });
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-  }
-  throw new Error(`ALL_MODELS_FAILED: ${lastErr}`);
-}
+export { callGeminiWithRotation, type AttemptInfo } from "./gemini-transport";

@@ -1,4 +1,5 @@
 import { resolveInventoryReference } from "./entity-identity";
+import { randomUUID } from "node:crypto";
 // ── RES-1: контракт resolution, runtime-валидация и серверные reducers ──
 // Модель предлагает художественную интерпретацию + структурированные изменения мира.
 // Сервер валидирует (parseResolution), затем применяет (applyResolution) с лимитами профиля.
@@ -32,7 +33,9 @@ export type InventoryOp = {
 export type QuestChange = { ref: string | null; title: string; status: QuestStatus | null; progress: number | null; note: string };
 export type NpcChange = { ref: string | null; name: string; role: string; relationDelta: number; status: NpcStatus | null; note: string };
 export type SceneObjectChange = { ref: string | null; name: string; state: string; note: string };
-export type LocationChange = { action: "move" | "discover"; name: string; description: string; danger: number | null } | null;
+export type LocationChange = { action: "move" | "discover"; ref: string | null; name: string; description: string; danger: number | null } | null;
+export type LocationDiscovery = { ref: string | null; name: string; description: string; danger: number | null };
+export type LocationRoute = { from: string; to: string };
 
 export type ResolutionPayload = {
   narration: string;
@@ -41,6 +44,8 @@ export type ResolutionPayload = {
   effects: { hp: number; xp: number; gold: number; danger: number };
   stateChanges: {
     location: LocationChange;
+    locations: LocationDiscovery[];
+    routes: LocationRoute[];
     quests: QuestChange[];
     npcs: NpcChange[];
     inventory: InventoryOp[];
@@ -74,11 +79,24 @@ export const RESOLUTION_RESPONSE_SCHEMA: Record<string, unknown> = {
           type: "object",
           properties: {
             action: { type: "string", enum: ["none", "move", "discover"] },
+            ref: { type: "string", description: "ID или уникальное имя известной локации; пусто для новой" },
             name: { type: "string" },
             description: { type: "string" },
             danger: { type: "integer" },
           },
           required: ["action", "name"],
+        },
+        locations: {
+          type: "array",
+          description: "Все локации, явно открытые за этот ход; ref — ID или уникальное имя уже известной локации, пустой для новой",
+          items: { type: "object", properties: {
+            ref: { type: "string" }, name: { type: "string" }, description: { type: "string" }, danger: { type: "integer" },
+          }, required: ["ref", "name"] },
+        },
+        routes: {
+          type: "array",
+          description: "Только явно установленные двусторонние пути; концы — ID или уникальные имена",
+          items: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, required: ["from", "to"] },
         },
         quests: {
           type: "array",
@@ -179,6 +197,7 @@ const clampInt = (v: unknown, lo: number, hi: number, dflt = 0) => {
 };
 const str = (v: unknown, max: number, dflt = "") => (typeof v === "string" ? v.trim().slice(0, max) : dflt);
 const arr = <T,>(v: unknown, max: number): T[] => (Array.isArray(v) ? (v.slice(0, max) as T[]) : []);
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const QUEST_STATUSES: QuestStatus[] = ["active", "completed", "failed", "hidden"];
 const NPC_STATUSES: NpcStatus[] = ["alive", "dead", "missing", "unknown"];
 
@@ -244,11 +263,26 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
   if (locRaw && (locRaw.action === "move" || locRaw.action === "discover") && str(locRaw.name, 80)) {
     location = {
       action: locRaw.action,
+      ref: str(locRaw.ref, 80) || null,
       name: str(locRaw.name, 80),
       description: str(locRaw.description, 240),
       danger: locRaw.danger == null ? null : clampInt(locRaw.danger, 0, 100),
     };
   }
+
+  const locations: LocationDiscovery[] = arr<unknown>(sc.locations, 8)
+    .filter(isRecord)
+    .map((location) => ({
+      ref: str(location.ref, 80) || null,
+      name: str(location.name, 80),
+      description: str(location.description, 240),
+      danger: location.danger == null ? null : clampInt(location.danger, 0, 100),
+    }))
+    .filter((location) => location.ref || location.name);
+  const routes: LocationRoute[] = arr<unknown>(sc.routes, 12)
+    .filter(isRecord)
+    .map((route) => ({ from: str(route.from, 80), to: str(route.to, 80) }))
+    .filter((route) => route.from && route.to);
 
   const quests: QuestChange[] = arr<Record<string, unknown>>(sc.quests, 4)
     .map((q) => ({
@@ -324,13 +358,13 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
         gold: clampInt(eff.gold, -1000, 1000),
         danger: clampInt(eff.danger, -30, 30),
       },
-      stateChanges: { location, quests, npcs, inventory, sceneObjects, conditions, flags },
+      stateChanges: { location, locations, routes, quests, npcs, inventory, sceneObjects, conditions, flags },
     },
   };
 }
 
 export function emptyChanges(): ResolutionPayload["stateChanges"] {
-  return { location: null, quests: [], npcs: [], inventory: [], sceneObjects: [], conditions: { add: [], remove: [] }, flags: {} };
+  return { location: null, locations: [], routes: [], quests: [], npcs: [], inventory: [], sceneObjects: [], conditions: { add: [], remove: [] }, flags: {} };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -340,7 +374,7 @@ export type InvRow = { id: string; name: string; kind: string; quantity: number;
 export type QuestRow = { id: string; key: string; title: string; status: QuestStatus; progress: number; isMain: boolean; description: string };
 export type NpcRow = { id: string; key: string; name: string; role: string; relation: number; status: NpcStatus; description: string };
 export type SceneRow = { id: string; key: string; name: string; state: string; locationName: string; description: string };
-export type LocRow = { id: string; name: string; x: number; y: number; current: boolean; discovered: boolean; danger: number };
+export type LocRow = { id: string; name: string; x: number; y: number; current: boolean; discovered: boolean; danger: number; connectedTo?: string[] | null };
 
 export type DbOp =
   | { t: "inv.insert"; row: { name: string; kind: string; description: string; quantity: number; icon: string } }
@@ -352,9 +386,10 @@ export type DbOp =
   | { t: "npc.update"; id: string; patch: { relation?: number; status?: NpcStatus; role?: string; description?: string; lastLocation: string } }
   | { t: "scene.insert"; row: { key: string; name: string; state: string; description: string; locationName: string } }
   | { t: "scene.update"; id: string; patch: { state: string; description?: string } }
-  | { t: "loc.insert"; row: { name: string; description: string; x: number; y: number; danger: number; current: boolean; discovered: boolean; icon: string } }
+  | { t: "loc.insert"; row: { id: string; name: string; description: string; x: number; y: number; danger: number; current: boolean; discovered: boolean; icon: string } }
   | { t: "loc.setCurrent"; id: string }
-  | { t: "loc.discover"; id: string };
+  | { t: "loc.discover"; id: string }
+  | { t: "loc.connect"; fromId: string; toId: string };
 
 export type MemoryEvent = {
   layer: "episodic" | "semantic" | "procedural" | "chronicle";
@@ -380,6 +415,7 @@ export type ApplyInput = {
   dice: DiceResult | null;
   turnNumber: number;
   rng?: () => number;
+  makeLocationId?: () => string;
 };
 
 export type ApplyResult = {
@@ -397,6 +433,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
   const spec: ProfileSpec = profileFor(input.rulesProfile);
   const { payload, dice, turnNumber } = input;
   const rng = input.rng ?? Math.random;
+  const makeLocationId = input.makeLocationId ?? randomUUID;
   const ops: DbOp[] = [];
   const events: MemoryEvent[] = [];
   const rejected: string[] = [];
@@ -483,62 +520,104 @@ export function applyResolution(input: ApplyInput): ApplyResult {
   // ── Флаги ──
   for (const [k, v] of Object.entries(payload.stateChanges.flags)) world.flags[k] = v;
 
-  // ── Локация (RES-1g): единый источник истины — world.currentLocation + world_locations.current ──
+  // ── Локации и граф: все ссылки разрешаются только по ID или уникальному имени ──
   let locationApplied: AppliedChanges["location"] = null;
   const lc = payload.stateChanges.location;
-  if (lc && lc.name && norm(lc.name) !== norm(world.currentLocation) && lc.action === "move" && outcome !== "failure") {
-    const existing = input.locations.find((l) => norm(l.name) === norm(lc.name));
-    const from = world.currentLocation;
-    if (existing) {
-      ops.push({ t: "loc.setCurrent", id: existing.id });
-      locationApplied = { from, to: existing.name, isNew: false };
-      world.currentLocation = existing.name;
-    } else {
-      const cur = input.locations.find((l) => l.current);
-      const x = Math.max(1, Math.min(11, (cur?.x ?? 6) + Math.round(rng() * 4 - 2) || 6));
-      const y = Math.max(1, Math.min(9, (cur?.y ?? 5) + Math.round(rng() * 4 - 2) || 5));
-      ops.push({
-        t: "loc.insert",
-        row: { name: lc.name, description: lc.description || "Открыто по ходу истории", x, y, danger: lc.danger ?? world.danger, current: true, discovered: true, icon: "📍" },
-      });
-      locationApplied = { from, to: lc.name, isNew: true };
-      world.currentLocation = lc.name;
+  const workingLocations: LocRow[] = input.locations.map((location) => ({ ...location, connectedTo: [...(location.connectedTo ?? [])] }));
+  const occupied = new Set(workingLocations.map((location) => `${location.x},${location.y}`));
+  const nextPosition = () => {
+    const current = workingLocations.find((location) => location.current);
+    const cx = current?.x ?? 6, cy = current?.y ?? 5;
+    const offsets = [[2, 0], [0, 2], [-2, 0], [0, -2], [2, 2], [-2, 2], [-2, -2], [2, -2], [3, 1], [-3, 1], [1, 3], [1, -3]];
+    for (const [dx, dy] of offsets) {
+      const x = Math.max(1, Math.min(11, cx + dx)), y = Math.max(1, Math.min(9, cy + dy));
+      if (!occupied.has(`${x},${y}`)) { occupied.add(`${x},${y}`); return { x, y }; }
     }
-    events.push({
-      layer: "semantic",
-      category: "location",
-      title: `Локация: ${world.currentLocation}`,
-      content: `${world.currentLocation}: ${lc.description || "без описания"}. Герой прибыл сюда из «${from}» (ход ${turnNumber}).`,
-      importance: 66,
-      entityKey: `location:${slugify(world.currentLocation)}`,
-      mode: "upsert",
-    });
-  } else if (lc && lc.action === "discover" && lc.name && !input.locations.some((l) => norm(l.name) === norm(lc.name))) {
-    const cur = input.locations.find((l) => l.current);
-    ops.push({
-      t: "loc.insert",
-      row: {
-        name: lc.name,
-        description: lc.description || "Упомянуто в истории",
-        x: Math.max(1, Math.min(11, (cur?.x ?? 6) + Math.round(rng() * 6 - 3))),
-        y: Math.max(1, Math.min(9, (cur?.y ?? 5) + Math.round(rng() * 6 - 3))),
-        danger: lc.danger ?? world.danger,
-        current: false,
-        discovered: true,
-        icon: "📍",
-      },
-    });
-    events.push({
-      layer: "semantic",
-      category: "location",
-      title: `Локация: ${lc.name}`,
-      content: `${lc.name}: ${lc.description || "известна по слухам"}. Стала известна на ходу ${turnNumber}.`,
-      importance: 58,
-      entityKey: `location:${slugify(lc.name)}`,
-      mode: "upsert",
-    });
+    for (let y = 1; y <= 9; y++) for (let x = 1; x <= 11; x++) {
+      if (!occupied.has(`${x},${y}`)) { occupied.add(`${x},${y}`); return { x, y }; }
+    }
+    return { x: cx, y: cy };
+  };
+  const resolveLocation = (ref: string): { location?: LocRow; error?: string } => {
+    const idMatch = workingLocations.find((location) => location.id === ref);
+    if (idMatch) return { location: idMatch };
+    const nameMatches = workingLocations.filter((location) => norm(location.name) === norm(ref));
+    if (nameMatches.length === 1) return { location: nameMatches[0] };
+    return { error: nameMatches.length > 1 ? `неоднозначное имя «${ref}»` : `неизвестная ссылка «${ref}»` };
+  };
+  const addLocation = (change: LocationDiscovery, current = false): LocRow | null => {
+    const recordDiscovery = (location: LocRow) => {
+      events.push({
+        layer: "semantic", category: "location", title: `Локация: ${location.name}`,
+        content: `${location.name}: ${change.description || "известна по слухам"}. Стала известна на ходу ${turnNumber}.`,
+        importance: 58, entityKey: `location:${slugify(location.name)}`, mode: "upsert",
+      });
+    };
+    if (change.ref) {
+      const resolved = resolveLocation(change.ref);
+      if (!resolved.location) { rejected.push(`Локация отклонена: ${resolved.error}`); return null; }
+      if (!resolved.location.discovered) {
+        resolved.location.discovered = true;
+        ops.push({ t: "loc.discover", id: resolved.location.id });
+        recordDiscovery(resolved.location);
+      }
+      return resolved.location;
+    }
+    const sameName = workingLocations.filter((location) => norm(location.name) === norm(change.name));
+    if (sameName.length > 1) { rejected.push(`Локация отклонена: неоднозначное имя «${change.name}»`); return null; }
+    if (sameName.length === 1) {
+      if (!sameName[0].discovered) {
+        sameName[0].discovered = true;
+        ops.push({ t: "loc.discover", id: sameName[0].id });
+        recordDiscovery(sameName[0]);
+      }
+      return sameName[0];
+    }
+    if (!change.name) return null;
+    const id = makeLocationId();
+    const { x, y } = nextPosition();
+    const row = { id, name: change.name, description: change.description || "Упомянуто в истории", x, y, danger: change.danger ?? world.danger, current, discovered: true, icon: "📍" };
+    ops.push({ t: "loc.insert", row });
+    const created: LocRow = { ...row, connectedTo: [] };
+    workingLocations.push(created);
+    events.push({ layer: "semantic", category: "location", title: `Локация: ${change.name}`, content: `${change.name}: ${change.description || "известна по слухам"}. Стала известна на ходу ${turnNumber}.`, importance: 58, entityKey: `location:${slugify(change.name)}`, mode: "upsert" });
+    return created;
+  };
+
+  for (const discovery of payload.stateChanges.locations) addLocation(discovery);
+  if (lc?.action === "discover") addLocation({ ref: lc.ref, name: lc.name, description: lc.description, danger: lc.danger });
+
+  const currentLocationRow = workingLocations.find((location) => location.current);
+  const referencedMoveTarget = lc?.ref ? resolveLocation(lc.ref).location : undefined;
+  const movementTargetsCurrent = lc?.ref
+    ? referencedMoveTarget?.id === currentLocationRow?.id
+    : Boolean(lc && norm(lc.name) === norm(world.currentLocation));
+  if (lc && lc.name && !movementTargetsCurrent && lc.action === "move" && outcome !== "failure") {
+    const from = world.currentLocation;
+    const beforeIds = new Set(workingLocations.map((location) => location.id));
+    const destination = addLocation({ ref: lc.ref, name: lc.name, description: lc.description || "Открыто по ходу истории", danger: lc.danger }, true);
+    const origin = workingLocations.find((location) => location.current || norm(location.name) === norm(from));
+    if (destination) {
+      const isNew = !beforeIds.has(destination.id);
+      if (!isNew) ops.push({ t: "loc.setCurrent", id: destination.id });
+      if (origin && origin.id !== destination.id) ops.push({ t: "loc.connect", fromId: origin.id, toId: destination.id });
+      locationApplied = { from, to: destination.name, isNew };
+      world.currentLocation = destination.name;
+      events.push({ layer: "semantic", category: "location", title: `Локация: ${destination.name}`, content: `${destination.name}: ${lc.description || "без описания"}. Герой прибыл сюда из «${from}» (ход ${turnNumber}).`, importance: 66, entityKey: `location:${slugify(destination.name)}`, mode: "upsert" });
+    }
   } else if (lc && lc.action === "move" && outcome === "failure") {
     rejected.push(`Переход в «${lc.name}» отклонён: действие провалено`);
+  }
+
+  const connected = new Set<string>();
+  for (const route of payload.stateChanges.routes) {
+    const from = resolveLocation(route.from), to = resolveLocation(route.to);
+    if (!from.location || !to.location) { rejected.push(`Маршрут отклонён: ${from.error ?? to.error}`); continue; }
+    if (from.location.id === to.location.id) { rejected.push(`Маршрут отклонён: обе ссылки ведут в «${from.location.name}»`); continue; }
+    const key = [from.location.id, to.location.id].sort().join("|");
+    if (connected.has(key)) continue;
+    connected.add(key);
+    ops.push({ t: "loc.connect", fromId: from.location.id, toId: to.location.id });
   }
 
   // ── Квесты ──

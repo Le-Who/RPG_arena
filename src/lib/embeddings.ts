@@ -5,6 +5,7 @@ import { memoryEmbeddings, memoryNodes, tokenLogs } from "@/db/schema";
 import { estimateTokens } from "./gemini";
 import { hashContent } from "./memory";
 import { EMBEDDING_MODEL, DEFAULT_EMBEDDING_DIMS, cosine, formatDocument, formatQuery, isValidVector } from "./vector";
+import { queryVectorCache } from "./query-vectors";
 export { DEFAULT_EMBEDDING_DIMS, cosine, formatDocument, formatQuery };
 export const EMBEDDING_MODEL_ALIASES = [EMBEDDING_MODEL];
 
@@ -117,7 +118,6 @@ export async function embeddingStats(sessionId: string, reader: Pick<typeof db, 
   return { nodes: Number(total?.n ?? 0), ...status, models: [...new Set(rows.map((r) => r.model))] };
 }
 export type RetrievedNode = { id: string; layer: string; category: string; title: string; content: string; importance: number; salience: number; source: string; sourceTurn: number | null; turnTo: number | null; evidence: string | null; similarity: number; score: number; why: string };
-const queryCache = new Map<string, { vector: number[]; expires: number }>();
 export async function searchMemory(opts: { sessionId: string; query: string; keys: string[]; model: string; dims: number; k?: number; currentTurn?: number; perLayerCap?: number; minSimilarity?: number; timeoutMs?: number }): Promise<{ results: RetrievedNode[]; candidates: number; ms: number }> {
   const started = Date.now();
   const candidates = await db.select({ node: memoryNodes, vector: memoryEmbeddings.vector, hash: memoryEmbeddings.contentHash }).from(memoryEmbeddings).innerJoin(memoryNodes, eq(memoryEmbeddings.memoryNodeId, memoryNodes.id)).where(and(
@@ -126,13 +126,11 @@ export async function searchMemory(opts: { sessionId: string; query: string; key
   const rows = candidates.filter((row) => isValidVector(row.vector, opts.dims) && row.hash === hashContent(opts.model, String(opts.dims), formatDocument(row.node.title, row.node.content)));
   if (!rows.length) return { results: [], candidates: 0, ms: Date.now() - started };
   const key = hashContent(opts.sessionId, opts.model, String(opts.dims), opts.query);
-  const cached = queryCache.get(key);
-  let q = cached && cached.expires > started ? cached.vector : undefined;
-  if (!q) {
-    q = (await embedTexts({ ...opts, texts: [formatQuery(opts.query)] })).vectors[0];
-    if (queryCache.size >= 128) queryCache.delete(queryCache.keys().next().value!);
-    queryCache.set(key, { vector: q, expires: Date.now() + 120000 });
-  }
+  const q = await queryVectorCache.get(key, async () => {
+    const remaining = (opts.timeoutMs ?? 15_000) - (Date.now() - started);
+    if (remaining < 250) throw new Error("Gemini не ответил вовремя");
+    return (await embedTexts({ ...opts, timeoutMs: remaining, texts: [formatQuery(opts.query)] })).vectors[0];
+  }, { waitMs: Math.max(0, Math.min(750, (opts.timeoutMs ?? 15_000) - (Date.now() - started) - 1_000)) });
   const scored: RetrievedNode[] = [];
   for (const row of rows) {
     const n = row.node;

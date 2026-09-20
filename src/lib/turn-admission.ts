@@ -4,17 +4,19 @@ import { db } from "@/db";
 import { gameSessions, gameTurns, turnRequests, type DiceResult } from "@/db/schema";
 import { serverCheck } from "./engine";
 import { HttpError, expectedTurn, requestKey, requiredText, requireUuid } from "./http";
+import { normalizeItemIds } from "./item-bindings";
 import type { TurnInput, TurnRequestView, TurnResponse, TurnStage } from "./turn-contract";
 export const TURN_LEASE_MS = 90_000;
 export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type TurnLease = { id: string; token: string; requestId: string; sessionId: string; baseTurn: number; dice: DiceResult | null; session: typeof gameSessions.$inferSelect };
-export function turnInputHash(input: Pick<TurnInput, "action" | "isFree" | "expectedTurn">): string {
-  return createHash("sha256").update(JSON.stringify({ action: input.action.trim(), isFree: input.isFree, expectedTurn: input.expectedTurn ?? null })).digest("hex");
+export function turnInputHash(input: Pick<TurnInput, "action" | "isFree" | "expectedTurn" | "itemIds">): string {
+  const itemIds = normalizeItemIds(input.itemIds);
+  return createHash("sha256").update(JSON.stringify({ action: input.action.trim(), isFree: input.isFree, expectedTurn: input.expectedTurn ?? null, ...(itemIds.length ? { itemIds } : {}) })).digest("hex");
 }
 export function normalizeTurnInput(input: TurnInput): TurnInput & { requestId: string } {
   requireUuid(input.sessionId);
   if (typeof input.isFree !== "boolean") throw new HttpError(400, "INVALID_INPUT", "Тип действия должен быть указан явно.");
-  return { ...input, action: requiredText(input.action, "Действие", 2000), expectedTurn: expectedTurn(input.expectedTurn), requestId: requestKey(input.requestId) ?? randomUUID() };
+  return { ...input, action: requiredText(input.action, "Действие", 2000), expectedTurn: expectedTurn(input.expectedTurn), requestId: requestKey(input.requestId) ?? randomUUID(), itemIds: normalizeItemIds(input.itemIds) };
 }
 export async function lockSession(tx: DbTransaction, id: string) { await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${id}))`); }
 export async function assertNoRunningTurn(tx: DbTransaction, id: string) {
@@ -34,7 +36,7 @@ export async function acquireTurn(input: TurnInput & { requestId: string }): Pro
     if (!previous) {
       const [legacy] = await tx.select().from(gameTurns).where(and(eq(gameTurns.sessionId, input.sessionId), eq(gameTurns.requestId, input.requestId), eq(gameTurns.role, "player"))).limit(1);
       if (legacy) {
-        if (legacy.content !== input.action || (legacy.taskType === "resolution") !== input.isFree || (input.expectedTurn !== undefined && input.expectedTurn !== legacy.turnNumber - 1)) throw new HttpError(409, "IDEMPOTENCY_CONFLICT", "Этот requestId уже использован другим действием.");
+        if (input.itemIds?.length || legacy.content !== input.action || (legacy.taskType === "resolution") !== input.isFree || (input.expectedTurn !== undefined && input.expectedTurn !== legacy.turnNumber - 1)) throw new HttpError(409, "IDEMPOTENCY_CONFLICT", "Этот requestId уже использован другим действием.");
         const [n] = await tx.select().from(gameTurns).where(and(eq(gameTurns.sessionId, input.sessionId), eq(gameTurns.turnNumber, legacy.turnNumber), eq(gameTurns.role, "narrator"))).limit(1);
         if (n?.stateChanges) return { kind: "replay", result: { ok: true, replay: true, requestId: input.requestId, turnNumber: n.turnNumber, narration: n.content, choices: n.choices ?? [], dice: n.dice, outcome: "replay", applied: n.stateChanges, modelUsed: n.modelUsed ?? "", taskType: n.taskType === "resolution" ? "resolution" : "narration", needsCompaction: false, dead: n.stateChanges.dead, retrieved: [], skippedModels: [], warnings: ["Повтор хода, сохранённого до v2.2"] } };
       }

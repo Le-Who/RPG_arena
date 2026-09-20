@@ -2,7 +2,7 @@
 import { useRef, useState } from "react";
 import { Expand, MapPin, X } from "lucide-react";
 import type { Snapshot } from "@/lib/ui-data";
-import { dangerTone, mapEdges, projector } from "@/lib/world-graph";
+import { dangerTone, mapEdges, projector, visibleMapLocations } from "@/lib/world-graph";
 
 type Location = Snapshot["locations"][number];
 const TONE: Record<string, string> = { ok: "var(--ok)", warn: "var(--warn)", bad: "var(--bad)" };
@@ -22,17 +22,18 @@ export function WorldMap({
 }) {
   const [expanded, setExpanded] = useState(false);
   const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const visibleLocations = visibleMapLocations(locations);
 
   function closeExpanded() {
     setExpanded(false);
     expandButtonRef.current?.focus();
   }
 
-  if (locations.length === 0) {
+  if (visibleLocations.length === 0) {
     return <div className="gx-map-empty"><MapPin size={22} /><p>Локации ещё не открыты</p></div>;
   }
 
-  const canvas = <MapCanvas locations={locations} currentLocation={currentLocation} onLocationClick={onLocationClick} large={false} />;
+  const canvas = <MapCanvas locations={visibleLocations} currentLocation={currentLocation} onLocationClick={onLocationClick} large={false} />;
 
   return (
     <>
@@ -58,11 +59,11 @@ export function WorldMap({
             <header>
               <div>
                 <strong>Карта мира</strong>
-                <span>{locations.length} локаций · вы в «{currentLocation}»</span>
+                <span>{visibleLocations.length} локаций · вы в «{currentLocation}»</span>
               </div>
               <button className="icon-button" onClick={closeExpanded} aria-label="Закрыть карту" autoFocus><X size={19} /></button>
             </header>
-            <MapCanvas locations={locations} currentLocation={currentLocation} large
+            <MapCanvas locations={visibleLocations} currentLocation={currentLocation} large
               onLocationClick={onLocationClick ? (name) => { onLocationClick(name); closeExpanded(); } : undefined} />
           </div>
         </div>

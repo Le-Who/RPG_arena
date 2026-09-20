@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
+import { prewarmSessionChoices } from "@/lib/choice-prewarm";
 import { db } from "@/db";
 import { gameSessions, gameTurns, memoryNodes, inventoryItems, worldLocations, quests, npcs, sceneObjects } from "@/db/schema";
 import { asc, desc, eq, sql } from "drizzle-orm";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  after(() => prewarmSessionChoices(id));
   const requested = Number(new URL(req.url).searchParams.get("memories"));
   const memoryLimit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.trunc(requested), 200) : 80;
   try { return await db.transaction(async (tx) => {

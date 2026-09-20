@@ -96,11 +96,27 @@ export type UpsertNodeInput = {
 
 type Tx = Pick<typeof db, "select" | "insert" | "update" | "delete" | "execute">;
 
-async function queueMemory(tx: Tx, sessionId: string, memoryNodeId: string, title: string, content: string) {
-  const [settings] = await tx.select({ dims: aiSettings.embeddingDims }).from(aiSettings).where(eq(aiSettings.id, "global"));
-  const dims = settings?.dims ?? DEFAULT_EMBEDDING_DIMS;
-  const row = { model: EMBEDDING_MODEL, dims, contentHash: hashContent(EMBEDDING_MODEL, String(dims), formatDocument(title, content)), status: "pending" as const, vector: null, attempts: 0, error: "", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(), updatedAt: new Date() };
-  await tx.insert(memoryEmbeddings).values({ sessionId, memoryNodeId, ...row }).onConflictDoUpdate({ target: memoryEmbeddings.memoryNodeId, set: row, setWhere: sql`${memoryEmbeddings.contentHash} <> excluded.content_hash` });
+type QueuedMemory = { sessionId: string; memoryNodeId: string; title: string; content: string };
+/** One session lock and one embedding-settings read per transaction batch. Ordering stays canonical. */
+export async function writeMemoryNodes(inputs: UpsertNodeInput[], tx: Tx = db, options: { lockHeld?: boolean; dims?: number } = {}): Promise<{ id: string; changed: boolean; created: boolean }[]> {
+  if (!inputs.length) return [];
+  if (tx === db) return db.transaction(inner => writeMemoryNodes(inputs, inner, { dims: options.dims }));
+  const sessionId = inputs[0].sessionId;
+  if (inputs.some(input => input.sessionId !== sessionId)) throw new Error("MIXED_MEMORY_SESSIONS");
+  if (!options.lockHeld) await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${sessionId}))`);
+  const queued = new Map<string, QueuedMemory>();
+  const results = [];
+  for (const input of inputs) results.push(await upsertLocked(input, tx, queued));
+  if (queued.size) {
+    const dims = options.dims ?? (await tx.select({ dims: aiSettings.embeddingDims }).from(aiSettings).where(eq(aiSettings.id, "global")))[0]?.dims ?? DEFAULT_EMBEDDING_DIMS;
+    const rows = [...queued.values()].map(node => ({ sessionId, memoryNodeId: node.memoryNodeId, model: EMBEDDING_MODEL, dims,
+      contentHash: hashContent(EMBEDDING_MODEL, String(dims), formatDocument(node.title, node.content)), status: "pending" as const,
+      vector: null, attempts: 0, error: "", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(), updatedAt: new Date() }));
+    await tx.insert(memoryEmbeddings).values(rows).onConflictDoUpdate({ target: memoryEmbeddings.memoryNodeId,
+      set: { model: EMBEDDING_MODEL, dims, contentHash: sql`excluded.content_hash`, status: "pending", vector: null, attempts: 0, error: "", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(), updatedAt: new Date() },
+      setWhere: sql`${memoryEmbeddings.contentHash} <> excluded.content_hash` });
+  }
+  return results;
 }
 
 /**
@@ -109,8 +125,9 @@ async function queueMemory(tx: Tx, sessionId: string, memoryNodeId: string, titl
  * Возвращает id ноды и признак изменения содержимого (нужен для переиндексации эмбеддинга).
  */
 export async function upsertMemoryNode(input: UpsertNodeInput, tx: Tx = db): Promise<{ id: string; changed: boolean; created: boolean }> {
-  if (tx === db) return db.transaction((inner) => upsertMemoryNode(input, inner));
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}))`);
+  return (await writeMemoryNodes([input], tx))[0];
+}
+async function upsertLocked(input: UpsertNodeInput, tx: Tx, queued: Map<string, QueuedMemory>): Promise<{ id: string; changed: boolean; created: boolean }> {
   const title = input.title.slice(0, 120);
   const content = input.content.slice(0, 900);
   const contentHash = hashContent(input.layer, input.category, title, content);
@@ -144,7 +161,7 @@ export async function upsertMemoryNode(input: UpsertNodeInput, tx: Tx = db): Pro
           updatedAt: new Date(),
         })
         .where(eq(memoryNodes.id, existing[0].id));
-      if (changed) await queueMemory(tx, input.sessionId, existing[0].id, title, content);
+      if (changed) queued.set(existing[0].id, { sessionId: input.sessionId, memoryNodeId: existing[0].id, title, content });
       return { id: existing[0].id, changed, created: false };
     }
   } else {
@@ -177,21 +194,15 @@ export async function upsertMemoryNode(input: UpsertNodeInput, tx: Tx = db): Pro
       evidence: input.evidence ?? null,
     })
     .returning({ id: memoryNodes.id });
-  await queueMemory(tx, input.sessionId, inserted[0].id, title, content);
+  queued.set(inserted[0].id, { sessionId: input.sessionId, memoryNodeId: inserted[0].id, title, content });
   return { id: inserted[0].id, changed: true, created: true };
 }
 
 /** Записать канонические события состояния (source = "state") — вызывается внутри транзакции хода. */
-export async function writeStateEvents(sessionId: string, events: MemoryEvent[], turnNumber: number, tx: Tx = db): Promise<string[]> {
-  const touched: string[] = [];
-  for (const e of events.slice(0, 12)) {
-    const r = await upsertMemoryNode(
-      { sessionId, layer: e.layer, category: e.category, title: e.title, content: e.content, importance: e.importance, source: "state", sourceTurn: turnNumber, entityKey: e.entityKey, mode: e.mode },
-      tx,
-    );
-    if (r.changed) touched.push(r.id);
-  }
-  return touched;
+export async function writeStateEvents(sessionId: string, events: MemoryEvent[], turnNumber: number, tx: Tx = db, options: { lockHeld?: boolean; dims?: number; extra?: UpsertNodeInput[] } = {}): Promise<string[]> {
+  const inputs: UpsertNodeInput[] = events.slice(0, 12).map(e => ({ sessionId, layer: e.layer, category: e.category, title: e.title, content: e.content, importance: e.importance, source: "state", sourceTurn: turnNumber, entityKey: e.entityKey, mode: e.mode }));
+  const results = await writeMemoryNodes([...inputs, ...(options.extra ?? [])], tx, options);
+  return results.filter(r => r.changed).map(r => r.id);
 }
 
 /** Ранжированная выборка нод для дайджеста (importance×0.7 + salience×0.3). */

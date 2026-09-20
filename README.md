@@ -184,3 +184,5 @@ UI-скрипты по умолчанию используют первую ка
 [Отчёт и план v2.2](docs/superpowers/plans/v2.2-reliability-and-branches.md) · [Дизайн-система v2.4](docs/superpowers/plans/v2.4-design-system-and-roadmap.md) · [Roadmap](docs/superpowers/plans/roadmap.md).
 
 Файл лицензии в репозитории отсутствует; выбор и публикация лицензии остаются задачей владельца проекта.
+
+Потоковый ход, фоновые задачи и измерение задержки: [эксплуатация и проверки](docs/turn-latency-operations.md).
