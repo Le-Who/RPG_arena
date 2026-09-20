@@ -46,7 +46,7 @@ export async function acquireTurn(input: TurnInput & { requestId: string }): Pro
     await tx.update(turnRequests).set({ status: "failed", stage: "failed", leaseToken: null, leaseExpiresAt: null, error: "LEASE_EXPIRED", updatedAt: new Date() }).where(and(eq(turnRequests.sessionId, input.sessionId), eq(turnRequests.status, "running"), lte(turnRequests.leaseExpiresAt, new Date())));
     if (!input.isFree) {
       const [last] = await tx.select({ choices: gameTurns.choices }).from(gameTurns).where(and(eq(gameTurns.sessionId, input.sessionId), eq(gameTurns.role, "narrator"))).orderBy(desc(gameTurns.turnNumber)).limit(1);
-      if (!last?.choices?.includes(input.action)) throw new HttpError(409, "INVALID_INPUT", "Такого варианта нет в текущей сцене. Обновите её или отправьте свободное действие.");
+      if (!last?.choices?.some(choice => choice.trim() === input.action)) throw new HttpError(409, "INVALID_INPUT", "Такого варианта нет в текущей сцене. Обновите её или отправьте свободное действие.");
     }
     // Input mode selects the narration route, not whether campaign mechanics apply.
     const dice = previous ? previous.dice : serverCheck({ rulesProfile: session.rulesProfile, playerAction: input.action, stats: session.character.stats, danger: session.worldState.danger, turnCount: session.turnCount + 1 });

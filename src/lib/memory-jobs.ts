@@ -7,6 +7,9 @@ import { buildExtractionSystemPrompt, callGeminiWithRotation, EXTRACTION_RESPONS
 import { getAIConfig, logToken, pickModels, type AIConfig } from "./ai-settings";
 import { extractJsonObject } from "./resolution";
 import { layerForFactType, normalizeExtractedFacts, upsertMemoryNode } from "./memory";
+import { runTypeSafePilotSafely } from "./typesafe-pilot";
+import { getTypeSafePilotConfig } from "./typesafe-settings";
+import { TYPE_SAFE_MODEL, verifyTypeSafeFacts } from "./typesafe";
 export const MEMORY_JOB_LEASE_MS = 60_000;
 export function retryDelayMs(attempt: number): number { return Math.min(300_000, 5000 * 2 ** Math.max(0, Math.min(attempt, 6))); }
 export async function enqueueSemanticJob(tx: DbTransaction, input: { sessionId: string; turnNumber: number; payload: MemoryJobPayload }) {
@@ -39,6 +42,31 @@ export async function processSemanticJob(opts: { sessionId?: string; cfg?: AICon
     const parsed = extractJsonObject(response.text);
     if (!parsed || !Array.isArray((parsed as { facts?: unknown }).facts)) throw new Error("INVALID_EXTRACTION_JSON");
     const facts = normalizeExtractedFacts(parsed, job.payload.narration, job.payload.playerAction);
+    let typesafeAttempted = false;
+    const typesafeReport = await runTypeSafePilotSafely({
+      facts,
+      narration: job.payload.narration,
+      playerAction: job.payload.playerAction,
+      loadConfig: getTypeSafePilotConfig,
+      verify: async (input) => {
+        typesafeAttempted = true;
+        return verifyTypeSafeFacts(input);
+      },
+    });
+    if (typesafeAttempted) {
+      try {
+        await logToken({
+          sessionId: job.sessionId,
+          model: TYPE_SAFE_MODEL,
+          taskType: "typesafe-verification",
+          promptTokens: typesafeReport.usage?.inputTokens ?? 0,
+          completionTokens: typesafeReport.usage?.outputTokens ?? 0,
+          latencyMs: typesafeReport.latencyMs,
+          success: typesafeReport.status === "ok",
+          error: typesafeReport.status === "error" ? "TYPESAFE_UNAVAILABLE" : "",
+        });
+      } catch { /* shadow-pilot observability must never fail canonical extraction */ }
+    }
     const extracted = await db.transaction(async (tx) => {
       await lockSession(tx, job.sessionId);
       const [current] = await tx.select({ id: memoryJobs.id }).from(memoryJobs).where(and(fenced, gt(memoryJobs.leaseExpiresAt, new Date()))).for("update");
@@ -49,7 +77,7 @@ export async function processSemanticJob(opts: { sessionId?: string; cfg?: AICon
         if (result.changed) changed++;
       }
       // Empty extractions are complete too; no partial writes can mark the turn done.
-      await tx.update(memoryJobs).set({ status: "completed", factsCount: changed, leaseToken: null, leaseExpiresAt: null, error: null, updatedAt: new Date() }).where(fenced);
+      await tx.update(memoryJobs).set({ status: "completed", factsCount: changed, typesafeReport: typesafeReport.status === "disabled" ? null : typesafeReport, leaseToken: null, leaseExpiresAt: null, error: null, updatedAt: new Date() }).where(fenced);
       return changed;
     });
     return { processed: extracted === null ? 0 : 1, extracted: extracted ?? 0, failed: 0, delayed: false };

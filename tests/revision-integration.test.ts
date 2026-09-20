@@ -60,5 +60,6 @@ test("v2.5 reading migration is additive and preserves legacy columns", () => {
     "0001_workspace_reliability",
     "0002_story_branches_and_jobs",
     "0003_reading_preferences",
+    "0004_typesafe_pilot",
   ]);
 });

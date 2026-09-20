@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { TurnResponse, TurnStage } from "@/lib/turn-contract";
 import type { CheckpointSnapshot } from "@/lib/checkpoint-types";
+import type { TypeSafeReport } from "@/lib/typesafe-report";
 import {
   pgTable,
   uuid,
@@ -379,6 +380,8 @@ export const aiSettings = pgTable("ai_settings", {
   embeddingDims: integer("embedding_dims").notNull().default(768),
   // MEM-1: асинхронный semantic-extractor
   semanticExtractionEnabled: boolean("semantic_extraction_enabled").notNull().default(true),
+  typesafeKey: text("typesafe_key").notNull().default(""),
+  typesafePilotEnabled: boolean("typesafe_pilot_enabled").notNull().default(false),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -448,6 +451,7 @@ export const memoryJobs = pgTable("memory_jobs", {
   status: text("status").notNull().default("pending").$type<"pending" | "processing" | "completed" | "failed">(),
   attempts: integer("attempts").notNull().default(0), leaseToken: uuid("lease_token"), leaseExpiresAt: timestamp("lease_expires_at"),
   nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(), error: text("error"), factsCount: integer("facts_count").notNull().default(0),
+  typesafeReport: jsonb("typesafe_report").$type<TypeSafeReport | null>(),
   createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("uq_memory_job_turn_kind").on(t.sessionId, t.turnNumber, t.kind), index("idx_memory_jobs_ready").on(t.status, t.nextAttemptAt)]);
 

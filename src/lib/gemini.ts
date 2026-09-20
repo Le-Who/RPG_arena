@@ -49,7 +49,7 @@ export const MODEL_CATALOG = [
   },
 ] as const;
 
-export type TaskType = "narration" | "resolution" | "compaction" | "fast" | "embedding";
+export type TaskType = "narration" | "resolution" | "compaction" | "fast" | "embedding" | "creation";
 export type RoutingProfile = "balanced" | "economy" | "flagship" | "custom";
 
 export type RoutingConfig = {
@@ -94,6 +94,7 @@ export function routeModelsFor(task: TaskType, config?: Partial<RoutingConfig>):
   const compactionTarget = config?.compactionModel || defaults.compactionModel;
   const fastTarget = config?.fastTaskModel || defaults.fastTaskModel;
 
+  if (task === "creation") return ["gemini-3.5-flash-lite"];
   if (task === "compaction") return uniq([compactionTarget, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]);
   if (task === "resolution") return uniq([customTarget, "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"]);
   if (task === "fast") return uniq([fastTarget, "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"]);
@@ -299,6 +300,7 @@ export async function callGeminiWithRotation(opts: {
   temperature?: number;
   responseSchema?: Record<string, unknown>;
   timeoutMs?: number;
+  signal?: AbortSignal;
   onAttempt?: (info: AttemptInfo) => Promise<void> | void;
 }): Promise<{ text: string; model: string; keyIndex: number; latencyMs: number; promptTokens: number; completionTokens: number }> {
   const { keys, models, system, user } = opts;
@@ -308,6 +310,7 @@ export async function callGeminiWithRotation(opts: {
   const deadline = Date.now() + Math.min(opts.timeoutMs ?? 35_000, 45_000);
   for (const model of models) {
     for (let ki = 0; ki < keys.length; ki++) {
+      opts.signal?.throwIfAborted();
       const remaining = deadline - Date.now();
       if (remaining < 250) throw new Error(`AI_DEADLINE: ${lastErr}`);
       const started = Date.now();
@@ -318,7 +321,7 @@ export async function callGeminiWithRotation(opts: {
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-goog-api-key": keys[ki] },
-          signal: ctrl.signal,
+          signal: opts.signal ? AbortSignal.any([ctrl.signal, opts.signal]) : ctrl.signal,
           body: JSON.stringify({
             system_instruction: { parts: [{ text: system }] },
             contents: [{ role: "user", parts: [{ text: user }] }],

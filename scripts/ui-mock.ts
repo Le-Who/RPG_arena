@@ -53,7 +53,7 @@ export const mockSnapshot = {
   embeddings: { nodes: 2, ready: 2, pending: 0, processing: 0, failed: 0 },
 };
 
-const settings = {
+export const settings = {
   keysMasked: [], keysCount: 0, envKeysCount: 0, useLiveAI: false, routingProfile: "balanced",
   narrationModel: "gemini-3.5-flash-lite", customActionModel: "gemini-3.8-flash", compactionModel: "gemini-3.8-flash",
   fastTaskModel: "gemini-3.5-flash-lite", dailyFlashLimit: 20, dailyLiteLimit: 500, enforceLimits: true,
@@ -68,6 +68,8 @@ export async function installUiMock(page: Page) {
     let body: unknown = {};
     if (path === "/api/sessions") body = { sessions: [mockSession] };
     else if (path === "/api/settings") body = settings;
+    else if (path === "/api/developer/typesafe") body = { configured: false, storedConfigured: false, maskedKey: null, source: "none", envOverride: false, pilotEnabled: false, model: "jev-1.13.0" };
+    else if (path === "/api/developer/typesafe/results") body = { results: [] };
     else if (path === "/api/workspace") body = { displayName: "Искатель историй", favorites: ["ashen-crown"], reading: { textScale: "normal", measure: "normal", theme: "midnight", motion: "full" } };
     else if (path === "/api/tokens/stats") body = { today: { totalReq: 7, totalTokens: 12450, errors: 0, embeddingReq: 3 }, quotas: { note: "audit" } };
     else if (path === "/api/system/status") body = {

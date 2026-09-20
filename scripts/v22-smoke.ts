@@ -159,7 +159,7 @@ async function run() {
   assert.equal((await compactSession(source.id)).created, 0);
   const seq = sourceAfter.turns.filter((t) => t.turnNumber === 2).map((t) => t.role); assert.deepEqual(seq, ["player", "narrator"]);
   assert.equal((await runMemoryCycle({ source: "manual" })).paused, true);
-  const status = await call<{ version: string; database: string }>("/api/system/status"); assert.equal(status.status, 200); assert.equal(status.data.version, "2.2"); assert.equal(status.data.database, "connected");
+  const status = await call<{ version: string; database: string }>("/api/system/status"); assert.equal(status.status, 200); assert.equal(status.data.version, "2.5"); assert.equal(status.data.database, "connected");
   assert.equal((await call("/api/system/process", { action: "process" })).status, 409);
 
   for (let round = 0; round < 3; round++) {

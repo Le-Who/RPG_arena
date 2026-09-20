@@ -11,6 +11,7 @@ import type { TurnResponse } from "@/lib/turn-contract";
 import { TURN_STAGE_LABELS } from "@/lib/turn-contract";
 import { CheckpointDialog } from "./checkpoint-dialog";
 import { useTurnRequest } from "./use-turn-request";
+import { classifyAction } from "@/lib/action-kind";
 import { WorldMap } from "./world-map";
 
 const SIDE_TABS = [
@@ -58,9 +59,10 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     setSnapshot(result); setLoadError(""); return result;
   }, [sessionId]);
   const onCommitted = useCallback(async (result: TurnResponse) => {
+    const suppressScroll = !!document.querySelector('[role="dialog"]');
     setCompactNeeded(result.needsCompaction); setAction("");
     await reload(); void refresh();
-    setTimeout(() => document.getElementById(`turn-${result.turnNumber}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    if (!suppressScroll) setTimeout(() => { if (!document.querySelector('[role="dialog"]')) document.getElementById(`turn-${result.turnNumber}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
   }, [reload, refresh]);
   const turnRequest = useTurnRequest(sessionId, onCommitted);
   const { busy, error: actionError } = turnRequest;
@@ -74,7 +76,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     let active = true;
     api<Snapshot>(`/api/sessions/${sessionId}?memories=8`).then((result) => {
       if (!active) return; setSnapshot(result);
-      if (window.location.hash) setTimeout(() => document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ behavior: "smooth", block: "center" }), 150);
+      if (window.location.hash && !document.querySelector('[role="dialog"]')) setTimeout(() => { if (!document.querySelector('[role="dialog"]')) document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ behavior: "smooth", block: "center" }); }, 150);
     }).catch((e) => { if (active) setLoadError(e.message); });
     return () => { active = false; };
   }, [sessionId]);
@@ -86,23 +88,27 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     io.observe(node);
     return () => io.disconnect();
   }, [snapshot]);
-  const act = useCallback(async (text: string, custom: boolean, choice = -1) => {
+  const act = useCallback(async (text: string) => {
     if (busy || !text.trim() || !snapshot) return;
+    const pending = turnRequest.pending;
+    const fresh = classifyAction(text, lastNarratorChoices(snapshot));
+    const { action: submitted, custom, choice } = pending && pending.action === text.trim() ? { action: pending.action, custom: pending.custom, choice: -1 } : fresh;
     setSelectedChoice(choice);
-    try { const ok = await sendTurn(text, custom, snapshot.session.turnCount); if (!ok) await reload().catch(() => {}); }
+    try { const ok = await sendTurn(submitted, custom, snapshot.session.turnCount); if (!ok) await reload().catch(() => {}); }
     finally { setSelectedChoice(-1); }
-  }, [busy, reload, sendTurn, snapshot]);
-  const submit = (e: FormEvent) => { e.preventDefault(); void act(action, true); };
+  }, [busy, reload, sendTurn, snapshot, turnRequest.pending]);
+  const submit = (e: FormEvent) => { e.preventDefault(); void act(action); };
   const choices = lastNarratorChoices(snapshot);
   const shortcutRef = useRef<(event: KeyboardEvent) => void>(() => {});
   useEffect(() => {
     shortcutRef.current = (event: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"]')) return;
       const el = document.activeElement;
       if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement || el instanceof HTMLSelectElement) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key === "/") { event.preventDefault(); composerRef.current?.focus(); return; }
       const index = Number(event.key) - 1;
-      if (Number.isInteger(index) && index >= 0 && index < choices.length) { event.preventDefault(); void act(choices[index], false, index); }
+      if (Number.isInteger(index) && index >= 0 && index < choices.length) { event.preventDefault(); void act(choices[index]); }
     };
   }, [choices, act]);
   useEffect(() => {
@@ -195,12 +201,12 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
           {!active ? <div className="gx-archived"><span className="gx-archived-icon"><BookOpen size={22} /></span><div><strong>Эта история ждёт в архиве</strong><p>Прочитайте предыдущие главы или вернитесь к приключению.</p></div><button className="button primary" onClick={() => void restore()}>Продолжить историю <ArrowRight size={15} /></button></div> : <div className={`gx-composer ${canAct ? "is-ready" : ""}`}>
             <div className="gx-composer-head"><Sparkles size={16} /><h3>Что вы сделаете дальше?</h3></div>
             <p className="gx-composer-hint">{choices.length ? "Нажмите цифру, чтобы выбрать вариант, или клавишу «/», чтобы описать своё действие." : "Опишите действие своими словами — мир ответит на него."}</p>
-            {lastNarrator?.choices?.length ? <div className="gx-choices">{lastNarrator.choices.map((choice, i) => <button className="gx-choice" key={`${i}-${choice}`} onClick={() => void act(choice, false, i)} disabled={busy} style={{ animationDelay: `${i * 55}ms` }}><span className="gx-choice-no">{selectedChoice === i ? <LoaderCircle size={14} className="spin" /> : i + 1}</span><p>{choice}</p><ArrowRight className="gx-choice-arrow" size={16} /></button>)}</div> : <p className="gx-free-note">Первое слово — за вами. Опишите действие, с которого начнётся история.</p>}
+            {lastNarrator?.choices?.length ? <div className="gx-choices">{lastNarrator.choices.map((choice, i) => <button className="gx-choice" key={`${i}-${choice}`} onClick={() => void act(choice)} disabled={busy} style={{ animationDelay: `${i * 55}ms` }}><span className="gx-choice-no">{selectedChoice === i ? <LoaderCircle size={14} className="spin" /> : i + 1}</span><p>{choice}</p><ArrowRight className="gx-choice-arrow" size={16} /></button>)}</div> : <p className="gx-free-note">Первое слово — за вами. Опишите действие, с которого начнётся история.</p>}
             <div className="gx-or"><span />или напишите своё<span /></div>
             <form onSubmit={submit} className="gx-input">
-              <textarea ref={composerRef} id="action-input" aria-label="Ваше действие" placeholder="Я хочу… — опишите своё действие, и мир ответит" value={action} onChange={(e) => setAction(e.target.value)} maxLength={2000} rows={2} disabled={busy} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void act(action, true); } }} />
+              <textarea ref={composerRef} id="action-input" aria-label="Ваше действие" placeholder="Я хочу… — опишите своё действие, и мир ответит" value={action} onChange={(e) => setAction(e.target.value)} maxLength={2000} rows={2} disabled={busy} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void act(action); } }} />
               <div className="gx-input-foot">
-                <span className="gx-counter">{action.length ? `${action.length} / 2000` : "Любое действие имеет значение"}</span>
+                <span className="gx-action-kind">{((turnRequest.pending?.action === action.trim() ? turnRequest.pending.custom : classifyAction(action, choices).custom)) ? "Свободное действие" : "Предложенное действие"}</span><span className="gx-counter">{action.length ? `${action.length} / 2000` : "Любое действие имеет значение"}</span>
                 <div className="gx-input-cta"><span className="gx-hint"><CornerDownLeft size={12} />Ctrl + Enter</span><button className="button primary" disabled={busy || !action.trim()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />}Сделать ход</button></div>
               </div>
             </form>

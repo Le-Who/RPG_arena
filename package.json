@@ -14,7 +14,10 @@
     "verify:ui": "node --env-file-if-exists=.env --import tsx scripts/ui-verify.ts",
     "smoke": "node --env-file=.env --import tsx scripts/smoke.ts",
     "smoke:v22": "node --env-file=.env --import tsx scripts/v22-smoke.ts",
-    "verify": "npm run typecheck && npm run test && npm run build"
+    "verify": "npm run typecheck && npm run test && npm run build",
+    "verify:story-ui": "node --env-file-if-exists=.env --import tsx scripts/story-experience-browser.ts",
+    "eval:story-drafts": "node --env-file-if-exists=.env --import tsx scripts/eval-story-drafts.ts",
+    "eval:typesafe": "node --env-file-if-exists=.env --import tsx scripts/eval-typesafe.ts"
   },
   "dependencies": {
     "@playwright/test": "^1.63.0",
