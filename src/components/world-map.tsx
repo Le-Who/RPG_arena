@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo, memo } from "react";
 import { Expand, MapPin, X } from "lucide-react";
 import type { Snapshot } from "@/lib/ui-data";
 import { dangerTone, mapEdges, projector, visibleMapLocations } from "@/lib/world-graph";
@@ -22,7 +22,7 @@ export function WorldMap({
 }) {
   const [expanded, setExpanded] = useState(false);
   const expandButtonRef = useRef<HTMLButtonElement>(null);
-  const visibleLocations = visibleMapLocations(locations);
+  const visibleLocations = useMemo(() => visibleMapLocations(locations), [locations]);
 
   function closeExpanded() {
     setExpanded(false);
@@ -77,8 +77,8 @@ function MapCanvas({
 }: {
   locations: Location[]; currentLocation: string; onLocationClick?: (name: string) => void; large: boolean;
 }) {
-  const place = projector(locations, large ? 10 : 15);
-  const edges = mapEdges(locations);
+  const place = useMemo(() => projector(locations, large ? 10 : 15), [locations, large]);
+  const edges = useMemo(() => mapEdges(locations), [locations]);
   const interactive = Boolean(onLocationClick);
 
   return (

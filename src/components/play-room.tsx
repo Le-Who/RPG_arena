@@ -1,7 +1,7 @@
 "use client";
 import { buildNarrativeFeed } from "@/lib/narrative-feed";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo, type FormEvent } from "react";
 import type React from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, Backpack, BookOpen, BookOpenText, BrainCircuit, Check, ChevronUp, Compass, CornerDownLeft, Dices, Download, Feather, Flag, GitBranch, Globe2, Heart, LoaderCircle, MapPin, Minimize2, Plus, RefreshCw, Send, ShieldCheck, Sparkles, UserRound, WifiOff } from "lucide-react";
 import { useApp } from "./app-shell";
@@ -148,6 +148,11 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const compact = async () => { setCompacting(true); try { await api(`/api/sessions/${sessionId}/compact`, jsonBody({})); await reload(); setCompactNeeded(false); notify("Новые главы сохранены в долгосрочной памяти"); } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить память", true); } finally { setCompacting(false); } };
   const restore = async () => { try { await api(`/api/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) }); await reload(); void refresh(); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } };
 
+  const locationsForMemo = snapshot?.locations || [];
+  const visibleLocations = useMemo(() => locationsForMemo.filter((location) => location.discovered), [locationsForMemo]);
+  const isActiveMemo = snapshot?.isOwner !== false && snapshot?.session.status === "active";
+  const handleLocationClick = useCallback((name: string) => { if (isActiveMemo && !busy) { setAction(`Отправиться в «${name}»`); composerRef.current?.focus(); } }, [isActiveMemo, busy]);
+
   if (loadError) return <div className="empty-state gx-fallback"><BookOpen size={34} /><h3>Не удалось открыть эту главу</h3><p>{loadError}</p><button className="button secondary" onClick={() => void reload().catch((e) => setLoadError(e.message))}><RefreshCw size={15} />Попробовать снова</button><Link className="text-link" href="/campaigns">Вернуться к кампаниям</Link></div>;
   if (!snapshot) return <div className="gx-loading"><span className="gx-loading-orb"><LoaderCircle size={30} className="spin" /></span><h2>Открываем вашу историю…</h2><p>Загружаем мир, персонажей и сохранённые решения.</p></div>;
 
@@ -269,7 +274,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
           </div>}
           {sideTab === "world" && <div className="gx-side-section">
             <div className="gx-here"><MapPin size={22} /><small>Вы находитесь здесь</small><h3>{world.currentLocation}</h3><p>{world.worldName}</p></div>
-            {locations.length > 0 && <WorldMap locations={locations.filter((location) => location.discovered)} currentLocation={world.currentLocation} onLocationClick={(name) => { if (active && !busy) { setAction(`Отправиться в «${name}»`); composerRef.current?.focus(); } }} />}
+            {locations.length > 0 && <WorldMap locations={visibleLocations} currentLocation={world.currentLocation} onLocationClick={handleLocationClick} />}
             <div className="gx-side-title">Известные локации</div>
             <div className="gx-locs">{locations.filter((location) => location.discovered).map((location) => <div key={location.id} className={`gx-loc ${location.current ? "current" : ""}`}><Compass size={16} /><span><strong>{location.name}</strong><small>{location.description}</small></span>{location.current && <Check size={14} />}</div>)}</div>
             {!!sceneObjects.filter((o) => o.locationName === world.currentLocation).length && <><div className="gx-side-title">Окружение</div>{sceneObjects.filter((object) => object.locationName === world.currentLocation).map((object) => <div className="gx-scene" key={object.id}><div className="gx-scene-head"><strong>{object.name}</strong><span>{object.state}</span></div><p>{object.description}</p></div>)}</>}
