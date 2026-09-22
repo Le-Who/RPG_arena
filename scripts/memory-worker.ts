@@ -7,6 +7,7 @@ process.on("SIGINT", () => { stopping = true; });
 process.on("SIGTERM", () => { stopping = true; });
 async function run() {
   if (process.env.CHRONICLE_AUTO_MIGRATE === "1") await runStartupMigrations();
+  if (stopping) return;
   started = true;
   const once = process.argv.includes("--once");
   console.log("Chronicle memory worker · gemini-embedding-2 · bounded leased jobs");
@@ -17,4 +18,7 @@ async function run() {
     if (once) break;
   } while (!stopping);
 }
-run().catch((error) => { console.error(error instanceof Error ? error.name : "WorkerError"); process.exitCode = 1; }).finally(async () => { if (started) await workerHeartbeat("worker", "stopped").catch(() => {}); await pool.end(); });
+run().catch((error) => {
+  console.error(error instanceof Error && error.message === "STARTUP_MIGRATION_FAILED" ? error.message : error instanceof Error ? error.name : "WorkerError");
+  process.exitCode = 1;
+}).finally(async () => { if (started) await workerHeartbeat("worker", "stopped").catch(() => {}); await pool.end(); });
