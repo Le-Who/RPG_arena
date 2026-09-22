@@ -6,12 +6,12 @@ import { db, pool } from "../src/db";
 import { aiSettings, gameSessions, memoryJobs, memoryNodes, tokenLogs } from "../src/db/schema";
 import { getAIConfig, getSettingsRow } from "../src/lib/ai-settings";
 import { enqueueSemanticJob, processSemanticJob } from "../src/lib/memory-jobs";
-import { installSyntheticSecretKeyring } from "./lib/synthetic-secret-keyring";
+import { assertMaskedSecretResponse, requireSharedIsolatedSecretKeyring } from "./lib/synthetic-secret-keyring";
 import { sealSecret, secretContext } from "../src/lib/secret-vault";
 
 const nativeFetch = globalThis.fetch;
 const owned: string[] = [];
-const smokeKeyring = installSyntheticSecretKeyring("typesafe-smoke-v1");
+const smokeKeyring = requireSharedIsolatedSecretKeyring();
 
 async function run() {
   const cfg = await getAIConfig(smokeOwnerId);
@@ -23,7 +23,10 @@ async function run() {
     assert.equal(made.status, 200);
     const { session } = await made.json(); owned.push(session.id);
     await db.update(aiSettings).set({ typesafeKey: sealSecret("mock-secret-typesafe", secretContext(smokeOwnerId, "typesafe-pilot"), smokeKeyring), typesafePilotEnabled: mode !== "disabled" }).where(eq(aiSettings.id, smokeOwnerId));
-    assert.ok(!JSON.stringify(await (await smokeFetch(`${process.env.SMOKE_BASE_URL ?? "http://localhost:3010"}/api/developer/typesafe`)).json()).includes("mock-secret-typesafe"));
+    const settingsResponse = await smokeFetch(`${process.env.SMOKE_BASE_URL ?? "http://localhost:3010"}/api/developer/typesafe`);
+    const settingsView = await assertMaskedSecretResponse(settingsResponse, "mock-secret-typesafe") as { storedConfigured?: boolean; maskedKey?: string | null };
+    assert.equal(settingsView.storedConfigured, true);
+    assert.ok(settingsView.maskedKey);
     const phrase = "Навигатор обещает встретить героя у шлюза на рассвете.";
     await db.transaction(tx => enqueueSemanticJob(tx, { sessionId: session.id, turnNumber: 1, payload: { narration: phrase, playerAction: "Попросить о встрече", knownDigest: "", profileCanon: "Narrative" } }));
     await db.update(memoryJobs).set({ nextAttemptAt: new Date(0) }).where(eq(memoryJobs.sessionId, session.id));
