@@ -39,6 +39,8 @@ test("readiness requires the shipped migration and working vector/hash functions
     assert.equal(missing.memorySearch, false);
     await pg.exec("CREATE FUNCTION chronicle_embedding_hash(text,integer,text,text) RETURNS text LANGUAGE sql AS $$ SELECT 'broken'::text $$");
     assert.equal((await checkReadiness(query)).memorySearch, false, "function existence alone is insufficient");
+    await pg.exec("DROP TABLE world_locations");
+    assert.equal((await checkReadiness(query)).schema, false, "a current ledger does not excuse a missing application table");
   } finally { await pg.close(); }
 });
 
