@@ -4,6 +4,7 @@ import { pool } from "@/db";
 import { authDatabase, OWNER_LOCK_NAMESPACE } from "./auth";
 import { currentIdentity } from "./identity";
 import { HttpError, httpError } from "./http";
+import { withAdmittedIdentity } from "./identity-scope";
 
 type Work = { id: string; ownerId: string; refs: number; active: boolean };
 const workScope = new AsyncLocalStorage<Map<string, Work>>();
@@ -40,7 +41,7 @@ export async function withCurrentIdentityWork<T>(run: () => Promise<T>): Promise
   return withOwnerWork(before.profileId, async () => {
     const current = await currentIdentity();
     if (current.profileId !== before.profileId || current.account?.id !== before.account?.id) throw new HttpError(401, "IDENTITY_CHANGED", "Профиль изменился. Обновите страницу.");
-    return run();
+    return withAdmittedIdentity(current, run);
   });
 }
 export function withIdentityWork<A extends unknown[]>(handler: (...args: A) => Promise<Response>) {
