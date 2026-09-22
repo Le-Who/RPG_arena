@@ -138,3 +138,43 @@ export function decodeNarrativeSecret<T extends Pick<SecretSettings, "id" | "nar
 export function decodeSettingsSecrets<T extends SecretSettings>(row: T, options: SecretOpenOptions = {}): T {
   return decodeNarrativeSecret(decodeTypeSafeSecret(decodeGeminiSecrets(row, options), options), options);
 }
+
+type StoredCredentials = { keys?: unknown; typesafeKey?: unknown; narrativeGuardKey?: unknown };
+
+export function hasStoredSettingsCredentials(row: StoredCredentials): boolean {
+  const keys = row.keys;
+  const hasKeys = Array.isArray(keys) ? keys.some(value => typeof value !== "string" || Boolean(value)) : keys !== null && keys !== undefined;
+  return hasKeys || (typeof row.typesafeKey === "string" ? Boolean(row.typesafeKey) : row.typesafeKey !== null && row.typesafeKey !== undefined)
+    || (typeof row.narrativeGuardKey === "string" ? Boolean(row.narrativeGuardKey) : row.narrativeGuardKey !== null && row.narrativeGuardKey !== undefined);
+}
+
+export function rebindSettingsSecrets(
+  source: { id: string; keys: unknown; typesafeKey: string; narrativeGuardProvider: string; narrativeGuardKey: string },
+  targetOwnerId: string,
+  options: SecretOpenOptions = {},
+): { keys: string[]; typesafeKey: string; narrativeGuardKey: string } {
+  if (source.keys !== null && (!Array.isArray(source.keys) || !source.keys.every(value => typeof value === "string"))) {
+    throw new Error("Malformed legacy credential storage. Import stopped without changes.");
+  }
+  if (source.narrativeGuardKey && source.narrativeGuardProvider !== "typesafe" && source.narrativeGuardProvider !== "openrouter") {
+    throw new Error("Malformed legacy credential storage. Import stopped without changes.");
+  }
+  const keys = (source.keys ?? []) as string[];
+  return {
+    keys: keys.map(value => sealSecret(
+      openSecret(value, secretContext(source.id, "gemini"), options),
+      secretContext(targetOwnerId, "gemini"),
+      options.keyring,
+    )),
+    typesafeKey: sealSecret(
+      openSecret(source.typesafeKey, secretContext(source.id, "typesafe-pilot"), options),
+      secretContext(targetOwnerId, "typesafe-pilot"),
+      options.keyring,
+    ),
+    narrativeGuardKey: sealSecret(
+      openSecret(source.narrativeGuardKey, secretContext(source.id, `narrative:${source.narrativeGuardProvider}`), options),
+      secretContext(targetOwnerId, `narrative:${source.narrativeGuardProvider}`),
+      options.keyring,
+    ),
+  };
+}

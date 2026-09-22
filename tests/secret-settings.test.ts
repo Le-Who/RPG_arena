@@ -183,3 +183,29 @@ test("rotation preserves a legacy SQL NULL keys value while rotating another cre
     await pg.close();
   }
 });
+
+test("rotation compare-and-swap preserves a concurrent provider credential update", async () => {
+  const pg = await fixture();
+  try {
+    await pg.query("INSERT INTO ai_settings(id, narrative_guard_provider, narrative_guard_key) VALUES ($1,'openrouter',$2)", ["owner-a", "legacy-openrouter"]);
+    const concurrent = "newer-typesafe";
+    let switched = false;
+    await assert.rejects(() => rotateSecrets({
+      mode: "apply",
+      keyring: ring,
+      allowPlaintext: true,
+      batchSize: 1,
+      query: async (text, params) => {
+        if (!switched && text.startsWith("UPDATE ai_settings SET")) {
+          switched = true;
+          await pg.query("UPDATE ai_settings SET narrative_guard_provider='typesafe', narrative_guard_key=$1 WHERE id='owner-a'", [concurrent]);
+        }
+        return pg.query(text, params);
+      },
+    }), /changed concurrently/);
+    const row = (await pg.query("SELECT narrative_guard_provider, narrative_guard_key FROM ai_settings WHERE id='owner-a'")).rows[0] as { narrative_guard_provider: string; narrative_guard_key: string };
+    assert.deepEqual(row, { narrative_guard_provider: "typesafe", narrative_guard_key: concurrent });
+  } finally {
+    await pg.close();
+  }
+});

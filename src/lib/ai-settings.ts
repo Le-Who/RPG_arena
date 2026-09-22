@@ -6,7 +6,7 @@ import { filterByDailyLimits, routeModelsFor, type RoutingConfig, type TaskType 
 import { currentProfileId } from "./identity";
 import { sessionOwnerId } from "./campaign-access";
 import { DEFAULT_EMBEDDING_DIMS } from "./embeddings";
-import { decodeSettingsSecrets, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
+import { decodeGeminiSecrets, decodeSettingsSecrets, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
 
 export type AIConfig = {
   ownerId?: string;
@@ -53,7 +53,7 @@ export function prepareGeminiKeysWrite(ownerId: string, keys: string[], keyring?
 }
 
 export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
-  const s = await getSettingsRow(ownerId);
+  const s = decodeGeminiSecrets(await getRawSettingsRow(ownerId));
   const dbKeys = ((s.keys as string[]) ?? []).filter(Boolean);
   const keys = [...new Set(dbKeys)];
   return {

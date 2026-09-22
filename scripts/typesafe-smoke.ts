@@ -6,9 +6,12 @@ import { db, pool } from "../src/db";
 import { aiSettings, gameSessions, memoryJobs, memoryNodes, tokenLogs } from "../src/db/schema";
 import { getAIConfig, getSettingsRow } from "../src/lib/ai-settings";
 import { enqueueSemanticJob, processSemanticJob } from "../src/lib/memory-jobs";
+import { installSyntheticSecretKeyring } from "./lib/synthetic-secret-keyring";
+import { sealSecret, secretContext } from "../src/lib/secret-vault";
 
 const nativeFetch = globalThis.fetch;
 const owned: string[] = [];
+const smokeKeyring = installSyntheticSecretKeyring("typesafe-smoke-v1");
 
 async function run() {
   const cfg = await getAIConfig(smokeOwnerId);
@@ -19,7 +22,7 @@ async function run() {
     const made = await smokeFetch(`${process.env.SMOKE_BASE_URL ?? "http://localhost:3010"}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "preset", scenarioId: "echo-station", characterIndex: 0 }) });
     assert.equal(made.status, 200);
     const { session } = await made.json(); owned.push(session.id);
-    await db.update(aiSettings).set({ typesafeKey: "mock-secret-typesafe", typesafePilotEnabled: mode !== "disabled" }).where(eq(aiSettings.id, smokeOwnerId));
+    await db.update(aiSettings).set({ typesafeKey: sealSecret("mock-secret-typesafe", secretContext(smokeOwnerId, "typesafe-pilot"), smokeKeyring), typesafePilotEnabled: mode !== "disabled" }).where(eq(aiSettings.id, smokeOwnerId));
     assert.ok(!JSON.stringify(await (await smokeFetch(`${process.env.SMOKE_BASE_URL ?? "http://localhost:3010"}/api/developer/typesafe`)).json()).includes("mock-secret-typesafe"));
     const phrase = "Навигатор обещает встретить героя у шлюза на рассвете.";
     await db.transaction(tx => enqueueSemanticJob(tx, { sessionId: session.id, turnNumber: 1, payload: { narration: phrase, playerAction: "Попросить о встрече", knownDigest: "", profileCanon: "Narrative" } }));
