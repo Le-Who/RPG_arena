@@ -4,8 +4,9 @@ import { db } from "@/db";
 import { aiSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { MODEL_CATALOG, ROUTING_PROFILES, RoutingProfile } from "@/lib/gemini";
-import { getSettingsRow } from "@/lib/ai-settings";
+import { getRawSettingsRow, prepareGeminiKeysWrite } from "@/lib/ai-settings";
 import { EMBEDDING_MODEL_ALIASES } from "@/lib/embeddings";
+import { decodeGeminiSecrets, secretStorageAvailable } from "@/lib/secret-vault";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +17,10 @@ function mask(keys: string[]) {
   return keys.map((k) => (k.length <= 8 ? "••••" : `${k.slice(0, 4)}••••${k.slice(-4)}`));
 }
 
-function view(s: Awaited<ReturnType<typeof getSettingsRow>>) {
+function view(s: ReturnType<typeof decodeGeminiSecrets<Awaited<ReturnType<typeof getRawSettingsRow>>>>) {
   const keys = ((s.keys as string[]) ?? []).filter(Boolean);
   return {
+    secretStorageAvailable: secretStorageAvailable(),
     keysMasked: mask(keys),
     keysCount: keys.length,
     envKeysCount: 0,
@@ -42,7 +44,7 @@ function view(s: Awaited<ReturnType<typeof getSettingsRow>>) {
 
 export async function GET() {
   try {
-    return NextResponse.json(view(await getSettingsRow()));
+    return NextResponse.json(view(decodeGeminiSecrets(await getRawSettingsRow())));
   } catch (err) {
     return httpError(err);
   }
@@ -53,7 +55,7 @@ export async function POST(req: Request) {
     const body = await readJsonObject(req, 16384);
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Некорректные настройки" }, { status: 400 });
     if (body.embeddingModel && body.embeddingModel !== "gemini-embedding-2") return NextResponse.json({ error: "Поддерживается только gemini-embedding-2" }, { status: 400 });
-    const s = await getSettingsRow();
+    const s = decodeGeminiSecrets(await getRawSettingsRow());
     const currentKeys = ((s.keys as string[]) ?? []).filter(Boolean);
 
     let keys = currentKeys;
@@ -88,7 +90,7 @@ export async function POST(req: Request) {
     await db
       .update(aiSettings)
       .set({
-        keys,
+        keys: prepareGeminiKeysWrite(s.id, keys),
         routingProfile: profile,
         narrationModel,
         customActionModel,
@@ -106,7 +108,7 @@ export async function POST(req: Request) {
       })
       .where(eq(aiSettings.id, s.id));
 
-    const fresh = await getSettingsRow();
+    const fresh = decodeGeminiSecrets(await getRawSettingsRow());
     return NextResponse.json({ ok: true, ...view(fresh) });
   } catch (err) {
     return httpError(err);

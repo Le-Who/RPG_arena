@@ -6,6 +6,7 @@ import { filterByDailyLimits, routeModelsFor, type RoutingConfig, type TaskType 
 import { currentProfileId } from "./identity";
 import { sessionOwnerId } from "./campaign-access";
 import { DEFAULT_EMBEDDING_DIMS } from "./embeddings";
+import { decodeSettingsSecrets, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
 
 export type AIConfig = {
   ownerId?: string;
@@ -34,12 +35,21 @@ const DEFAULT_ROW = {
 };
 
 export async function getSettingsRow(ownerId?: string) {
+  return decodeSettingsSecrets(await getRawSettingsRow(ownerId));
+}
+
+export async function getRawSettingsRow(ownerId?: string) {
   const id = ownerId ?? await currentProfileId();
   const rows = await db.select().from(aiSettings).where(eq(aiSettings.id, id));
   if (rows[0]) return rows[0];
   await db.insert(aiSettings).values({ ...DEFAULT_ROW, id }).onConflictDoNothing();
   const fresh = await db.select().from(aiSettings).where(eq(aiSettings.id, id));
+  if (!fresh[0]) throw new Error("Settings row was not created");
   return fresh[0];
+}
+
+export function prepareGeminiKeysWrite(ownerId: string, keys: string[], keyring?: SecretKeyring): string[] {
+  return keys.map(key => sealSecret(key, secretContext(ownerId, "gemini"), keyring));
 }
 
 export async function getAIConfig(ownerId?: string): Promise<AIConfig> {

@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { aiSettings } from "@/db/schema";
-import { getSettingsRow } from "./ai-settings";
+import { getRawSettingsRow } from "./ai-settings";
 import type { TypeSafePilotConfig } from "./typesafe-pilot";
+import { decodeTypeSafeSecret, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
 
 export type TypeSafeSettingsView = {
   configured: boolean;
@@ -27,14 +28,26 @@ export function maskTypeSafeKey(key: string): string {
   return trimmed.length > 8 ? `••••${trimmed.slice(-4)}` : "••••";
 }
 
+export function prepareTypeSafeSettingsWrite(
+  ownerId: string,
+  input: { key?: string; clearKey?: boolean; pilotEnabled?: boolean },
+  keyring?: SecretKeyring,
+): { typesafeKey?: string; typesafePilotEnabled?: boolean } {
+  const patch: { typesafeKey?: string; typesafePilotEnabled?: boolean } = {};
+  if (input.clearKey) patch.typesafeKey = "";
+  if (input.key !== undefined) patch.typesafeKey = sealSecret(input.key.trim(), secretContext(ownerId, "typesafe-pilot"), keyring);
+  if (input.pilotEnabled !== undefined) patch.typesafePilotEnabled = input.pilotEnabled;
+  return patch;
+}
+
 export async function getTypeSafePilotConfig(ownerId?: string): Promise<TypeSafePilotConfig> {
-  const row = await getSettingsRow(ownerId);
+  const row = decodeTypeSafeSecret(await getRawSettingsRow(ownerId));
   const resolved = resolveTypeSafeKey(row.typesafeKey, undefined);
   return { enabled: row.typesafePilotEnabled ?? false, ...resolved };
 }
 
 export async function getTypeSafeSettingsView(): Promise<TypeSafeSettingsView> {
-  const row = await getSettingsRow();
+  const row = decodeTypeSafeSecret(await getRawSettingsRow());
   const resolved = resolveTypeSafeKey(row.typesafeKey, undefined);
   return {
     configured: Boolean(resolved.apiKey),
@@ -48,14 +61,7 @@ export async function getTypeSafeSettingsView(): Promise<TypeSafeSettingsView> {
 }
 
 export async function updateTypeSafeSettings(input: { key?: string; clearKey?: boolean; pilotEnabled?: boolean }): Promise<TypeSafeSettingsView> {
-  const row = await getSettingsRow();
-  let key = row.typesafeKey ?? "";
-  if (input.clearKey) key = "";
-  if (input.key !== undefined) key = input.key.trim();
-  await db.update(aiSettings).set({
-    typesafeKey: key,
-    typesafePilotEnabled: input.pilotEnabled ?? row.typesafePilotEnabled ?? false,
-    updatedAt: new Date(),
-  }).where(eq(aiSettings.id, row.id));
+  const row = await getRawSettingsRow();
+  await db.update(aiSettings).set({ ...prepareTypeSafeSettingsWrite(row.id, input), updatedAt: new Date() }).where(eq(aiSettings.id, row.id));
   return getTypeSafeSettingsView();
 }

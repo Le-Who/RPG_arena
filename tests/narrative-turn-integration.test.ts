@@ -1,16 +1,19 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import type { AIConfig } from "../src/lib/ai-settings";
 import type { TurnEvent } from "../src/lib/turn-stream";
+import { sealSecret, secretContext } from "../src/lib/secret-vault";
 
 // Import the real orchestrator only after installing a nonsecret, unreachable URL.
 // Every pool operation and provider request is intercepted below.
 process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:1/narrative_test";
+process.env.CHRONICLE_SECRET_ACTIVE_KEY = "fixture";
+process.env.CHRONICLE_SECRET_KEYS = JSON.stringify({ fixture: randomBytes(32).toString("base64") });
 
 // Explicit opt-in exports only this test's synthetic state, never credentials or real campaign data.
 async function captureSyntheticCheck(id: string, expected: string, input: { state: Record<string, unknown>; selection: unknown }) {
@@ -129,7 +132,14 @@ test("performTurn narrative guard persists only canonical, verified narration", 
     });
     for (const mode of ["owner-missing-key", "owner-off", "malformed", "duplicate", "pants", "description", "late-escalation"] as const) await t.test(mode, async () => {
       const ownerId = `owner-${mode}`, otherOwnerId = `other-${mode}`, sessionId = randomUUID();
-      await pg.query("INSERT INTO ai_settings(id,narrative_guard_enabled,narrative_guard_provider,narrative_guard_key) VALUES ($1,$2,'typesafe',$3),($4,$5,'openrouter','other-owner-secret')", [ownerId, mode !== "owner-off", mode === "owner-missing-key" ? "" : "fake-owner-key", otherOwnerId, mode === "owner-off"]);
+      await pg.query("INSERT INTO ai_settings(id,narrative_guard_enabled,narrative_guard_provider,narrative_guard_key) VALUES ($1,$2,'typesafe',$3),($4,$5,'openrouter',$6)", [
+        ownerId,
+        mode !== "owner-off",
+        mode === "owner-missing-key" ? "" : sealSecret("fake-owner-key", secretContext(ownerId, "narrative:typesafe")),
+        otherOwnerId,
+        mode === "owner-off",
+        sealSecret("other-owner-secret", secretContext(otherOwnerId, "narrative:openrouter")),
+      ]);
       await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Boundary integration','free',$2,$3,$4,1,$5)", [sessionId, mode === "pants" ? "d20" : "narrative", JSON.stringify(character), JSON.stringify(world), ownerId]);
       const prefix = "Туман стелется над причалом.";
       const draft = { continuity: { mode: ["description", "late-escalation"].includes(mode) ? "description" : "event", referencesPast: false }, outcome: "neutral", effects: { hp: 0, xp: 0, gold: 0, danger: 0 }, stateChanges: emptyChanges(), choices: ["Осмотреть туман"], narration: mode === "pants" ? "Вы получили штаны стражника." : mode === "late-escalation" ? `${prefix} Вы получаете кольцо.` : prefix };
