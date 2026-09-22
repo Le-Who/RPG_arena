@@ -13,7 +13,7 @@ type QueryResult = { rows: Record<string, unknown>[]; rowCount?: number | null }
 type Query = (text: string, params?: unknown[]) => Promise<QueryResult>;
 type RawSettings = {
   id: string;
-  keys: string[];
+  keys: unknown;
   typesafe_key: string;
   narrative_guard_provider: string;
   narrative_guard_key: string;
@@ -41,7 +41,10 @@ export async function rotateSecrets(options: {
     if (rows.length === 0) break;
     for (const row of rows) {
       report.profiles++;
-      const rawKeys = Array.isArray(row.keys) ? row.keys : [];
+      if (row.keys !== null && (!Array.isArray(row.keys) || !row.keys.every(value => typeof value === "string"))) {
+        throw new Error("Secret rotation stopped because of malformed stored Gemini credentials");
+      }
+      const rawKeys = row.keys ?? [];
       const entries = [
         ...rawKeys.map((value, index) => ({ value, purpose: "gemini", target: `key:${index}` })),
         { value: row.typesafe_key, purpose: "typesafe-pilot", target: "typesafe" },
@@ -71,13 +74,15 @@ export async function rotateSecrets(options: {
       }
 
       if (mode === "apply" && changed) {
+        const nextKeysValue = row.keys === null ? null : JSON.stringify(nextKeys);
+        const originalKeysValue = row.keys === null ? null : JSON.stringify(rawKeys);
         const updated = await query(
           `UPDATE ai_settings SET keys=$1::jsonb, typesafe_key=$2, narrative_guard_key=$3, updated_at=now()
            WHERE id=$4 AND keys IS NOT DISTINCT FROM $5::jsonb
              AND typesafe_key IS NOT DISTINCT FROM $6
              AND narrative_guard_provider IS NOT DISTINCT FROM $7
              AND narrative_guard_key IS NOT DISTINCT FROM $8`,
-          [JSON.stringify(nextKeys), nextTypeSafe, nextNarrative, row.id, JSON.stringify(rawKeys), row.typesafe_key, row.narrative_guard_provider, row.narrative_guard_key],
+          [nextKeysValue, nextTypeSafe, nextNarrative, row.id, originalKeysValue, row.typesafe_key, row.narrative_guard_provider, row.narrative_guard_key],
         );
         if (updated.rowCount !== 1) throw new Error("Secret rotation stopped because settings changed concurrently");
         report.updatedProfiles++;

@@ -154,3 +154,32 @@ test("rotation refuses unreadable data without overwriting its row", async () =>
     await pg.close();
   }
 });
+
+test("rotation rejects malformed Gemini storage before resealing another credential", async () => {
+  const pg = await fixture();
+  try {
+    await pg.query("INSERT INTO ai_settings(id, keys, typesafe_key) VALUES ($1,$2::jsonb,$3)", [
+      "owner-a", JSON.stringify({ unexpected: true }), "legacy-jev",
+    ]);
+    await assert.rejects(() => runRotation(pg, "apply", true), /malformed stored Gemini credentials/i);
+    const row = (await pg.query("SELECT keys, typesafe_key FROM ai_settings WHERE id='owner-a'")).rows[0] as { keys: unknown; typesafe_key: string };
+    assert.deepEqual(row.keys, { unexpected: true });
+    assert.equal(row.typesafe_key, "legacy-jev");
+  } finally {
+    await pg.close();
+  }
+});
+
+test("rotation preserves a legacy SQL NULL keys value while rotating another credential", async () => {
+  const pg = await fixture();
+  try {
+    await pg.query("INSERT INTO ai_settings(id, keys, typesafe_key) VALUES ($1,$2,$3)", ["owner-a", null, "legacy-jev"]);
+    const report = await runRotation(pg, "apply", true);
+    assert.equal(report.updatedProfiles, 1);
+    const row = (await pg.query("SELECT keys, typesafe_key FROM ai_settings WHERE id='owner-a'")).rows[0] as { keys: null; typesafe_key: string };
+    assert.equal(row.keys, null);
+    assert.equal(openSecret(row.typesafe_key, secretContext("owner-a", "typesafe-pilot"), { keyring: ring }), "legacy-jev");
+  } finally {
+    await pg.close();
+  }
+});
