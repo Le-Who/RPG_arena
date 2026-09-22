@@ -38,6 +38,9 @@
   ],
   "exclude": [
     "node_modules",
+    "revisions",
+    ".agents",
+    ".superpowers",
     "accessibility-revision",
     "backend-revision"
   ]
