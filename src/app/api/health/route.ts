@@ -1,13 +1,11 @@
-import { db } from "@/db";
-import { sql } from "drizzle-orm";
+import { checkReadiness, readinessResponse } from "@/lib/readiness";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try {
-    await db.execute(sql`select 1`);
-    return Response.json({ ok: true });
-  } catch {
-    return Response.json({ ok: false }, { status: 500 });
-  }
+  const state = await checkReadiness(async (text, values) => {
+    const { pool } = await import("@/db");
+    return pool.query(text, values);
+  });
+  return readinessResponse(state);
 }
