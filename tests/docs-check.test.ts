@@ -5,10 +5,17 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { checkDocumentation } from "../scripts/lib/check-docs";
 
-async function fixture(files: Record<string, string>, run: (root: string) => Promise<void>) {
+async function fixture(
+  files: Record<string, string>,
+  run: (root: string) => Promise<void>,
+  options: { journal?: boolean } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "chronicle-docs-"));
   try {
-    for (const [name, text] of Object.entries(files)) {
+    const completeFiles = options.journal === false || "drizzle/meta/_journal.json" in files
+      ? files
+      : { ...files, "drizzle/meta/_journal.json": JSON.stringify({ entries: [] }) };
+    for (const [name, text] of Object.entries(completeFiles)) {
       const file = join(root, name);
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, text);
@@ -76,5 +83,91 @@ test("valid ledger, angle-bracket links and images are checked with no dependenc
     const result = await checkDocumentation(root);
     assert.deepEqual(result.errors, []);
     assert.equal(result.linksChecked, 2);
+  });
+});
+
+test("fenced examples accept longer closers and leave later prose links visible", async () => {
+  await fixture({
+    "package.json": "{}",
+    "README.md": [
+      "```md",
+      "[ignored](missing-backtick-example.md)",
+      "````",
+      "[real](missing-after-backtick.md)",
+      "   ~~~md",
+      "[ignored](missing-tilde-example.md)",
+      "   ~~~~~",
+      "[also real](missing-after-tilde.md)",
+    ].join("\n"),
+  }, async root => {
+    const result = await checkDocumentation(root);
+    assert.deepEqual(result.errors, [
+      "README.md: missing link target: missing-after-backtick.md",
+      "README.md: missing link target: missing-after-tilde.md",
+    ]);
+  });
+});
+
+test("too-short and absent fence closers keep subsequent link examples inside the block", async () => {
+  await fixture({
+    "package.json": "{}",
+    "README.md": [
+      "````md",
+      "[ignored](first-example.md)",
+      "```",
+      "[still ignored](second-example.md)",
+      "`````",
+      "[real](missing-after-valid-closer.md)",
+      "~~~md",
+      "[ignored forever](unclosed-example.md)",
+    ].join("\n"),
+  }, async root => {
+    const result = await checkDocumentation(root);
+    assert.deepEqual(result.errors, [
+      "README.md: missing link target: missing-after-valid-closer.md",
+    ]);
+  });
+});
+
+test("nested operational documents validate npm commands but historical plans do not", async () => {
+  await fixture({
+    "package.json": "{}",
+    "README.md": "Ready.",
+    "docs/runbooks/worker-operations.md": "Run `npm run worker`.",
+    "docs/superpowers/plans/retired-operations.md": "Once ran `npm run retired`.",
+  }, async root => {
+    const result = await checkDocumentation(root);
+    assert.deepEqual(result.errors, [
+      "docs/runbooks/worker-operations.md: missing npm script: worker",
+    ]);
+  });
+});
+
+test("missing migration journal is rejected", async () => {
+  await fixture({
+    "package.json": "{}",
+    "README.md": "Ready.",
+  }, async root => {
+    const result = await checkDocumentation(root);
+    assert.deepEqual(result.errors, [
+      "drizzle/meta/_journal.json: migration journal missing",
+    ]);
+  }, { journal: false });
+});
+
+test("inline code and escaped link-like examples are not checked as links", async () => {
+  await fixture({
+    "package.json": "{}",
+    "README.md": [
+      "`[inline example](missing-inline.md)`",
+      "``use `[example](missing-double-tick.md)` here``",
+      String.raw`\[escaped example](missing-escaped.md)`,
+      String.raw`\\[real link](missing-real.md)`,
+    ].join("\n"),
+  }, async root => {
+    const result = await checkDocumentation(root);
+    assert.deepEqual(result.errors, [
+      "README.md: missing link target: missing-real.md",
+    ]);
   });
 });
