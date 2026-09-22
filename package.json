@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --env-file-if-exists=.env --import tsx --test tests/*.test.ts",
+    "test": "node --import tsx --import ./tests/helpers/test-environment.ts --test --test-concurrency=1 tests/*.test.ts",
     "migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
     "worker": "node --env-file=.env --import tsx scripts/memory-worker.ts",
     "audit:ui": "node --env-file-if-exists=.env --import tsx scripts/ui-audit.ts",
