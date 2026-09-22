@@ -5,9 +5,10 @@ import { sessionOwnerId } from "./campaign-access";
 import { getAIConfig } from "./ai-settings";
 import { processSemanticJob } from "./memory-jobs";
 import { indexPendingEmbeddings } from "./embeddings";
+import { workerHeartbeatKey } from "./worker-health";
 export type MemoryCycleReport = { extracted: number; indexed: number; failed: number; elapsedMs: number; processed: number; paused: boolean };
 export async function workerHeartbeat(source: "worker" | "manual" | "after", status: string, report?: MemoryCycleReport, ownerId?: string) {
-  const id = source === "worker" ? "memory:worker" : `memory:${source}:${ownerId ?? "none"}`;
+  const id = workerHeartbeatKey(source, ownerId);
   await db.insert(workerHeartbeats).values({ id, status, lastSeenAt: new Date(), report: report ?? null }).onConflictDoUpdate({ target: workerHeartbeats.id, set: { status, lastSeenAt: new Date(), ...(report ? { report } : {}) } });
 }
 /** A bounded tick shared by the CLI, request fast path and manual UI action. */
