@@ -35,7 +35,7 @@ for (const fixture of fixtures) {
   try {
     const response = await fetch(`${baseUrl}/api/story-drafts/autofill`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Origin: process.env.CHRONICLE_PUBLIC_ORIGIN || new URL(baseUrl).origin },
       body: JSON.stringify({ draft: fixture.draft }),
     });
     const payload = await response.json() as { patch?: StoryDraftPatch; modelUsed?: string; message?: string; error?: string };

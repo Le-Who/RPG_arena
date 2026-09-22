@@ -11,7 +11,7 @@ async function run() {
   try {
     const config = await (await fetch(base + "/api/settings")).json();
     expect(config.keysCount + config.envKeysCount).toBe(0);
-    const { session } = await (await fetch(base + "/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "preset", scenarioId: "echo-station", characterIndex: 0 }) })).json() as { session: Session };
+    const { session } = await (await fetch(base + "/api/sessions", { method: "POST", headers: { "Content-Type": "application/json", Origin: process.env.CHRONICLE_PUBLIC_ORIGIN || new URL(base).origin }, body: JSON.stringify({ mode: "preset", scenarioId: "echo-station", characterIndex: 0 }) })).json() as { session: Session };
     owned.push(session.id);
     await page.goto(`${base}/play/${session.id}`, { waitUntil: "networkidle" });
     await expect(page.locator(".play-banner h1")).toHaveText("Станция «Эхо»");
@@ -97,7 +97,7 @@ async function run() {
     expect(errors).toEqual([]);
     console.log("PASS: real system diagnostics, disabled AI actions without keys, desktop/mobile branches and system page without overflow or page errors");
   } finally {
-    for (const id of owned.reverse()) await fetch(`${base}/api/sessions/${id}`, { method: "DELETE" });
+    for (const id of owned.reverse()) await fetch(`${base}/api/sessions/${id}`, { method: "DELETE", headers: { Origin: process.env.CHRONICLE_PUBLIC_ORIGIN || new URL(base).origin } });
     await browser.close();
   }
 }

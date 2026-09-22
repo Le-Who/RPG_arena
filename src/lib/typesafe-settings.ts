@@ -4,6 +4,8 @@ import { aiSettings } from "@/db/schema";
 import { getRawSettingsRow } from "./ai-settings";
 import type { TypeSafePilotConfig } from "./typesafe-pilot";
 import { decodeTypeSafeSecret, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
+import { isAdminOwner } from "./admin-access";
+import { currentProfileId } from "./identity";
 
 export type TypeSafeSettingsView = {
   configured: boolean;
@@ -41,7 +43,9 @@ export function prepareTypeSafeSettingsWrite(
 }
 
 export async function getTypeSafePilotConfig(ownerId?: string): Promise<TypeSafePilotConfig> {
-  const row = decodeTypeSafeSecret(await getRawSettingsRow(ownerId));
+  const profileId = ownerId ?? await currentProfileId();
+  if (!await isAdminOwner(profileId)) return { enabled: false, apiKey: "", source: "none" };
+  const row = decodeTypeSafeSecret(await getRawSettingsRow(profileId));
   const resolved = resolveTypeSafeKey(row.typesafeKey, undefined);
   return { enabled: row.typesafePilotEnabled ?? false, ...resolved };
 }

@@ -57,7 +57,7 @@ async function run() {
     expect(errors).toEqual([]);
     console.log("PASS: desktop/mobile layouts, guide, world filters, persistent favorites, preset creation, offline turn, inventory, memory, custom wizard, AI-required error and settings");
   } finally {
-    for (const id of ids) await fetch(`${base}/api/sessions/${id}`, { method: "DELETE" });
+    for (const id of ids) await fetch(`${base}/api/sessions/${id}`, { method: "DELETE", headers: { Origin: process.env.CHRONICLE_PUBLIC_ORIGIN || new URL(base).origin } });
     await browser.close();
   }
 }

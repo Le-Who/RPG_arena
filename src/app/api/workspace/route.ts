@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { SCENARIOS } from "@/lib/scenarios";
 import { normalizeReading } from "@/lib/reading-preferences";
 import { currentProfileId } from "@/lib/identity";
+import { withIdentityWork } from "@/lib/owner-work";
 export const dynamic = "force-dynamic";
 async function get() {
   const id = await currentProfileId();
@@ -13,8 +14,8 @@ async function get() {
   // Rows written before v2.5 have no reading column value yet.
   return { ...row, reading: normalizeReading(row.reading) };
 }
-export async function GET() { return Response.json(await get()); }
-export async function PATCH(req: Request) {
+async function handleGET() { return Response.json(await get()); }
+async function handlePATCH(req: Request) {
   try {
   const body = await readJsonObject(req, 8192);
   if (!body || typeof body !== "object") return Response.json({ error: "Некорректный запрос" }, { status: 400 });
@@ -26,3 +27,5 @@ export async function PATCH(req: Request) {
   return Response.json({ ...updated, reading: normalizeReading(updated.reading) });
   } catch (error) { return httpError(error); }
 }
+export const GET = withIdentityWork(handleGET);
+export const PATCH = withIdentityWork(handlePATCH);

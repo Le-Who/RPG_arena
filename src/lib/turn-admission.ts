@@ -29,6 +29,7 @@ export async function acquireTurn(input: TurnInput & { requestId: string }): Pro
     await lockSession(tx, input.sessionId);
     const [session] = await tx.select().from(gameSessions).where(eq(gameSessions.id, input.sessionId));
     if (!session) throw new HttpError(404, "NOT_FOUND", "Кампания не найдена.");
+    if (input.expectedOwnerId && session.ownerId !== input.expectedOwnerId) throw new HttpError(404, "NOT_FOUND", "NOT_FOUND: владелец кампании изменился.");
     const [previous] = await tx.select().from(turnRequests).where(and(eq(turnRequests.sessionId, input.sessionId), eq(turnRequests.requestId, input.requestId)));
     if (previous && previous.inputHash !== inputHash) throw new HttpError(409, "IDEMPOTENCY_CONFLICT", "Этот requestId уже относится к другому действию. История не изменена.");
     if (previous?.status === "completed" && previous.result) return { kind: "replay", result: { ...previous.result, replay: true } };

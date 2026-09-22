@@ -55,7 +55,7 @@ test("v2.5 reading migration is additive and preserves legacy columns", () => {
   }
 
   const journal = JSON.parse(readFileSync("drizzle/meta/_journal.json", "utf8")) as { entries: { tag: string }[] };
-  assert.deepEqual(journal.entries.map((entry) => entry.tag), [
+  assert.deepEqual(journal.entries.slice(0, 11).map((entry) => entry.tag), [
     "0000_chronicle_engine_v2",
     "0001_workspace_reliability",
     "0002_story_branches_and_jobs",

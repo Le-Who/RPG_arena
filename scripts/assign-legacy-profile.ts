@@ -4,6 +4,7 @@ import { db, pool } from "../src/db";
 import { aiSettings, gameSessions, tokenLogs, workspacePreferences } from "../src/db/schema";
 import { requireUuid } from "../src/lib/http";
 import { hasStoredSettingsCredentials, rebindSettingsSecrets } from "../src/lib/secret-vault";
+import { assertLegacyProfileTarget } from "./lib/legacy-profile-target";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -15,11 +16,13 @@ async function main() {
   if (!ids.length && !includeSettings) throw new Error("Select --campaign=<UUID> (repeatable), and/or --include-settings.");
   const [workspace] = await db.select().from(workspacePreferences).where(eq(workspacePreferences.id, profile));
   if (!workspace) throw new Error("Target profile does not exist. Open the site in its intended browser first.");
+  await assertLegacyProfileTarget(db, profile);
   const selected = ids.length ? await db.select({ id: gameSessions.id, title: gameSessions.title }).from(gameSessions).where(and(inArray(gameSessions.id, ids), isNull(gameSessions.ownerId))) : [];
   if (selected.length !== new Set(ids).size) throw new Error("Every selected campaign must exist and have no owner. No changes made.");
   console.log(JSON.stringify({ profile, campaigns: selected, importLegacySettings: includeSettings, allowLegacyPlaintext: allowPlaintext, apply: args.includes("--apply") }, null, 2));
   if (!args.includes("--apply")) { console.log("Dry run. Add --apply after verifying the target browser and selected campaigns."); return; }
   await db.transaction(async tx => {
+    await assertLegacyProfileTarget(tx, profile, true);
     if (includeSettings) {
       await tx.insert(aiSettings).values({ id: profile }).onConflictDoNothing();
       const [target] = await tx.select().from(aiSettings).where(eq(aiSettings.id, profile)).for("update");

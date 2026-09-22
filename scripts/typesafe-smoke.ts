@@ -1,4 +1,4 @@
-import { smokeFetch, smokeOwnerId, cleanupSmokeIdentity } from "./smoke-identity";
+import { smokeFetch, smokeOwnerId, cleanupSmokeIdentity, prepareAdminSmokeIdentity } from "./smoke-identity";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
@@ -14,6 +14,7 @@ const owned: string[] = [];
 const smokeKeyring = requireSharedIsolatedSecretKeyring();
 
 async function run() {
+  await prepareAdminSmokeIdentity();
   const cfg = await getAIConfig(smokeOwnerId);
   const row = await getSettingsRow(smokeOwnerId);
   assert.ok(!cfg.keys.length && !row.typesafeKey && !process.env.TYPESAFE_API_KEY, "Use a disposable database without real provider credentials");

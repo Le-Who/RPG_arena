@@ -7,6 +7,7 @@ import { MODEL_CATALOG, ROUTING_PROFILES, RoutingProfile } from "@/lib/gemini";
 import { getRawSettingsRow, prepareGeminiKeysWrite } from "@/lib/ai-settings";
 import { EMBEDDING_MODEL_ALIASES } from "@/lib/embeddings";
 import { decodeGeminiSecrets, secretStorageAvailable } from "@/lib/secret-vault";
+import { withIdentityWork } from "@/lib/owner-work";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ function view(s: ReturnType<typeof decodeGeminiSecrets<Awaited<ReturnType<typeof
   };
 }
 
-export async function GET() {
+async function handleGET() {
   try {
     return NextResponse.json(view(decodeGeminiSecrets(await getRawSettingsRow())));
   } catch (err) {
@@ -50,7 +51,7 @@ export async function GET() {
   }
 }
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     const body = await readJsonObject(req, 16384);
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Некорректные настройки" }, { status: 400 });
@@ -120,3 +121,5 @@ function boolInAuto(v: unknown, cur: boolean, totalKeys: number) {
   const next = typeof v === "boolean" ? v : cur;
   return totalKeys > 0 ? next : false;
 }
+export const GET = withIdentityWork(handleGET);
+export const POST = withIdentityWork(handlePOST);

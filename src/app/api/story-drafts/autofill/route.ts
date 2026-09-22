@@ -2,6 +2,7 @@ import { getAIConfig, logToken, pickModels } from "@/lib/ai-settings";
 import { callGeminiWithRotation } from "@/lib/gemini";
 import { createStoryDraftAutofillService } from "@/lib/story-draft";
 import { handleStoryDraftAutofillRequest } from "@/lib/story-draft-route";
+import { withIdentityWork } from "@/lib/owner-work";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -13,6 +14,7 @@ const autofill = createStoryDraftAutofillService({
   log: logToken,
 });
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   return handleStoryDraftAutofillRequest(request, autofill);
 }
+export const POST = withIdentityWork(handlePOST);

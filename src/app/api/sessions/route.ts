@@ -13,10 +13,11 @@ import { upsertMemoryNode } from "@/lib/memory";
 import { slugify, iconForKind } from "@/lib/resolution";
 import { getAIConfig } from "@/lib/ai-settings";
 import { enqueueEmbeddings, indexPendingEmbeddings } from "@/lib/embeddings";
+import { withIdentityWork, withCampaignOwnerWork } from "@/lib/owner-work";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
+async function handleGET(req: Request) {
   const ownerId = await currentProfileId();
   const shared = new URL(req.url).searchParams.get("scope") === "public";
   const { scenarioPrompt: _omit, ...listColumns } = getTableColumns(gameSessions);
@@ -46,7 +47,7 @@ function normalizeStats(over?: Record<string, number>): Record<string, number> {
 const clean = (v: unknown, max: number, dflt = "") => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : dflt);
 const cleanList = (v: unknown, max: number, itemMax = 40) => (Array.isArray(v) ? v.map((x) => clean(x, itemMax)).filter(Boolean).slice(0, max) : []);
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
   const raw = await readJsonObject(req, 32768);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
@@ -213,10 +214,12 @@ export async function POST(req: Request) {
   // Индексация стартовых нод — в фоне
   after(async () => {
     try {
+      await withCampaignOwnerWork(session.id, ownerId, async () => {
       const cfg = await getAIConfig(ownerId);
       if (!cfg.keys.length || !cfg.embeddingsEnabled) return;
       await enqueueEmbeddings(session.id, seedIds, cfg.embeddingModel, cfg.embeddingDims);
       await indexPendingEmbeddings({ sessionId: session.id, keys: cfg.keys, model: cfg.embeddingModel, dims: cfg.embeddingDims });
+      });
     } catch (e) {
       console.warn("[seed-embed]", e instanceof Error ? e.message : e);
     }
@@ -225,3 +228,5 @@ export async function POST(req: Request) {
   return NextResponse.json({ session, slug: slugify(title) });
   } catch (error) { return httpError(error); }
 }
+export const GET = withIdentityWork(handleGET);
+export const POST = withIdentityWork(handlePOST);

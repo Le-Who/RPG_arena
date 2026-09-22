@@ -6,6 +6,7 @@ import { getAIConfig } from "./ai-settings";
 import { processSemanticJob } from "./memory-jobs";
 import { indexPendingEmbeddings } from "./embeddings";
 import { workerHeartbeatKey } from "./worker-health";
+import { withCampaignOwnerWork } from "./owner-work";
 export type MemoryCycleReport = { extracted: number; indexed: number; failed: number; elapsedMs: number; processed: number; paused: boolean };
 export async function workerHeartbeat(source: "worker" | "manual" | "after", status: string, report?: MemoryCycleReport, ownerId?: string) {
   const id = workerHeartbeatKey(source, ownerId);
@@ -48,15 +49,17 @@ export async function runMemoryCycle(opts: { sessionId?: string; ownerId?: strin
     const actualOwner = await sessionOwnerId(sessionId);
     if (ownerId && actualOwner !== ownerId) throw new Error("Memory campaign owner mismatch");
     ownerId = actualOwner;
+    const campaignId = sessionId;
+    return await withCampaignOwnerWork(campaignId, ownerId, async () => {
     const cfg = await getAIConfig(ownerId);
     report.paused = !cfg.keys.length || (!cfg.embeddingsEnabled && (!cfg.canUseLive || !cfg.semanticExtractionEnabled));
     await workerHeartbeat(source, report.paused ? "paused" : "running", undefined, ownerId);
     if (!report.paused) {
-      const semantic = await processSemanticJob({ sessionId, cfg });
+      const semantic = await processSemanticJob({ sessionId: campaignId, cfg });
       report.extracted = semantic.extracted; report.failed = semantic.failed; report.processed = semantic.processed;
       if (cfg.embeddingsEnabled) {
         const [next] = await db.select({ sessionId: memoryEmbeddings.sessionId }).from(memoryEmbeddings).where(and(
-          eq(memoryEmbeddings.sessionId, sessionId),
+          eq(memoryEmbeddings.sessionId, campaignId),
           eq(memoryEmbeddings.model, cfg.embeddingModel), eq(memoryEmbeddings.dims, cfg.embeddingDims),
           or(and(eq(memoryEmbeddings.status, "pending"), lte(memoryEmbeddings.nextAttemptAt, new Date())), and(eq(memoryEmbeddings.status, "processing"), lte(memoryEmbeddings.leaseExpiresAt, new Date()))),
         )).orderBy(asc(memoryEmbeddings.nextAttemptAt), asc(memoryEmbeddings.updatedAt)).limit(1);
@@ -66,6 +69,7 @@ export async function runMemoryCycle(opts: { sessionId?: string; ownerId?: strin
     report.elapsedMs = Date.now() - started;
     await workerHeartbeat(source, report.paused ? "paused" : "idle", report, ownerId);
     return report;
+    });
   } catch (error) {
     await workerHeartbeat(source, "error", undefined, ownerId).catch(() => {});
     throw error;

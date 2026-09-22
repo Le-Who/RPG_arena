@@ -4,6 +4,7 @@ import { tokenLogs } from "@/db/schema";
 import { and, eq, desc, gte } from "drizzle-orm";
 import { currentProfileId } from "@/lib/identity";
 import { getAIConfig } from "@/lib/ai-settings";
+import { withIdentityWork } from "@/lib/owner-work";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ function dayStart() {
   return d;
 }
 
-export async function GET() {
+async function handleGET() {
   try {
     const since = dayStart();
     const owner = eq(tokenLogs.ownerId, await currentProfileId());
@@ -66,3 +67,4 @@ export async function GET() {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }
+export const GET = withIdentityWork(handleGET);

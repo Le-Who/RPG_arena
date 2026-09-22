@@ -1,7 +1,8 @@
 import { getAIConfig } from "@/lib/ai-settings";
 import { embedTexts, formatQuery } from "@/lib/embeddings";
+import { withIdentityWork } from "@/lib/owner-work";
 export const dynamic = "force-dynamic";
-export async function POST() {
+async function handlePOST() {
   try {
     const cfg = await getAIConfig();
     if (!cfg.keys.length) return Response.json({ error: "Сначала сохраните API-ключ." }, { status: 409 });
@@ -9,3 +10,4 @@ export async function POST() {
     return Response.json({ ok: true, model: result.model, dims: result.vectors[0].length, latencyMs: result.latencyMs });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Не удалось подключиться" }, { status: 502 }); }
 }
+export const POST = withIdentityWork(handlePOST);

@@ -17,6 +17,35 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
+export const accounts = pgTable("accounts", {
+  id: uuid("id").primaryKey(),
+  login: text("login").notNull().unique(),
+  profileId: text("profile_id").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const accountSessions = pgTable("account_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  accountId: uuid("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("account_sessions_account_idx").on(table.accountId)]);
+export const consumedGuestProfiles = pgTable("consumed_guest_profiles", {
+  profileId: text("profile_id").primaryKey(),
+  accountId: uuid("account_id").references(() => accounts.id, { onDelete: "set null" }),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const authRateLimits = pgTable("auth_rate_limits", {
+  bucket: text("bucket").primaryKey(),
+  attempts: integer("attempts").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+export const ownerActivity = pgTable("owner_activity", {
+  id: uuid("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("owner_activity_owner_idx").on(table.ownerId)]);
+
 // ─────────────────────────────────────────────────────────────
 //  Общие типы домена
 // ─────────────────────────────────────────────────────────────

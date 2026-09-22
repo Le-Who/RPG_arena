@@ -1,9 +1,10 @@
-import { GUEST_COOKIE, profileIdFromToken } from "./guest-identity";
-import { HttpError } from "./http";
+import { GUEST_COOKIE } from "./guest-identity";
+import { SESSION_COOKIE } from "./auth-policy";
+import { auth } from "./auth";
 
-export async function currentProfileId(): Promise<string> {
+export async function currentIdentity() {
   const { cookies } = await import("next/headers");
-  const id = profileIdFromToken((await cookies()).get(GUEST_COOKIE)?.value);
-  if (!id) throw new HttpError(401, "IDENTITY_REQUIRED", "Обновите страницу, чтобы открыть гостевой профиль.");
-  return id;
+  const jar = await cookies();
+  return auth.resolve(jar.get(GUEST_COOKIE)?.value, jar.get(SESSION_COOKIE)?.value);
 }
+export async function currentProfileId(): Promise<string> { return (await currentIdentity()).profileId; }
