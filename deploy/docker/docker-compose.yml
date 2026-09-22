@@ -1,0 +1,72 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: chronicle
+      POSTGRES_PASSWORD: ${CHRONICLE_DB_PASSWORD:?Set a URL-safe generated database password}
+      POSTGRES_DB: chronicle
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - chronicle-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chronicle -d chronicle"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    command: ["node", "--import", "tsx", "scripts/migrate.ts"]
+    environment:
+      DATABASE_URL: postgresql://chronicle:${CHRONICLE_DB_PASSWORD:?Set CHRONICLE_DB_PASSWORD}@db:5432/chronicle
+      CHRONICLE_AUTO_MIGRATE: "0"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://chronicle:${CHRONICLE_DB_PASSWORD:?Set CHRONICLE_DB_PASSWORD}@db:5432/chronicle
+      CHRONICLE_SECRET_KEYS: ${CHRONICLE_SECRET_KEYS:-}
+      CHRONICLE_SECRET_ACTIVE_KEY: ${CHRONICLE_SECRET_ACTIVE_KEY:-}
+      CHRONICLE_ALLOW_LEGACY_PLAINTEXT: ${CHRONICLE_ALLOW_LEGACY_PLAINTEXT:-false}
+      CHRONICLE_ADMIN_ACCOUNT_IDS: ${CHRONICLE_ADMIN_ACCOUNT_IDS:-}
+      CHRONICLE_AUTO_MIGRATE: "0"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health',{signal:AbortSignal.timeout(3000)}).then(async r=>process.exit(r.ok&&(await r.json()).ok===true?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    command: ["node", "--import", "tsx", "scripts/memory-worker.ts"]
+    environment:
+      DATABASE_URL: postgresql://chronicle:${CHRONICLE_DB_PASSWORD:?Set CHRONICLE_DB_PASSWORD}@db:5432/chronicle
+      CHRONICLE_SECRET_KEYS: ${CHRONICLE_SECRET_KEYS:-}
+      CHRONICLE_SECRET_ACTIVE_KEY: ${CHRONICLE_SECRET_ACTIVE_KEY:-}
+      CHRONICLE_ALLOW_LEGACY_PLAINTEXT: ${CHRONICLE_ALLOW_LEGACY_PLAINTEXT:-false}
+      CHRONICLE_ADMIN_ACCOUNT_IDS: ${CHRONICLE_ADMIN_ACCOUNT_IDS:-}
+      CHRONICLE_AUTO_MIGRATE: "0"
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  chronicle-db:

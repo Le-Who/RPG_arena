@@ -1,0 +1,49 @@
+name: Chronicle verification
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: chronicle-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chronicle_ci
+          TZ: UTC
+          PGTZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chronicle_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/chronicle_ci
+      CHRONICLE_AUTO_MIGRATE: "0"
+      NEXT_TELEMETRY_DISABLED: "1"
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx next typegen
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run check:docs
+      - name: Fresh schema and replay
+        run: |
+          npm run migrate
+          npm run migrate
+      - run: npm run build
