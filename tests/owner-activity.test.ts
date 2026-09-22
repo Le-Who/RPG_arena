@@ -60,3 +60,24 @@ test("unsafe APIs reject same-site sibling origins before identity/storage acces
   const response = await proxy(new NextRequest("https://game.test/api/sessions/00000000-0000-4000-8000-000000000001/memory/reindex", { method: "POST", headers: { origin: "https://sibling.game.test", "sec-fetch-site": "same-site" } }));
   assert.equal(response.status, 403);
 });
+
+test("initial and repaired guest cookies are Secure in production even behind an HTTP-origin proxy", async () => {
+  const fixture = await accountsDb();
+  const environmentName: string = "NODE_ENV", previous = process.env[environmentName];
+  try {
+    const { NextRequest } = await import("next/server");
+    const { proxy } = await import("../src/proxy");
+    const oldGuest = "c".repeat(64);
+    await auth.register(oldGuest, "cookieflags", "correct horse battery staple");
+    process.env[environmentName] = "production";
+    for (const cookie of [undefined, `chronicle_guest=${oldGuest}`]) {
+      const response = await proxy(new NextRequest("http://game.test/", { headers: cookie ? { cookie } : {} }));
+      assert.match(response.headers.get("set-cookie") ?? "", /; Secure(?:;|$)/i);
+      assert.match(response.headers.get("set-cookie") ?? "", /; HttpOnly(?:;|$)/i);
+      assert.match(response.headers.get("set-cookie") ?? "", /SameSite=lax/i);
+    }
+  } finally {
+    if (previous === undefined) delete process.env[environmentName]; else process.env[environmentName] = previous;
+    await fixture.close();
+  }
+});

@@ -2,13 +2,12 @@ import { getTypeSafePilotConfig } from "@/lib/typesafe-settings";
 import { logToken } from "@/lib/ai-settings";
 import { TYPE_SAFE_MODEL, verifyTypeSafeFacts } from "@/lib/typesafe";
 import { httpError } from "@/lib/http";
-import { requireAdmin } from "@/lib/admin-access";
+import { withAdminAccess } from "@/lib/admin-access";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+async function handlePOST() {
   try {
-    await requireAdmin();
     const config = await getTypeSafePilotConfig();
     if (!config.apiKey) return Response.json({ ok: false, code: "NO_KEY", message: "Сначала сохраните ключ TypeSafe в своём профиле." }, { status: 409 });
     const report = await verifyTypeSafeFacts({
@@ -25,3 +24,4 @@ export async function POST() {
     return httpError(error);
   }
 }
+export const POST = withAdminAccess(handlePOST);

@@ -3,12 +3,11 @@ import { runMemoryCycle } from "@/lib/background";
 import { retryFailedMemoryJobs } from "@/lib/system-status";
 import { httpError, HttpError, readJsonObject } from "@/lib/http";
 import { currentProfileId } from "@/lib/identity";
-import { requireAdmin } from "@/lib/admin-access";
+import { withAdminAccess } from "@/lib/admin-access";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
-    await requireAdmin();
     const body = await readJsonObject(req, 2048);
     if (body.action === "retry") return Response.json({ ok: true, ...await retryFailedMemoryJobs() });
     if (body.action !== "process") throw new HttpError(400, "INVALID_INPUT", "Укажите process или retry.");
@@ -18,3 +17,4 @@ export async function POST(req: Request) {
     return Response.json({ ok: true, ...await runMemoryCycle({ source: "manual", ownerId: await currentProfileId() }) });
   } catch (error) { return httpError(error); }
 }
+export const POST = withAdminAccess(handlePOST);

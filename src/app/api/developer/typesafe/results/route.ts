@@ -3,13 +3,12 @@ import { db } from "@/db";
 import { gameSessions, memoryJobs } from "@/db/schema";
 import { httpError } from "@/lib/http";
 import { currentProfileId } from "@/lib/identity";
-import { requireAdmin } from "@/lib/admin-access";
+import { withAdminAccess } from "@/lib/admin-access";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function handleGET() {
   try {
-    await requireAdmin();
     const results = await db.select({
       id: memoryJobs.id,
       campaignTitle: gameSessions.title,
@@ -32,3 +31,4 @@ export async function GET() {
     return httpError(error);
   }
 }
+export const GET = withAdminAccess(handleGET);

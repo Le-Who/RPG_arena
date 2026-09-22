@@ -59,3 +59,41 @@ for (const endpoint of ["settings", "workspace"] as const) {
     } finally { await fixture.close(); }
   });
 }
+
+test("developer settings admitted as admin cannot retarget guest after logout during body read", async () => {
+  const fixture = await accountsDb();
+  try {
+    const account = await auth.register("b".repeat(64), "adminrequest", "correct horse battery staple");
+    const owner = account.identity.profileId, guest = profileIdFromToken(account.guestToken)!;
+    process.env.CHRONICLE_ADMIN_ACCOUNT_IDS = account.identity.account!.id;
+    await fixture.pg.query("INSERT INTO ai_settings(id,typesafe_pilot_enabled) VALUES ($1,false),($2,false)", [owner, guest]);
+    const { POST } = await import("../src/app/api/developer/typesafe/route");
+    const { POST: authAction } = await import("../src/app/api/auth/[action]/route");
+    const cookie = `chronicle_guest=${account.guestToken}; chronicle_session=${account.sessionToken}`;
+    let enterBody!: () => void, sendBody!: () => void;
+    const bodyStarted = new Promise<void>(resolve => { enterBody = resolve; });
+    const bodyReady = new Promise<void>(resolve => { sendBody = resolve; });
+    const body = new ReadableStream<Uint8Array>({ async pull(controller) {
+      enterBody(); await bodyReady;
+      controller.enqueue(new TextEncoder().encode('{"pilotEnabled":true}')); controller.close();
+    } }, { highWaterMark: 0 });
+    const pending = cookieContext(cookie, () => POST(new Request("https://game.test/api/developer/typesafe", {
+      method: "POST", headers: { "content-type": "application/json" }, body, duplex: "half",
+    } as RequestInit)));
+    await bodyStarted;
+    try {
+      const logout = await authAction(new Request("https://game.test/api/auth/logout", {
+        method: "POST", headers: { cookie, origin: "https://game.test", "content-type": "application/json" }, body: "{}",
+      }), { params: Promise.resolve({ action: "logout" }) });
+      assert.equal(logout.status, 200);
+    } finally { sendBody(); }
+    const response = await pending;
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).code, "IDENTITY_CHANGED");
+    const rows = await fixture.pg.query<{ typesafe_pilot_enabled: boolean }>("SELECT typesafe_pilot_enabled FROM ai_settings");
+    assert.deepEqual(rows.rows.map(row => row.typesafe_pilot_enabled), [false, false]);
+    assert.equal((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM owner_activity")).rows[0].n, 0);
+    const denied = await cookieContext(`chronicle_guest=${account.guestToken}`, () => POST(new Request("https://game.test/api/developer/typesafe", { method: "POST", headers: { "content-type": "application/json" }, body: '{"pilotEnabled":true}' })));
+    assert.equal(denied.status, 403);
+  } finally { delete process.env.CHRONICLE_ADMIN_ACCOUNT_IDS; await fixture.close(); }
+});

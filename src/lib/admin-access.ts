@@ -1,7 +1,8 @@
 import { pool } from "@/db";
 import { currentIdentity } from "./identity";
 import { isAdminAccount } from "./auth-policy";
-import { HttpError } from "./http";
+import { HttpError, httpError } from "./http";
+import { withCurrentIdentityWork } from "./owner-work";
 
 export async function requireAdmin() {
   const identity = await currentIdentity().catch(error => {
@@ -10,6 +11,20 @@ export async function requireAdmin() {
   });
   if (!identity?.isAdmin) throw new HttpError(403, "ADMIN_REQUIRED", "Доступно только администрации.");
   return identity;
+}
+
+/** Deny before activity or privileged effects, then revalidate administration in an
+ * admitted-principal scope covering every delayed body/config read in the handler. */
+export function withAdminAccess<A extends unknown[]>(handler: (...args: A) => Promise<Response>) {
+  return async (...args: A): Promise<Response> => {
+    try {
+      await requireAdmin();
+      return await withCurrentIdentityWork(async () => {
+        await requireAdmin();
+        return handler(...args);
+      });
+    } catch (error) { return httpError(error); }
+  };
 }
 /** Worker role comes from the database owner/account link, never request cookies. */
 export async function isAdminOwner(profileId: string): Promise<boolean> {

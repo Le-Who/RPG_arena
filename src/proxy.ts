@@ -23,7 +23,7 @@ export async function proxy(req: NextRequest) {
   const token = profileIdFromToken(existing) && await auth.guestProfile(existing) ? existing! : newGuestToken();
   req.cookies.set(GUEST_COOKIE, token);
   const response = NextResponse.next({ request: { headers: req.headers } });
-  if (token !== existing) response.cookies.set(GUEST_COOKIE, token, { httpOnly: true, sameSite: "lax", secure: req.nextUrl.protocol === "https:", path: "/", maxAge: GUEST_MAX_AGE });
+  if (token !== existing) response.cookies.set(GUEST_COOKIE, token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production" || req.nextUrl.protocol === "https:", path: "/", maxAge: GUEST_MAX_AGE });
   if (req.nextUrl.pathname.startsWith("/api/")) response.headers.set("Cache-Control", "private, no-store");
   return response;
 }

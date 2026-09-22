@@ -1,21 +1,19 @@
 import { HttpError, httpError, readJsonObject } from "@/lib/http";
 import { getTypeSafeSettingsView, updateTypeSafeSettings } from "@/lib/typesafe-settings";
-import { requireAdmin } from "@/lib/admin-access";
+import { withAdminAccess } from "@/lib/admin-access";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function handleGET() {
   try {
-    await requireAdmin();
     return Response.json(await getTypeSafeSettingsView());
   } catch (error) {
     return httpError(error);
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
-    await requireAdmin();
     const body = await readJsonObject(request, 4096);
     const update: { key?: string; clearKey?: boolean; pilotEnabled?: boolean } = {};
     if (body.key !== undefined) {
@@ -37,3 +35,5 @@ export async function POST(request: Request) {
     return httpError(error);
   }
 }
+export const GET = withAdminAccess(handleGET);
+export const POST = withAdminAccess(handlePOST);
