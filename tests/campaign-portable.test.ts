@@ -113,6 +113,19 @@ test("portable import rejects duplicate link IDs even when checksum is recalcula
   assert.throws(() => parsePortableDocument(document), { name: "HttpError", code: "INVALID_DOCUMENT" });
 });
 
+test("portable import rejects noncanonical and case-colliding UUID identities", async () => {
+  const { createPortableDocument, parsePortableDocument } = await import("../src/lib/campaign-portable");
+  const { snapshotChecksum } = await import("../src/lib/checkpoint-snapshot");
+  for (const collide of [false, true]) {
+    const document = createPortableDocument(snapshot(), now);
+    document.snapshot.inventory[0].id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    if (collide) document.snapshot.npcs[0].id = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA";
+    else document.snapshot.inventory[0].id = document.snapshot.inventory[0].id.toUpperCase();
+    document.checksum = snapshotChecksum(document.snapshot);
+    assert.throws(() => parsePortableDocument(document), { name: "HttpError", code: "INVALID_DOCUMENT" });
+  }
+});
+
 test("portable import rejects control fields hidden inside audit metadata", async () => {
   const { createPortableDocument, parsePortableDocument } = await import("../src/lib/campaign-portable");
   const { snapshotChecksum } = await import("../src/lib/checkpoint-snapshot");

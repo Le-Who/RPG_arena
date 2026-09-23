@@ -71,6 +71,18 @@ export function remapSnapshot(snapshot: CheckpointSnapshot, newSessionId = rando
     const origin = copy.turns.find(t => t.id === copied.source.originTurnId)!;
     origin.content = revision.source.quote;
   }
+  for (let index = 0; index < snapshot.turns.length; index++) {
+    const original = snapshot.turns[index], remapped = copy.turns[index];
+    const sourceVerification = original.contextMeta?.narrativeVerification;
+    const copiedVerification = remapped.contextMeta?.narrativeVerification;
+    if (!copiedVerification || !sourceVerification?.textSha256) continue;
+    const sourceHash = createHash("sha256").update(original.content).digest("hex");
+    if (sourceVerification.version === 1 && sourceVerification.textSha256 === sourceHash) {
+      copiedVerification.textSha256 = createHash("sha256").update(remapped.content).digest("hex");
+    } else {
+      delete copiedVerification.textSha256;
+    }
+  }
   const memoryIds = new Set(copy.memories.map((m) => m.id));
   copy.memories = copy.memories.map((memory) => ({ ...memory, parentId: memory.parentId && memoryIds.has(memory.parentId) ? memory.parentId : null }));
   const locationIds = new Set(copy.locations.map((l) => l.id));

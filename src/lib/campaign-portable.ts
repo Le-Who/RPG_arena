@@ -12,7 +12,7 @@ const nonempty = (max = 100_000): Rule => (v, p) => typeof v === "string" && !!v
 const integer = (min = 0, max = 1_000_000_000): Rule => (v, p) => typeof v === "number" && Number.isSafeInteger(v) && v >= min && v <= max ? v : invalid(p);
 const number = (min = -1_000_000_000, max = 1_000_000_000): Rule => (v, p) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : invalid(p);
 const bool: Rule = (v, p) => typeof v === "boolean" ? v : invalid(p);
-const uuid: Rule = (v, p) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v : invalid(p);
+const uuid: Rule = (v, p) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v) ? v : invalid(p);
 const isoDate: Rule = (v, p) => {
   if (typeof v !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(v)) return invalid(p);
   const timestamp = Date.parse(v);
