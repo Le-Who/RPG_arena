@@ -9,9 +9,9 @@ The website previously used one `ai_settings.global` row and one `workspace_pref
 3. Deploy the application and memory worker together. Do not leave the previous worker running: it uses global credentials.
 4. Each browser receives a random 256-bit HttpOnly, SameSite=Lax cookie, Secure on HTTPS. The profile identifier is a SHA-256 digest, not the credential. It is safe to reference that identifier for an administrator-assisted import. Use HTTPS in deployment.
 
-The cookie lasts one year. Guest access belongs to that browser profile; clearing cookies, using another browser or expiry creates a new guest. There is no login/account recovery or cross-device identity in this version. Settings explain this limitation. Users in the same browser profile share that guest identity.
+The cookie lasts one year. Guest access belongs to that browser profile; clearing cookies, using another browser or expiry creates a new guest. Accounts are optional: registration retains the guest profile and consumes its old credential permanently. Login from another device opens account campaigns. Logging in to an existing account never silently adopts browser guest campaigns; Settings offers an explicit transfer without copying keys or settings. Logout returns to the surviving browser guest, which is empty after registration/adoption. Password recovery is not implemented. Users in the same browser profile share its guest identity. See [accounts and administration](accounts-and-administration-operations.md).
 
-Gemini and TypeSafe keys entered on the website belong only to that profile. Website requests and workers never fall back to environment keys. Environment keys remain available only to standalone evaluation scripts that explicitly support them. No API returns full stored credentials.
+Gemini and the TypeSafe **shadow memory pilot** use only that profile's stored credentials; they do not fall back to generic environment keys. Standalone evaluation scripts may explicitly support such environment keys. The separate **narrative verifier** can use the operator-configured `NARRATIVE_ADMIN_OPENROUTER_API_KEY` or `NARRATIVE_ADMIN_TYPESAFE_API_KEY` when its personal credential is absent; this is an explicit existing fallback, not the shadow pilot or Gemini. No API returns full stored credentials.
 
 ## Existing data
 
@@ -31,11 +31,13 @@ Add `--include-settings` only when this person owns the former shared settings a
 
 Settings import requires `CHRONICLE_SECRET_ACTIVE_KEY` and `CHRONICLE_SECRET_KEYS`. Protected legacy credentials are decrypted as the `global` owner and resealed for the target profile; ciphertext is never copied between owners. For a one-time import of older plaintext credentials, add `--allow-plaintext` together with `--include-settings`. Omit that flag for normal operation. The importer also refuses targets with an existing Gemini, Jev pilot, or narrative-verification credential.
 
+With account ownership enabled, a guest profile already consumed by adoption is not a valid import target. The utility checks this on dry run and again inside the claim lock before applying changes. A retained profile linked to a registered account is still a valid owner. Do not use this offline operator utility to bypass a guest-to-account transfer or to reassign an already owned campaign.
+
 ## Sharing
 
 New campaigns and checkpoint branches default to private. An unchecked creation control allows explicit publication; owners can publish or unpublish from **Мои кампании → Управление кампанией**. Published stories appear under **Библиотека миров → Общие кампании**. Their content is readable, including journal export. **Продолжить в своей копии** creates a private campaign from its current saved position. The copy has independent state and belongs to the current player; only that player's own keys and settings can power its AI. Author credentials, telemetry, background jobs and checkpoints are never copied. Without a personal key, users can read and copy stories, and play preset campaigns offline; live AI requires their own key. Mutation, checkpoints, semantic search, compaction, indexing and AI calls remain owner-only on each personal campaign. Publication includes future turns while public. Unpublishing stops subsequent reads but cannot retract copies already downloaded.
 
-All nested campaign APIs authorize in their route handler. Missing and inaccessible campaigns both return 404. Lists, settings, quotas, token history, verification reports, memory retry actions and queue statistics are profile-scoped. Public snapshot reads do not prewarm embeddings or spend the owner's key. Manual queue processing stays within the caller's profile; the CLI worker selects a campaign first and loads that owner's configuration.
+All nested campaign APIs authorize in their route handler. Missing and inaccessible campaigns both return 404. Lists, settings, quotas, token history, memory retry actions and queue statistics are profile-scoped. Administrative diagnostics additionally require an allowed account; the role never grants another owner’s private campaign access. Public snapshot reads do not prewarm embeddings or spend the owner's key. Manual queue processing stays within the caller's profile; the CLI worker selects a campaign first and loads that owner's configuration.
 
 ## Verification
 

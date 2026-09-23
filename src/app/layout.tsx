@@ -6,6 +6,8 @@ import "./shell.css";
 import "./pages.css";
 import "./theatre.css";
 import "./preferences.css";
+import "./dialogs.css";
+import "./overview.css";
 export const metadata: Metadata = {
   title: { default: "Chronicle Engine — Твоя история начинается здесь", template: "%s · Chronicle Engine" },
   description: "Живые миры, ИИ-мастер и свобода каждого решения. Создайте собственную историю или отправьтесь в авторское приключение.",

@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
-import { Expand, MapPin, X } from "lucide-react";
+import { Expand, MapPin } from "lucide-react";
+import { Dialog } from "./dialog";
 import type { Snapshot } from "@/lib/ui-data";
 import { dangerTone, mapEdges, projector, visibleMapLocations } from "@/lib/world-graph";
 
@@ -52,21 +53,11 @@ export function WorldMap({
       </div>
 
       {expanded && (
-        <div className="gx-map-overlay" role="dialog" aria-modal="true" aria-label="Карта мира"
-          onKeyDown={(e) => { if (e.key === "Escape") closeExpanded(); }}
-          onMouseDown={(e) => { if (e.target === e.currentTarget) closeExpanded(); }}>
-          <div className="gx-map-modal">
-            <header>
-              <div>
-                <strong>Карта мира</strong>
-                <span>{visibleLocations.length} локаций · вы в «{currentLocation}»</span>
-              </div>
-              <button className="icon-button" onClick={closeExpanded} aria-label="Закрыть карту" autoFocus><X size={19} /></button>
-            </header>
+        <Dialog title="Карта мира" wide className="map-dialog" onClose={closeExpanded}>
+            <p className="dialog-intro">{visibleLocations.length} локаций · вы в «{currentLocation}»</p>
             <MapCanvas locations={visibleLocations} currentLocation={currentLocation} large
               onLocationClick={onLocationClick ? (name) => { onLocationClick(name); closeExpanded(); } : undefined} />
-          </div>
-        </div>
+        </Dialog>
       )}
     </>
   );

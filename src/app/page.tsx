@@ -1,2 +1,2 @@
-import { Dashboard } from "@/components/dashboard";
-export default function HomePage() { return <Dashboard />; }
+import { Overview } from "@/components/overview";
+export default function HomePage() { return <Overview />; }

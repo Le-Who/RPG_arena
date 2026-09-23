@@ -32,7 +32,7 @@ function lastNarratorChoices(snapshot: Snapshot | null): string[] {
 }
 
 export function PlayRoom({ sessionId }: { sessionId: string }) {
-  const { settings, sessions, refresh, notify } = useApp();
+  const { settings, sessions, refresh, notify, setPlayCommands, workspace } = useApp();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loadError, setLoadError] = useState("");
   const [action, setAction] = useState("");
@@ -145,7 +145,22 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     setLoadingOlder(true);
     try { const result = await api<{ turns: Snapshot["turns"] }>(`/api/sessions/${sessionId}/turns?before=${before}`); setOlder((old) => [...result.turns, ...old]); } catch (e) { notify(e instanceof Error ? e.message : "Не удалось загрузить ходы", true); } finally { setLoadingOlder(false); }
   };
-  const compact = async () => { setCompacting(true); try { await api(`/api/sessions/${sessionId}/compact`, jsonBody({})); await reload(); setCompactNeeded(false); notify("Новые главы сохранены в долгосрочной памяти"); } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить память", true); } finally { setCompacting(false); } };
+  const compact = useCallback(async () => { setCompacting(true); try { await api(`/api/sessions/${sessionId}/compact`, jsonBody({})); await reload(); setCompactNeeded(false); notify("Новые главы сохранены в долгосрочной памяти"); } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить память", true); } finally { setCompacting(false); } }, [sessionId, reload, notify]);
+  const commandOwner = snapshot?.isOwner !== false;
+  const commandReady = !!snapshot && !loadError;
+  const commandActive = snapshot?.session.status === "active";
+  const commandTurn = snapshot?.session.turnCount;
+  useEffect(() => {
+    if (!commandReady) { setPlayCommands([]); return; }
+    const commands = [
+      { id: "reading", label: "Переключить режим чтения", run: () => setReading(value => !value) },
+      { id: "latest", label: "К последнему ходу", run: () => document.getElementById(`turn-${commandTurn}`)?.scrollIntoView({ block: "start", behavior: workspace.reading.motion === "reduced" ? "instant" : "smooth" }) },
+      ...(commandOwner && !busy && !compacting ? [{ id: "checkpoints", label: "Контрольные точки и ветки", run: () => setShowCheckpoints(true) }] : []),
+      ...(commandOwner && commandActive && !busy && !compacting ? [{ id: "compact", label: "Сохранить главы в память", run: () => { void compact(); } }] : []),
+    ];
+    setPlayCommands(commands);
+    return () => setPlayCommands([]);
+  }, [commandReady, commandOwner, commandActive, commandTurn, busy, compacting, compact, setPlayCommands, workspace.reading.motion]);
   const restore = async () => { try { await api(`/api/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) }); await reload(); void refresh(); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } };
 
   if (loadError) return <div className="empty-state gx-fallback"><BookOpen size={34} /><h3>Не удалось открыть эту главу</h3><p>{loadError}</p><button className="button secondary" onClick={() => void reload().catch((e) => setLoadError(e.message))}><RefreshCw size={15} />Попробовать снова</button><Link className="text-link" href="/campaigns">Вернуться к кампаниям</Link></div>;
@@ -169,6 +184,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
         <span className={`gx-save ${busy ? "is-busy" : ""}`}>{busy ? <LoaderCircle size={13} className="spin" /> : <Check size={13} />}<span>{busy ? "Ход в обработке" : "Сохранено"}</span></span>
         <button className="gx-tool" aria-label="Развилки истории" title="Развилки истории" onClick={() => setShowCheckpoints(true)} disabled={!isOwner || busy}><GitBranch size={16} /><span>Развилки</span></button>
         <a className="gx-tool icon-only" href={`/api/sessions/${sessionId}/export`} title="Скачать историю" aria-label="Скачать историю"><Download size={16} /></a>
+        {isOwner && <a className="gx-tool" href={`/api/sessions/${sessionId}/export?format=json`} title="Переносимая копия кампании" aria-label="Скачать кампанию JSON">JSON</a>}
         <button className="gx-tool icon-only" onClick={() => setReading(!reading)} aria-label={reading ? "Выйти из режима чтения" : "Режим чтения"} title={reading ? "Обычный режим" : "Режим чтения"}>{reading ? <Minimize2 size={16} /> : <BookOpenText size={17} />}</button>
       </div>
     </div>
@@ -213,7 +229,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
               <div className="gx-dice-body"><strong>{turn.dice.skill || turn.dice.label}</strong><small>{turn.dice.kind === "2d6" ? "Проверка риска · 2d6" : `Серверный d20 · сложность ${turn.dice.dc}`}</small></div>
               <span className="gx-dice-verdict">{turn.dice.band === "cost" ? "Успех с ценой" : turn.dice.success ? "Успех" : "Неудача"}</span>
             </div>}
-            {turn.stateChanges && <AppliedChips applied={turn.stateChanges} />}
+            {turn.stateChanges && <AppliedChips applied={turn.stateChanges} turnNumber={turn.turnNumber} />}
           </article>)}
           {syncError && <div className="notice" role="alert"><p>{syncError}</p><button className="text-button" onClick={() => void reload().catch(() => setSyncError("Связь пока не восстановлена. Ход сохранён; попробуйте обновить сцену ещё раз."))}>Обновить сцену</button></div>}
           {busy && <div className="gx-thinking" aria-live="polite"><span className="gx-thinking-orb"><Sparkles size={18} /></span><div><strong>{currentCommit ? "Ход сохранён · обновляем мир" : TURN_STAGE_LABELS[turnRequest.stage]}</strong><small>Запрос сохранён. Перезагрузка страницы не создаст двойной ход.</small></div><span className="gx-thinking-dots"><i /><i /><i /></span></div>}
@@ -287,7 +303,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
       </aside>}
     </div>
 
-    <footer className="gx-footer"><span><Compass size={14} />Это ваша история. Делайте её своей.</span><Link href="/blueprint">Chronicle Engine v2.5 <ArrowRight size={13} /></Link></footer>
+    <footer className="gx-footer"><span><Compass size={14} />Это ваша история. Делайте её своей.</span><Link href="/blueprint">Chronicle Engine <ArrowRight size={13} /></Link></footer>
     <p className="sr-only" role="status" aria-live="polite">{busy ? "Ход обрабатывается" : `Ход ${session.turnCount}. ${lastNarrator?.content.slice(0, 160) ?? ""}`}</p>
     {canAct && !actionVisible && <button className="gx-jump" onClick={() => { actionZoneRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); composerRef.current?.focus(); }}><ArrowDown size={17} />Ваш ход</button>}
     {isOwner && showCheckpoints && <CheckpointDialog session={session} onClose={closeCheckpoints} />}

@@ -1,5 +1,6 @@
 node_modules/
 .superpowers/
+revisions/
 .next/
 artifacts/
 output/

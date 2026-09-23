@@ -18,6 +18,7 @@
     "smoke:v22": "node --env-file=.env --import tsx scripts/v22-smoke.ts",
     "verify": "npm run typecheck && npm run test && npm run build",
     "verify:story-ui": "node --env-file-if-exists=.env --import tsx scripts/story-experience-browser.ts",
+    "verify:revisions-ui": "node --import tsx scripts/revisions-browser.ts",
     "eval:story-drafts": "node --env-file-if-exists=.env --import tsx scripts/eval-story-drafts.ts",
     "eval:typesafe": "node --env-file-if-exists=.env --import tsx scripts/eval-typesafe.ts",
     "rotate:secrets": "node --env-file-if-exists=.env --import tsx scripts/rotate-secrets.ts",

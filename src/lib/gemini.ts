@@ -1,53 +1,12 @@
 // ── Каталог моделей, роутинг задач, промпты, ротация ключей ──
-// Квоты 20/500 — ориентиры бесплатного тарифа AI Studio на ключ; сервер учитывает их
-// как лимиты (aiSettings.dailyFlashLimit/dailyLiteLimit × число ключей) при enforceLimits.
+// Значения 20/500 — локальные бюджеты приложения на модель; provider limits задаёт AI Studio.
+// По умолчанию ключи делят бюджет; умножение требует явного выбора независимых проектов.
 
 import { RESOLUTION_RESPONSE_SCHEMA } from "./resolution";
 
 export { RESOLUTION_RESPONSE_SCHEMA };
 
-export const MODEL_CATALOG = [
-  {
-    id: "gemini-3.5-flash-lite",
-    name: "Gemini 3.5 Flash Lite",
-    family: "lite" as const,
-    tier: "fast-economy",
-    dailyLimit: 500,
-    role: "Обычные ходы, извлечение фактов, быстрые задачи",
-    badge: "≈500 запросов / день / ключ",
-    strength: 80,
-  },
-  {
-    id: "gemini-3.8-flash",
-    name: "Gemini 3.8 Flash",
-    family: "flash" as const,
-    tier: "flagship",
-    dailyLimit: 20,
-    role: "Свободные действия, компакция памяти, ключевые сцены",
-    badge: "≈20 запросов / день / ключ",
-    strength: 100,
-  },
-  {
-    id: "gemini-3.7-flash",
-    name: "Gemini 3.7 Flash",
-    family: "flash" as const,
-    tier: "fallback-1",
-    dailyLimit: 20,
-    role: "Фолбэк-1 для сложных задач",
-    badge: "≈20 запросов / день / ключ",
-    strength: 92,
-  },
-  {
-    id: "gemini-3.6-flash",
-    name: "Gemini 3.6 Flash",
-    family: "flash" as const,
-    tier: "fallback-2",
-    dailyLimit: 20,
-    role: "Фолбэк-2 для сложных задач",
-    badge: "≈20 запросов / день / ключ",
-    strength: 85,
-  },
-] as const;
+export { MODEL_CATALOG } from "./model-catalog";
 
 export type TaskType = "narration" | "resolution" | "compaction" | "fast" | "embedding" | "creation";
 export type RoutingProfile = "balanced" | "economy" | "flagship" | "custom";

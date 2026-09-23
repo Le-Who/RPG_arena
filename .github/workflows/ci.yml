@@ -47,3 +47,20 @@ jobs:
           npm run migrate
           npm run migrate
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Isolated browser lifecycle and modal checks
+        env:
+          CHRONICLE_UI_ISOLATED: "1"
+          SMOKE_BASE_URL: http://127.0.0.1:3130
+          CHRONICLE_PUBLIC_ORIGIN: http://127.0.0.1:3130
+        run: |
+          node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3130 > /tmp/chronicle-web.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$web_pid" || true' EXIT
+          node --input-type=module -e 'for(let i=0;i<30;i++){try{if((await fetch("http://127.0.0.1:3130/api/health")).ok)process.exit(0)}catch{}await new Promise(r=>setTimeout(r,1000))}process.exit(1)'
+          npm run verify:revisions-ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence
+          path: output/playwright/revisions

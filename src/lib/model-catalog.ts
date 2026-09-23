@@ -1,0 +1,43 @@
+// Client-safe model metadata. Budgets are application defaults, not provider quota guarantees.
+export const MODEL_CATALOG = [
+  {
+    id: "gemini-3.5-flash-lite",
+    name: "Gemini 3.5 Flash Lite",
+    family: "lite" as const,
+    tier: "fast-economy",
+    dailyLimit: 500,
+    role: "Обычные ходы, извлечение фактов, быстрые задачи",
+    badge: "Локальный лимит: 500 попыток / сутки",
+    strength: 80,
+  },
+  {
+    id: "gemini-3.8-flash",
+    name: "Gemini 3.8 Flash",
+    family: "flash" as const,
+    tier: "flagship",
+    dailyLimit: 20,
+    role: "Свободные действия, компакция памяти, ключевые сцены",
+    badge: "Локальный лимит: 20 попыток / сутки",
+    strength: 100,
+  },
+  {
+    id: "gemini-3.7-flash",
+    name: "Gemini 3.7 Flash",
+    family: "flash" as const,
+    tier: "fallback-1",
+    dailyLimit: 20,
+    role: "Фолбэк-1 для сложных задач",
+    badge: "Локальный лимит: 20 попыток / сутки",
+    strength: 92,
+  },
+  {
+    id: "gemini-3.6-flash",
+    name: "Gemini 3.6 Flash",
+    family: "flash" as const,
+    tier: "fallback-2",
+    dailyLimit: 20,
+    role: "Фолбэк-2 для сложных задач",
+    badge: "Локальный лимит: 20 попыток / сутки",
+    strength: 85,
+  },
+] as const;

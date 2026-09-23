@@ -1,10 +1,13 @@
 import type { Page } from "@playwright/test";
 
 export const mockSessionId = "00000000-0000-4000-8000-000000000001";
+const mockProfileId = "guest:ui-audit-fixture";
 const now = "2026-09-19T12:00:00.000Z";
 
 export const mockSession = {
   id: mockSessionId,
+  ownerId: mockProfileId,
+  visibility: "private",
   title: "Пепельная корона",
   scenarioId: "ashen-crown",
   scenarioTitle: "Пепельная корона",
@@ -56,21 +59,23 @@ export const mockSnapshot = {
 export const settings = {
   keysMasked: [], keysCount: 0, envKeysCount: 0, useLiveAI: false, routingProfile: "balanced",
   narrationModel: "gemini-3.5-flash-lite", customActionModel: "gemini-3.8-flash", compactionModel: "gemini-3.8-flash",
-  fastTaskModel: "gemini-3.5-flash-lite", dailyFlashLimit: 20, dailyLiteLimit: 500, enforceLimits: true,
+  fastTaskModel: "gemini-3.5-flash-lite", dailyFlashLimit: 20, dailyLiteLimit: 500, dailyEmbeddingLimit: 5000, keysSharedProject: true, enforceLimits: true,
   embeddingsEnabled: true, embeddingModel: "gemini-embedding-2", embeddingDims: 768, semanticExtractionEnabled: true,
 };
 
-export async function installUiMock(page: Page) {
+export async function installUiMock(page: Page, { admin = false }: { admin?: boolean } = {}) {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
     if (process.env.UI_AUDIT_DEBUG === "1") console.log("UI MOCK", route.request().method(), path);
     let body: unknown = {};
-    if (path === "/api/sessions") body = { sessions: [mockSession] };
+    if (path === "/api/auth/me") body = { ok: true, identity: { kind: admin ? "account" : "guest", profileId: mockProfileId, account: admin ? { id: "00000000-0000-4000-8000-000000000099", login: "ui-admin-fixture", profileId: mockProfileId } : null, guestProfileId: mockProfileId, isAdmin: admin, capabilities: { administration: admin }, pendingGuestCampaigns: 0, passwordRecoveryAvailable: false } };
+    else if (path === "/api/sessions") body = { sessions: [mockSession] };
     else if (path === "/api/settings") body = settings;
+    else if (path === "/api/settings/narrative") body = { enabled: true, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "typesafe/jev-1.13", credentialSource: "none", administratorAvailable: false };
     else if (path === "/api/developer/typesafe") body = { configured: false, storedConfigured: false, maskedKey: null, source: "none", envOverride: false, pilotEnabled: false, model: "jev-1.13.0" };
     else if (path === "/api/developer/typesafe/results") body = { results: [] };
-    else if (path === "/api/workspace") body = { displayName: "Искатель историй", favorites: ["ashen-crown"], reading: { textScale: "normal", measure: "normal", theme: "midnight", motion: "full" } };
+    else if (path === "/api/workspace") body = { id: mockProfileId, displayName: "Искатель историй", favorites: ["ashen-crown"], reading: { textScale: "normal", measure: "normal", theme: "midnight", motion: "full" } };
     else if (path === "/api/tokens/stats") body = { today: { totalReq: 7, totalTokens: 12450, errors: 0, embeddingReq: 3 }, quotas: { note: "audit" } };
     else if (path === "/api/system/status") body = {
       version: "2.5", checkedAt: now, database: "connected",
