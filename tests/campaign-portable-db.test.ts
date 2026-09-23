@@ -45,6 +45,10 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     );
     await fixture.pg.query("INSERT INTO world_locations(id,session_id,name,current,connected_to) VALUES ($1,$2,'Market',true,$3)", [location, source, JSON.stringify([location])]);
     await fixture.pg.query("INSERT INTO inventory_items(id,session_id,name) VALUES ($1,$2,'Key')", [item, source]);
+    const historicalProse = `Ada found ${item}.`;
+    await fixture.pg.query("INSERT INTO game_turns(session_id,turn_number,role,content) VALUES ($1,1,'player',$2)", [source, historicalProse]);
+    const historicalId = (await fixture.pg.query<{ id: string }>("SELECT id FROM game_turns WHERE session_id=$1 AND turn_number=1 AND role='player'", [source])).rows[0].id;
+    const historicalHash = createHash("sha256").update(historicalProse).digest("hex");
     const verifiedProse = `Ada carries ${item} to the market.`;
     const verifiedMeta = {
       model: "narrator", rulesProfile: "d20", digestChars: 0, retrievedIds: [],
@@ -52,7 +56,14 @@ test("portable HTTP export is owner-only and import remaps structured data witho
         version: 1, reasons: ["state_change"], repaired: false, emittedCharacters: verifiedProse.length,
         textSha256: createHash("sha256").update(verifiedProse).digest("hex"),
         checks: [{ status: "verified", provider: "typesafe", model: "jev-1.13.0", latencyMs: 1, answers: {} }],
-        evidence: { completeHistory: false, truncated: false, sources: [] },
+        reviews: [{ attempt: 0, model: "reviewer", latencyMs: 1, result: {
+          status: "verified", answers: [{ id: "history_1", verdict: "consistent", reason: "Historical source",
+            evidence: [{ path: "/historical_evidence/sources/0/text", quote: historicalProse }] }],
+        } }],
+        evidence: { completeHistory: false, truncated: false, sources: [
+          { id: historicalId, turn: 1, role: "player", text: historicalProse, sha256: historicalHash,
+            truncated: false, authority: "intention", acceptedChanges: null },
+        ] },
       },
     };
     await fixture.pg.query("INSERT INTO game_turns(session_id,turn_number,role,content,context_meta) VALUES ($1,2,'narrator',$2,$3)", [source, verifiedProse, JSON.stringify(verifiedMeta)]);
@@ -100,7 +111,8 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     assert.equal((await conflict.json()).code, "IDEMPOTENCY_CONFLICT");
     const copiedItem = (await fixture.pg.query<{ id: string }>("SELECT id FROM inventory_items WHERE session_id=$1", [result.session.id])).rows[0];
     const copiedMemory = (await fixture.pg.query<{ entity_key: string }>("SELECT entity_key FROM memory_nodes WHERE session_id=$1", [result.session.id])).rows[0];
-    const copiedTurn = (await fixture.pg.query<{ id: string; request_id: string | null }>("SELECT id,request_id FROM game_turns WHERE session_id=$1 AND turn_number=1", [result.session.id])).rows[0];
+    const copiedTurn = (await fixture.pg.query<{ id: string; request_id: string | null }>("SELECT id,request_id FROM game_turns WHERE session_id=$1 AND turn_number=1 AND role='narrator'", [result.session.id])).rows[0];
+    const copiedHistorical = (await fixture.pg.query<{ id: string }>("SELECT id FROM game_turns WHERE session_id=$1 AND turn_number=1 AND role='player'", [result.session.id])).rows[0];
     const copiedVerified = (await fixture.pg.query<{ id: string; content: string; context_meta: typeof verifiedMeta }>("SELECT id,content,context_meta FROM game_turns WHERE session_id=$1 AND turn_number=2", [result.session.id])).rows[0];
     const revision = (await fixture.pg.query<{ id: string; agreement_id: string; source: { originTurnId: string; quote: string } }>("SELECT id,agreement_id,source FROM agreement_events WHERE session_id=$1", [result.session.id])).rows[0];
     assert.notEqual(copiedItem.id, item);
@@ -116,8 +128,20 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     assert.ok(!copiedVerified.content.includes(item));
     assert.equal(snapshotNarrativeEvidence([{ id: copiedVerified.id, turn_number: 2, role: "narrator", content: copiedVerified.content,
       state_changes: null, verification: copiedVerified.context_meta.narrativeVerification }]).sources[0].authority, "verified_narration");
+    const copiedAudit = copiedVerified.context_meta.narrativeVerification;
+    const copiedSource = copiedAudit.evidence.sources[0];
+    assert.equal(copiedSource.id, copiedHistorical.id);
+    assert.notEqual(copiedSource.id, historicalId);
+    assert.equal(copiedSource.text, historicalProse);
+    assert.equal(copiedSource.sha256, historicalHash);
+    assert.equal(createHash("sha256").update(copiedSource.text).digest("hex"), copiedSource.sha256);
+    const copiedCitation = copiedAudit.reviews[0].result.answers[0].evidence[0];
+    assert.equal(copiedCitation.quote, historicalProse);
+    const { matchesNarrativeCitation } = await import("../src/lib/narrative-review");
+    assert.equal(matchesNarrativeCitation({ historical_evidence: copiedAudit.evidence }, copiedCitation.path, copiedCitation.quote), true);
     const invalidDocument = structuredClone(document);
     invalidDocument.snapshot.turns.find((turn: { turnNumber: number }) => turn.turnNumber === 2).contextMeta.narrativeVerification.textSha256 = "0".repeat(64);
+    invalidDocument.snapshot.turns.find((turn: { turnNumber: number }) => turn.turnNumber === 2).contextMeta.narrativeVerification.evidence.sources[0].sha256 = "0".repeat(64);
     const { snapshotChecksum } = await import("../src/lib/checkpoint-snapshot");
     invalidDocument.checksum = snapshotChecksum(invalidDocument.snapshot);
     const invalidResponse = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(new Request("https://game.test/api/sessions/import", {
@@ -128,6 +152,9 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     const invalidCampaign = (await invalidResponse.json()).session.id;
     const copiedInvalid = (await fixture.pg.query<{ id: string; content: string; context_meta: typeof verifiedMeta }>("SELECT id,content,context_meta FROM game_turns WHERE session_id=$1 AND turn_number=2", [invalidCampaign])).rows[0];
     assert.equal(copiedInvalid.context_meta.narrativeVerification.textSha256, undefined);
+    assert.equal(copiedInvalid.context_meta.narrativeVerification.evidence.sources[0].sha256, "0".repeat(64));
+    assert.notEqual(createHash("sha256").update(copiedInvalid.context_meta.narrativeVerification.evidence.sources[0].text).digest("hex"),
+      copiedInvalid.context_meta.narrativeVerification.evidence.sources[0].sha256);
     assert.equal(snapshotNarrativeEvidence([{ id: copiedInvalid.id, turn_number: 2, role: "narrator", content: copiedInvalid.content,
       state_changes: null, verification: copiedInvalid.context_meta.narrativeVerification }]).sources[0].authority, "legacy_narration");
     assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM memory_jobs WHERE session_id=$1", [result.session.id])).rows[0].n), 0);
