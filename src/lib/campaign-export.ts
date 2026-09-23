@@ -1,6 +1,19 @@
 import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { agreementEvents, gameSessions, gameTurns } from "@/db/schema";
+import { readCampaignSnapshot } from "./campaign-copy";
+import { createPortableDocument } from "./campaign-portable";
+import { requireUuid } from "./http";
+
+/** A repeatable-read view covers every table even while a turn commits. */
+export async function exportPortableCampaign(sessionId: string, ownerId: string) {
+  requireUuid(sessionId);
+  return db.transaction(async tx => {
+    const [session] = await tx.select().from(gameSessions).where(and(eq(gameSessions.id, sessionId), eq(gameSessions.ownerId, ownerId)));
+    if (!session) return null;
+    return createPortableDocument(await readCampaignSnapshot(tx, session));
+  }, { isolationLevel: "repeatable read", accessMode: "read only" });
+}
 
 /** Read one consistent campaign snapshot; exports retain the full journal without the prompt-size cap. */
 export async function exportCampaignMarkdown(sessionId: string): Promise<string | null> {

@@ -533,6 +533,15 @@ export const checkpointForks = pgTable("checkpoint_forks", {
   branchId: uuid("branch_id").references(() => gameSessions.id, { onDelete: "set null" }), createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("uq_checkpoint_fork_request").on(t.checkpointId, t.requestId)]);
 
+/** Import keys survive deletion of their target, so a retry cannot resurrect it. */
+export const campaignImports = pgTable("campaign_imports", {
+  ownerId: text("owner_id").notNull(),
+  requestId: text("request_id").notNull(),
+  inputHash: text("input_hash").notNull(),
+  campaignId: uuid("campaign_id").references(() => gameSessions.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => [primaryKey({ columns: [t.ownerId, t.requestId] })]);
+
 export const workerHeartbeats = pgTable("worker_heartbeats", {
   id: text("id").primaryKey(), status: text("status").notNull(),
   lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),

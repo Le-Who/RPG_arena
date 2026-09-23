@@ -3,11 +3,13 @@ import { GUEST_COOKIE, GUEST_MAX_AGE, newGuestToken, profileIdFromToken } from "
 import { auth } from "./lib/auth";
 import { assertAuthOrigin } from "./lib/auth-policy";
 import { httpError } from "./lib/http";
+import { CHECKPOINT_MAX_BYTES } from "./lib/checkpoint-types";
 export async function proxy(req: NextRequest) {
   // Readiness must not depend on guest identity or an already migrated auth schema.
   if (req.nextUrl.pathname === "/api/health") return NextResponse.next();
   const id = req.nextUrl.pathname.match(/^\/api\/sessions\/([^/]+)/)?.[1];
-  if (id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return NextResponse.json({ error: "Некорректный идентификатор кампании" }, { status: 400 });
+  const importPath = req.nextUrl.pathname === "/api/sessions/import";
+  if (id && !importPath && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return NextResponse.json({ error: "Некорректный идентификатор кампании" }, { status: 400 });
   if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
     if (req.nextUrl.pathname.startsWith("/api/")) {
       try { assertAuthOrigin(req); } catch (error) {
@@ -17,7 +19,7 @@ export async function proxy(req: NextRequest) {
     }
     if (req.headers.get("sec-fetch-site") === "cross-site") return NextResponse.json({ error: "Cross-site request rejected" }, { status: 403 });
     const length = Number(req.headers.get("content-length") || 0);
-    if (length > 65536) return NextResponse.json({ error: "Слишком большой запрос" }, { status: 413 });
+    if (length > (importPath && req.method === "POST" ? CHECKPOINT_MAX_BYTES + 4096 : 65536)) return NextResponse.json({ error: "Слишком большой запрос" }, { status: 413 });
   }
   const existing = req.cookies.get(GUEST_COOKIE)?.value;
   const token = profileIdFromToken(existing) && await auth.guestProfile(existing) ? existing! : newGuestToken();

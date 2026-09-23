@@ -92,6 +92,13 @@
       "when": 1790000000008,
       "tag": "0012_model_call_quotas",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790000000009,
+      "tag": "0013_campaign_imports",
+      "breakpoints": true
     }
   ]
 }
