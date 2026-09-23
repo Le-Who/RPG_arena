@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --import ./tests/helpers/test-environment.ts --test --test-concurrency=1 tests/*.test.ts",
+    "test:quota:postgres": "node --import tsx --test tests/integration/quota-postgres.integration.ts",
     "migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
     "worker": "node --env-file=.env --import tsx scripts/memory-worker.ts",
     "audit:ui": "node --env-file-if-exists=.env --import tsx scripts/ui-audit.ts",

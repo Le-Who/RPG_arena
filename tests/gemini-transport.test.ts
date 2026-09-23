@@ -4,6 +4,44 @@ import { callGeminiWithRotation } from "../src/lib/gemini";
 
 const success = () => Response.json({ candidates: [{ content: { parts: [{ text: '{"narration":"Готово"}' }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 8 } });
 const base = { keys: ["key-a"], models: ["lite", "flash"], system: "test", user: "test" };
+test("denied admission makes no provider fetch or provider attempt log", async () => {
+  const old = global.fetch; let calls = 0, logged = 0;
+  try {
+    global.fetch = async () => { calls++; return success(); };
+    await assert.rejects(() => callGeminiWithRotation({ ...base, beforeAttempt: async () => false, onAttempt: () => { logged++; } }), /QUOTA_EXHAUSTED/);
+    assert.equal(calls, 0); assert.equal(logged, 0);
+  } finally { global.fetch = old; }
+});
+test("admission database errors fail closed without provider retry", async () => {
+  const old = global.fetch; let calls = 0, reservations = 0;
+  try {
+    global.fetch = async () => { calls++; return success(); };
+    await assert.rejects(() => callGeminiWithRotation({ ...base, beforeAttempt: async () => { reservations++; throw new Error("QUOTA_UNAVAILABLE"); } }), /QUOTA_UNAVAILABLE/);
+    assert.equal(calls, 0); assert.equal(reservations, 1);
+  } finally { global.fetch = old; }
+});
+test("stalled quota admission observes cancellation and late approval cannot fetch", async () => {
+  const old = global.fetch; let calls = 0;
+  const controller = new AbortController(); let approve!: (allowed: boolean) => void;
+  try {
+    global.fetch = async () => { calls++; return success(); };
+    const pending = callGeminiWithRotation({ ...base, signal: controller.signal, beforeAttempt: () => new Promise(resolve => { approve = resolve; }) });
+    controller.abort();
+    await assert.rejects(() => pending, /abort/i);
+    approve(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(calls, 0);
+  } finally { global.fetch = old; }
+});
+test("admission time consumes the overall provider deadline", async () => {
+  const old = global.fetch; let calls = 0;
+  try {
+    global.fetch = async () => { calls++; return success(); };
+    await assert.rejects(() => callGeminiWithRotation({ ...base, timeoutMs: 260,
+      beforeAttempt: async () => { await new Promise(resolve => setTimeout(resolve, 300)); return true; } }), /timeout/i);
+    assert.equal(calls, 0);
+  } finally { global.fetch = old; }
+});
 test("key-specific 400 still tries the second key on the same model", async () => {
   const old=global.fetch; const calls:string[]=[];
   try {

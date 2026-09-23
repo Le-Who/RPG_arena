@@ -61,6 +61,7 @@ test("performTurn narrative guard persists only canonical, verified narration", 
   try {
     for (const mode of ["repair", "unavailable", "off"] as const) await t.test(mode, async () => {
       const sessionId = randomUUID(), requestId = randomUUID();
+      const quotaBefore = Number((await pg.query<{ n: string }>("SELECT coalesce(sum(attempts),0) AS n FROM model_call_quotas WHERE owner_id='test-owner'")).rows[0].n);
       await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Guard integration','free','narrative',$2,$3,1,'test-owner')", [sessionId, JSON.stringify(character), JSON.stringify(world)]);
       await pg.query("INSERT INTO game_turns(session_id,turn_number,role,content,choices) VALUES ($1,1,'narrator',$2,'[]')", [sessionId, "Сторож согласился пропустить вас через ворота за помощь. Сделка не касается кольца."]);
       const events: TurnEvent[] = [];
@@ -114,6 +115,8 @@ test("performTurn narrative guard persists only canonical, verified narration", 
           const replay = await performTurn(input, runtime);
           assert.ok(replay.ok && replay.replay); assert.equal(replay.narration, expected); assert.deepEqual(replay.choices, choices);
           assert.equal(generation, mode === "repair" ? 2 : 1); assert.equal(verification, mode === "repair" ? 2 : mode === "unavailable" ? 1 : 0);
+          const quotaAfter = Number((await pg.query<{ n: string }>("SELECT coalesce(sum(attempts),0) AS n FROM model_call_quotas WHERE owner_id='test-owner'")).rows[0].n);
+          assert.equal(quotaAfter - quotaBefore, generation, "main and repair HTTP attempts require real reservations; replay is free");
           const diagnostics = (await pg.query<{ payload: { decision: string }; outcome: string }>("SELECT payload,outcome FROM narrative_attempts WHERE session_id=$1", [sessionId])).rows;
           assert.equal(diagnostics.length, 1);
           assert.equal(diagnostics[0].outcome, "completed");
@@ -450,6 +453,7 @@ test("performTurn narrative guard persists only canonical, verified narration", 
         assert.ok(result.ok, JSON.stringify(result));
         assert.equal(result.narration, narration);
         assert.equal(generations, 1); assert.equal(reviews, 1);
+        assert.equal(Number((await pg.query<{ n: string }>("SELECT sum(attempts) AS n FROM model_call_quotas WHERE owner_id='review-owner'")).rows[0].n), 2, "review is independently reserved as well as main generation");
         const rows = await pg.query<{ context_meta: { narrativeVerification: { reviews: { attempt: number; result: { status: string } }[] } } }>("SELECT context_meta FROM game_turns WHERE session_id=$1 AND turn_number=2 AND role='narrator'", [sessionId]);
         assert.equal(rows.rows[0].context_meta.narrativeVerification.reviews[0].result.status, "verified");
       } finally { fetchMock.mock.restore(); }

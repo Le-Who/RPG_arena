@@ -8,6 +8,9 @@ import {
   uuid,
   text,
   integer,
+  bigint,
+  date,
+  primaryKey,
   boolean,
   jsonb,
   timestamp,
@@ -417,6 +420,8 @@ export const aiSettings = pgTable("ai_settings", {
   useLiveAI: boolean("use_live_ai").notNull().default(false),
   dailyFlashLimit: integer("daily_flash_limit").notNull().default(20),
   dailyLiteLimit: integer("daily_lite_limit").notNull().default(500),
+  keysSharedProject: boolean("keys_shared_project").notNull().default(true),
+  dailyEmbeddingLimit: integer("daily_embedding_limit").notNull().default(5000),
   // DATA-1d: принудительное соблюдение дневных лимитов на сервере
   enforceLimits: boolean("enforce_limits").notNull().default(true),
   // MEM-2: эмбеддинги
@@ -444,6 +449,7 @@ export const tokenLogs = pgTable(
     sessionId: uuid("session_id").references(() => gameSessions.id, { onDelete: "set null" }),
     model: text("model").notNull(),
     taskType: text("task_type").notNull(), // narration | resolution | compaction | fast | embedding
+    quotaReserved: boolean("quota_reserved").notNull().default(false),
     promptTokens: integer("prompt_tokens").notNull().default(0),
     completionTokens: integer("completion_tokens").notNull().default(0),
     totalTokens: integer("total_tokens").notNull().default(0),
@@ -459,6 +465,15 @@ export const tokenLogs = pgTable(
     index("idx_token_logs_model_created").on(t.model, t.createdAt),
   ],
 );
+
+export const modelCallQuotas = pgTable("model_call_quotas", {
+  ownerId: text("owner_id").notNull(),
+  scope: text("scope").notNull(),
+  model: text("model").notNull(),
+  day: date("day").notNull(),
+  attempts: bigint("attempts", { mode: "number" }).notNull().default(0),
+  legacyUsed: bigint("legacy_used", { mode: "number" }).notNull().default(0),
+}, t => [primaryKey({ columns: [t.ownerId, t.scope, t.model, t.day] })]);
 
 /** Reading preferences belong to the current authenticated or guest profile. */
 export type ReadingPreferences = {

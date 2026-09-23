@@ -4,6 +4,8 @@ import { db } from "@/db";
 import { memoryJobs, type MemoryJobPayload } from "@/db/schema";
 import { type DbTransaction, lockSession } from "./turn-admission";
 import { buildExtractionSystemPrompt, callGeminiWithRotation, EXTRACTION_RESPONSE_SCHEMA } from "./gemini";
+import { quotaAdmission } from "./quota";
+import { quotaDeferredWithoutFetch } from "./quota-errors";
 import { getAIConfig, logToken, pickModels, type AIConfig } from "./ai-settings";
 import { extractJsonObject } from "./resolution";
 import { layerForFactType, normalizeExtractedFacts, upsertMemoryNode } from "./memory";
@@ -38,6 +40,7 @@ export async function processSemanticJob(opts: { sessionId?: string; cfg?: AICon
       return { processed: 0, extracted: 0, failed: 0, delayed: true };
     }
     const response = await callGeminiWithRotation({ keys: cfg.keys, models, system: buildExtractionSystemPrompt(job.payload.profileCanon, job.payload.knownDigest), user: `Действие игрока (намерение, не доказательство): ${job.payload.playerAction}\n\nПодтверждённый ответ рассказчика:\n${job.payload.narration}`, maxTokens: 1000, temperature: 0.2, responseSchema: EXTRACTION_RESPONSE_SCHEMA, timeoutMs: 15000,
+      beforeAttempt: quotaAdmission(cfg),
       onAttempt: async (attempt) => { if (!attempt.ok) await logToken({ sessionId: job.sessionId, model: attempt.model, taskType: "fast", promptTokens: 0, completionTokens: 0, latencyMs: attempt.latencyMs, success: false, error: attempt.error, keyIndex: attempt.keyIndex }); },
     });
     await logToken({ sessionId: job.sessionId, model: response.model, taskType: "fast", promptTokens: response.promptTokens, completionTokens: response.completionTokens, latencyMs: response.latencyMs, success: true, keyIndex: response.keyIndex });
@@ -84,6 +87,10 @@ export async function processSemanticJob(opts: { sessionId?: string; cfg?: AICon
     });
     return { processed: extracted === null ? 0 : 1, extracted: extracted ?? 0, failed: 0, delayed: false };
   } catch (error) {
+    if (quotaDeferredWithoutFetch(error)) {
+      await db.update(memoryJobs).set({ status: "pending", attempts: job.attempts - 1, leaseToken: null, leaseExpiresAt: null, error: "QUOTA_DEFERRED", nextAttemptAt: new Date(Date.now() + 60000), updatedAt: new Date() }).where(fenced);
+      return { processed: 0, extracted: 0, failed: 0, delayed: true };
+    }
     const failed = job.attempts >= 3;
     const rows = await db.update(memoryJobs).set({ status: failed ? "failed" : "pending", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(Date.now() + retryDelayMs(job.attempts)), error: error instanceof Error && error.message === "INVALID_EXTRACTION_JSON" ? "INVALID_EXTRACTION_JSON" : "PROVIDER_UNAVAILABLE", updatedAt: new Date() }).where(fenced).returning({ id: memoryJobs.id });
     return { processed: 0, extracted: 0, failed: failed ? rows.length : 0, delayed: !failed };

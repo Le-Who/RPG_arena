@@ -1,3 +1,4 @@
+import { QuotaAdmissionError } from "./quota-errors";
 export type AttemptInfo = { model: string; keyIndex: number; ok: boolean; latencyMs: number; error?: string; promptTokens?: number; completionTokens?: number };
 export type GeminiCallOptions = {
   keys: string[]; models: string[]; system: string; user: string; maxTokens?: number; temperature?: number;
@@ -5,7 +6,22 @@ export type GeminiCallOptions = {
   onAttempt?: (info: AttemptInfo) => Promise<void> | void;
   onText?: (delta: string) => void;
   onAttemptStart?: () => void;
+  /** Application quota admission; false skips this model, errors fail closed. */
+  beforeAttempt?: (model: string) => Promise<boolean>;
 };
+/** Admission shares the provider deadline. Late reservations remain conservatively charged. */
+export async function admitBeforeFetch(admit: (() => Promise<boolean>) | undefined, signal: AbortSignal) {
+  signal.throwIfAborted();
+  if (!admit) return true;
+  let abort!: () => void;
+  try {
+    const allowed = await Promise.race([admit(), new Promise<never>((_, reject) => {
+      abort = () => reject(signal.reason); signal.addEventListener("abort", abort, { once: true });
+    })]);
+    signal.throwIfAborted();
+    return allowed;
+  } finally { signal.removeEventListener("abort", abort); }
+}
 type GeminiData = { error?: unknown; candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[]; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number; cachedContentTokenCount?: number } };
 
 /** Fetch can resolve at headers; keep the deadline active until the entire body is consumed. */
@@ -57,7 +73,8 @@ export async function callGeminiWithRotation(opts: GeminiCallOptions) {
   if (!opts.models.length) throw new Error("NO_MODELS_AVAILABLE");
   const deadline = Date.now() + Math.min(opts.timeoutMs ?? 35_000, 45_000);
   let lastError = "unknown";
-  for (const model of opts.models) {
+  let providerAttempts = 0;
+  models: for (const model of opts.models) {
     let retryKeys: number[] = [], retryAfterMs = 250;
     for (let round = 0; round < 2; round++) {
       const keys = round ? retryKeys : opts.keys.map((_, i) => i);
@@ -75,12 +92,28 @@ export async function callGeminiWithRotation(opts: GeminiCallOptions) {
         opts.signal?.throwIfAborted();
         const remaining = deadline - Date.now();
         if (remaining < 250) throw new Error(`AI_DEADLINE:${lastError}`);
+        // Outside the provider catch: database failures and denials must never become provider retries.
+        let allowed: boolean;
+        try {
+          allowed = await admitBeforeFetch(opts.beforeAttempt ? () => opts.beforeAttempt!(model) : undefined,
+            opts.signal ? AbortSignal.any([AbortSignal.timeout(remaining), opts.signal]) : AbortSignal.timeout(remaining));
+        } catch (error) {
+          if (error instanceof QuotaAdmissionError) throw new QuotaAdmissionError(error.code, providerAttempts);
+          throw error;
+        }
+        if (!allowed) {
+          lastError = "QUOTA_EXHAUSTED";
+          continue models;
+        }
+        opts.signal?.throwIfAborted();
+        if (Date.now() >= deadline) throw new Error("AI_DEADLINE");
         const started = Date.now(), controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), remaining);
+        const timer = setTimeout(() => controller.abort(), Math.max(1, deadline - Date.now()));
         let retryable = false;
         opts.onAttemptStart?.();
         try {
           const endpoint = opts.onText ? "streamGenerateContent?alt=sse" : "generateContent";
+          providerAttempts++;
           const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}`, {
             method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": opts.keys[keyIndex] },
             signal: opts.signal ? AbortSignal.any([controller.signal, opts.signal]) : controller.signal,
@@ -116,5 +149,6 @@ export async function callGeminiWithRotation(opts: GeminiCallOptions) {
       if (modelInvalid) { retryKeys = []; break; }
     }
   }
+  if (lastError === "QUOTA_EXHAUSTED") throw new QuotaAdmissionError("QUOTA_EXHAUSTED", providerAttempts);
   throw new Error(`ALL_MODELS_FAILED:${lastError}`);
 }

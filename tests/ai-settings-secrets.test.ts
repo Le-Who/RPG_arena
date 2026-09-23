@@ -16,6 +16,7 @@ test("getAIConfig decodes Gemini keys without opening unrelated credentials", as
     compaction_model text NOT NULL DEFAULT 'gemini-3.8-flash', fast_task_model text NOT NULL DEFAULT 'gemini-3.5-flash-lite',
     use_live_ai boolean NOT NULL DEFAULT false, daily_flash_limit integer NOT NULL DEFAULT 20, daily_lite_limit integer NOT NULL DEFAULT 500,
     enforce_limits boolean NOT NULL DEFAULT true, embeddings_enabled boolean NOT NULL DEFAULT true,
+    keys_shared_project boolean NOT NULL DEFAULT true, daily_embedding_limit integer NOT NULL DEFAULT 5000,
     embedding_model text NOT NULL DEFAULT 'gemini-embedding-2', embedding_dims integer NOT NULL DEFAULT 768,
     semantic_extraction_enabled boolean NOT NULL DEFAULT true, typesafe_key text NOT NULL DEFAULT '',
     typesafe_pilot_enabled boolean NOT NULL DEFAULT false, narrative_guard_enabled boolean NOT NULL DEFAULT true,

@@ -1,5 +1,5 @@
 // ── Единый доступ к настройкам ИИ (ключи, роутинг, лимиты, эмбеддинги) ──
-import { and, eq, gte, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { aiSettings, tokenLogs } from "@/db/schema";
 import { filterByDailyLimits, routeModelsFor, type RoutingConfig, type TaskType } from "./gemini";
@@ -7,6 +7,7 @@ import { currentProfileId } from "./identity";
 import { sessionOwnerId } from "./campaign-access";
 import { DEFAULT_EMBEDDING_DIMS } from "./embeddings";
 import { decodeGeminiSecrets, decodeSettingsSecrets, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
+import { quotaUsage, quotaTimezone } from "./quota";
 
 export type AIConfig = {
   ownerId?: string;
@@ -18,6 +19,8 @@ export type AIConfig = {
   routingConfig: RoutingConfig;
   limits: { flash: number; lite: number };
   enforceLimits: boolean;
+  keysSharedProject?: boolean;
+  dailyEmbeddingLimit?: number;
   embeddingsEnabled: boolean;
   embeddingModel: string;
   embeddingDims: number;
@@ -53,6 +56,7 @@ export function prepareGeminiKeysWrite(ownerId: string, keys: string[], keyring?
 }
 
 export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
+  quotaTimezone();
   const s = decodeGeminiSecrets(await getRawSettingsRow(ownerId));
   const dbKeys = ((s.keys as string[]) ?? []).filter(Boolean);
   const keys = [...new Set(dbKeys)];
@@ -72,6 +76,8 @@ export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
     },
     limits: { flash: s.dailyFlashLimit ?? 20, lite: s.dailyLiteLimit ?? 500 },
     enforceLimits: s.enforceLimits ?? true,
+    keysSharedProject: s.keysSharedProject ?? true,
+    dailyEmbeddingLimit: s.dailyEmbeddingLimit ?? 5000,
     embeddingsEnabled: s.embeddingsEnabled ?? true,
     embeddingModel: "gemini-embedding-2",
     embeddingDims: s.embeddingDims || DEFAULT_EMBEDDING_DIMS,
@@ -79,23 +85,9 @@ export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
   };
 }
 
-function dayStart() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
 /** Число вызовов генеративных моделей сегодня (успешных и неуспешных — квота тратится в обоих случаях). */
 export async function todayUsageByModel(ownerId?: string): Promise<Record<string, number>> {
-  const id = ownerId ?? await currentProfileId();
-  const rows = await db
-    .select({ model: tokenLogs.model, c: sql<number>`count(*)` })
-    .from(tokenLogs)
-    .where(and(eq(tokenLogs.ownerId, id), gte(tokenLogs.createdAt, dayStart()), sql`${tokenLogs.model} like 'gemini-%'`))
-    .groupBy(tokenLogs.model);
-  const out: Record<string, number> = {};
-  for (const r of rows) out[r.model] = Number(r.c);
-  return out;
+  return quotaUsage(ownerId ?? await currentProfileId());
 }
 
 /** Модели для задачи с учётом роутинга и (если включено) дневных лимитов. */
@@ -103,7 +95,7 @@ export async function pickModels(task: TaskType, cfg: AIConfig): Promise<{ model
   const routed = routeModelsFor(task, cfg.routingConfig);
   if (!cfg.enforceLimits) return { models: routed, skipped: [] };
   const usage = await todayUsageByModel(cfg.ownerId);
-  const { allowed, skipped } = filterByDailyLimits(routed, usage, cfg.limits, cfg.keys.length);
+  const { allowed, skipped } = filterByDailyLimits(routed, usage, cfg.limits, cfg.keysSharedProject === false ? cfg.keys.length : 1);
   return { models: allowed, skipped };
 }
 
@@ -123,6 +115,7 @@ export async function logToken(row: {
       ownerId: row.sessionId ? await sessionOwnerId(row.sessionId) : await currentProfileId(),
       sessionId: row.sessionId,
       model: row.model,
+      quotaReserved: row.model.startsWith("gemini-"),
       taskType: row.taskType,
       promptTokens: row.promptTokens,
       completionTokens: row.completionTokens,

@@ -108,7 +108,8 @@ export function isLite(model: string) {
 
 /**
  * DATA-1d: отфильтровать модели, исчерпавшие дневной лимит.
- * usage — число вызовов сегодня по модели; лимит умножается на число ключей (квота на ключ).
+ * Advisory only: usage is reserved attempts; caller passes multiplier 1 for shared projects.
+ * Independent-project multiplication requires explicit user configuration. Admission remains atomic in quota.ts.
  */
 export function filterByDailyLimits(
   models: string[],

@@ -10,6 +10,9 @@ import { sessionOwnerId } from "./campaign-access";
 import { currentProfileId } from "./identity";
 import { buildMemorySearchQuery, describeRetrievedNode, type DatabaseSearchResult, type RetrievedNode } from "./memory-search";
 import { runSearchQuery } from "./search-database";
+import { quotaAdmission } from "./quota";
+import { admitBeforeFetch } from "./gemini-transport";
+import { QuotaAdmissionError, quotaDeferredWithoutFetch } from "./quota-errors";
 export type { RetrievedNode } from "./memory-search";
 export { DEFAULT_EMBEDDING_DIMS, cosine, formatDocument, formatQuery };
 export const EMBEDDING_MODEL_ALIASES = [EMBEDDING_MODEL];
@@ -23,16 +26,29 @@ export async function embedTexts(opts: { keys: string[]; model: string; dims: nu
   if (opts.texts.length > 100 || opts.texts.some((s) => !s.trim() || s.length > 12000)) throw new Error("INVALID_EMBEDDING_INPUT");
   const started = Date.now();
   const budget = Math.min(opts.timeoutMs ?? 15000, 30000);
+  const ownerId = opts.sessionId ? await sessionOwnerId(opts.sessionId) : await currentProfileId();
+  const { getAIConfig } = await import("./ai-settings");
+  const admit = quotaAdmission(await getAIConfig(ownerId), "embedding");
   let lastError = "Сервис эмбеддингов недоступен";
+  let providerAttempts = 0;
   for (let i = 0; i < Math.min(opts.keys.length, 3); i++) {
     const remaining = budget - (Date.now() - started);
     if (remaining < 250) break;
+    const signal = AbortSignal.timeout(remaining);
+    try {
+      if (!await admitBeforeFetch(() => admit(opts.model), signal)) throw new QuotaAdmissionError("QUOTA_EXHAUSTED");
+    } catch (error) {
+      if (error instanceof QuotaAdmissionError) throw new QuotaAdmissionError(error.code, providerAttempts);
+      throw error;
+    }
+    if (Date.now() >= started + budget) throw new Error("AI_DEADLINE");
     const batch = opts.texts.length > 1;
     const request = (text: string) => ({ model: `models/${EMBEDDING_MODEL}`, content: { parts: [{ text }] }, outputDimensionality: opts.dims });
     try {
+      providerAttempts++;
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:${batch ? "batchEmbedContents" : "embedContent"}`, {
         method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": opts.keys[i] },
-        signal: AbortSignal.timeout(remaining), body: JSON.stringify(batch ? { requests: opts.texts.map(request) } : request(opts.texts[0])),
+        signal, body: JSON.stringify(batch ? { requests: opts.texts.map(request) } : request(opts.texts[0])),
       });
       if (!response.ok) {
         lastError = `Gemini: HTTP ${response.status}`;
@@ -54,7 +70,7 @@ export async function embedTexts(opts: { keys: string[]; model: string; dims: nu
 }
 async function logEmbeddingCall(opts: { sessionId?: string | null; texts: string[] }, latencyMs: number, success: boolean, error: string, keyIndex: number) {
   const promptTokens = opts.texts.reduce((sum, text) => sum + estimateTokens(text), 0);
-  try { await db.insert(tokenLogs).values({ ownerId: opts.sessionId ? await sessionOwnerId(opts.sessionId) : await currentProfileId(), sessionId: opts.sessionId ?? null, model: EMBEDDING_MODEL, taskType: "embedding", promptTokens, completionTokens: 0, totalTokens: promptTokens, latencyMs, success, error, keyIndex }); } catch { /* telemetry must not break play */ }
+  try { await db.insert(tokenLogs).values({ ownerId: opts.sessionId ? await sessionOwnerId(opts.sessionId) : await currentProfileId(), sessionId: opts.sessionId ?? null, model: EMBEDDING_MODEL, taskType: "embedding", quotaReserved: true, promptTokens, completionTokens: 0, totalTokens: promptTokens, latencyMs, success, error, keyIndex }); } catch { /* telemetry must not break play */ }
 }
 export async function enqueueEmbeddings(sessionId: string, nodeIds: string[], model: string, dims: number) {
   if (!nodeIds.length) return;
@@ -106,8 +122,9 @@ export async function indexPendingEmbeddings(opts: { sessionId: string; keys: st
       }
     } catch (error) {
       for (const row of batch) {
-        const attempts = row.attempts + 1;
-        const updated = await db.update(memoryEmbeddings).set({ status: attempts >= 3 ? "failed" : "pending", attempts, error: error instanceof Error ? error.message.slice(0, 200) : "Ошибка индексации", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(Date.now() + 5000 * 2 ** attempts), updatedAt: new Date() }).where(and(eq(memoryEmbeddings.id, row.id), eq(memoryEmbeddings.contentHash, row.contentHash), eq(memoryEmbeddings.leaseToken, leaseToken))).returning({ id: memoryEmbeddings.id });
+        const deferred = quotaDeferredWithoutFetch(error);
+        const attempts = row.attempts + (deferred ? 0 : 1);
+        const updated = await db.update(memoryEmbeddings).set({ status: attempts >= 3 ? "failed" : "pending", attempts, error: error instanceof Error ? error.message.slice(0, 200) : "Ошибка индексации", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(Date.now() + (deferred ? 60000 : 5000 * 2 ** attempts)), updatedAt: new Date() }).where(and(eq(memoryEmbeddings.id, row.id), eq(memoryEmbeddings.contentHash, row.contentHash), eq(memoryEmbeddings.leaseToken, leaseToken))).returning({ id: memoryEmbeddings.id });
         if (attempts >= 3) failed += updated.length;
       }
     }

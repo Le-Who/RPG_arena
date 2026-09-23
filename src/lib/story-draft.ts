@@ -191,6 +191,7 @@ const RESPONSE_SCHEMA: Record<string, unknown> = {
 };
 
 export type StoryDraftGenerationCall = {
+  beforeAttempt?: (model: string) => Promise<boolean>;
   keys: string[];
   models: string[];
   system: string;
@@ -229,6 +230,7 @@ type StoryDraftAIConfig = { keys: string[]; canUseLive: boolean };
 export type StoryDraftServiceDeps<TConfig extends StoryDraftAIConfig = StoryDraftAIConfig> = {
   loadConfig: () => Promise<TConfig>;
   selectModels: (config: TConfig) => Promise<string[]>;
+  beforeAttempt?: (config: TConfig, model: string) => Promise<boolean>;
   generate: (call: StoryDraftGenerationCall) => Promise<GenerationResult>;
   log: (row: StoryDraftLog) => Promise<void>;
   now?: () => number;
@@ -290,6 +292,7 @@ export function createStoryDraftAutofillService<TConfig extends StoryDraftAIConf
       let response: GenerationResult;
       try {
         response = await deps.generate({
+          beforeAttempt: deps.beforeAttempt ? model => deps.beforeAttempt!(config, model) : undefined,
           keys: config.keys,
           models,
           system,
