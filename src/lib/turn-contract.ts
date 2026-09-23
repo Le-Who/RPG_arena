@@ -9,7 +9,7 @@ export type TurnResponse = {
   state?: { character: CharacterState; worldState: WorldState };
 };
 export type TurnTimings = { admissionMs?: number; contextMs?: number; retrievalMs?: number; retrievalDatabaseMs?: number; retrievalEmbeddingMs?: number; retrievalCandidates?: number; retrievalBackend?: "postgres" | "legacy"; generationMs?: number; verificationMs?: number; validationMs?: number; writesMs?: number; serverMs?: number; firstTextMs?: number; attempts?: number; thoughtTokens?: number; cachedTokens?: number };
-export type TurnErrorCode = "NOT_FOUND" | "AI_REQUIRED" | "AI_FAILED" | "BUSY" | "INVALID_INPUT" | "STALE_TURN" | "IDEMPOTENCY_CONFLICT" | "LEASE_EXPIRED" | "INTERNAL";
+export type TurnErrorCode = "NOT_FOUND" | "AI_REQUIRED" | "AI_FAILED" | "QUOTA_UNAVAILABLE" | "QUOTA_ADMISSION_TIMEOUT" | "QUOTA_ADMISSION_CANCELLED" | "BUSY" | "INVALID_INPUT" | "STALE_TURN" | "IDEMPOTENCY_CONFLICT" | "LEASE_EXPIRED" | "INTERNAL";
 export type TurnError = { ok: false; code: TurnErrorCode; message: string; details?: string; retryAfter?: number; currentTurn?: number };
 export type TurnInput = { sessionId: string; action: string; isFree: boolean; requestId?: string | null; expectedTurn?: number; itemIds?: string[]; /** Server-authorized owner, never accepted from a JSON body. */ expectedOwnerId?: string };
 export type TurnStage = "context" | "generation" | "checking" | "applying" | "completed" | "failed";

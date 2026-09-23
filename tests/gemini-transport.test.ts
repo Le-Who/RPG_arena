@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { callGeminiWithRotation } from "../src/lib/gemini";
+import { QuotaAdmissionError } from "../src/lib/quota-errors";
 
 const success = () => Response.json({ candidates: [{ content: { parts: [{ text: '{"narration":"Готово"}' }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 8 } });
 const base = { keys: ["key-a"], models: ["lite", "flash"], system: "test", user: "test" };
@@ -27,7 +28,8 @@ test("stalled quota admission observes cancellation and late approval cannot fet
     global.fetch = async () => { calls++; return success(); };
     const pending = callGeminiWithRotation({ ...base, signal: controller.signal, beforeAttempt: () => new Promise(resolve => { approve = resolve; }) });
     controller.abort();
-    await assert.rejects(() => pending, /abort/i);
+    await assert.rejects(() => pending, (error: unknown) =>
+      error instanceof QuotaAdmissionError && error.code === "QUOTA_ADMISSION_CANCELLED" && error.providerAttempts === 0);
     approve(true);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(calls, 0);
@@ -38,7 +40,8 @@ test("admission time consumes the overall provider deadline", async () => {
   try {
     global.fetch = async () => { calls++; return success(); };
     await assert.rejects(() => callGeminiWithRotation({ ...base, timeoutMs: 260,
-      beforeAttempt: async () => { await new Promise(resolve => setTimeout(resolve, 300)); return true; } }), /timeout/i);
+      beforeAttempt: async () => { await new Promise(resolve => setTimeout(resolve, 300)); return true; } }), (error: unknown) =>
+      error instanceof QuotaAdmissionError && error.code === "QUOTA_ADMISSION_TIMEOUT" && error.providerAttempts === 0);
     assert.equal(calls, 0);
   } finally { global.fetch = old; }
 });

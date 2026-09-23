@@ -1,4 +1,5 @@
 import type { AttemptInfo } from "./gemini";
+import { QuotaAdmissionError } from "./quota-errors";
 
 export const STORY_TEXT_FIELDS = [
   "title",
@@ -51,7 +52,7 @@ const FIELD_LABELS: Record<StoryTextField, string> = {
 
 export class StoryDraftError extends Error {
   constructor(
-    public code: "INVALID_INPUT" | "AI_REQUIRED" | "AI_FAILED",
+    public code: "INVALID_INPUT" | "AI_REQUIRED" | "AI_FAILED" | "QUOTA_EXHAUSTED" | "QUOTA_UNAVAILABLE" | "QUOTA_ADMISSION_TIMEOUT" | "QUOTA_ADMISSION_CANCELLED",
     message: string,
     public status = code === "INVALID_INPUT" ? 400 : code === "AI_REQUIRED" ? 409 : 502,
   ) {
@@ -308,6 +309,11 @@ export function createStoryDraftAutofillService<TConfig extends StoryDraftAIConf
           },
         });
       } catch (error) {
+        if (error instanceof QuotaAdmissionError) {
+          if (error.code === "QUOTA_EXHAUSTED") throw new StoryDraftError(error.code, "Лимит Gemini 3.5 Flash Lite на сегодня исчерпан.", 429);
+          if (error.code === "QUOTA_UNAVAILABLE") throw new StoryDraftError(error.code, "Проверка дневного лимита сейчас недоступна. Попробуйте позже.", 503);
+          throw new StoryDraftError(error.code, "Проверка дневного лимита не завершилась вовремя.", 504);
+        }
         const timedOut = error instanceof Error && /timeout|deadline|abort/i.test(`${error.name} ${error.message}`);
         throw new StoryDraftError("AI_FAILED", timedOut ? "Gemini не ответил за 30 секунд." : "Gemini сейчас недоступен. Попробуйте ещё раз.", timedOut ? 504 : 502);
       }

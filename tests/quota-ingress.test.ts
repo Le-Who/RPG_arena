@@ -130,6 +130,57 @@ test("semantic job contention after preflight defers without spending a provider
   } finally { global.fetch = old; await f.close(); }
 });
 
+test("slow committed admission defers repeated semantic and embedding jobs without burning delivery retries", async () => {
+  const f = await accountsDb(); const oldFetch = global.fetch;
+  const originalTimeout = AbortSignal.timeout;
+  process.env.CHRONICLE_SECRET_ACTIVE_KEY = "quota-test";
+  process.env.CHRONICLE_SECRET_KEYS = JSON.stringify({ "quota-test": Buffer.alloc(32, 7).toString("base64") });
+  try {
+    const { processSemanticJob } = await import("../src/lib/memory-jobs");
+    const { enqueueEmbeddings, indexPendingEmbeddings } = await import("../src/lib/embeddings");
+    const { getAIConfig } = await import("../src/lib/ai-settings");
+    const { pool } = await import("../src/db");
+    const owner = "slow-admission-owner", sessionId = randomUUID(), nodeId = randomUUID();
+    await f.pg.query("INSERT INTO ai_settings(id,keys,use_live_ai,embedding_dims,enforce_limits) VALUES ($1,$2,true,128,false)",
+      [owner, JSON.stringify([sealSecret("synthetic", secretContext(owner, "gemini"))])]);
+    await f.pg.query("INSERT INTO game_sessions(id,owner_id,title,character,world_state) VALUES ($1,$2,'quota','{}','{}')", [sessionId, owner]);
+    await f.pg.query("INSERT INTO memory_jobs(session_id,turn_number,kind,payload) VALUES ($1,1,'semantic',$2)",
+      [sessionId, JSON.stringify({ narration: "A gate opened", playerAction: "Open gate", profileCanon: "narrative", knownDigest: "" })]);
+    await f.pg.query("INSERT INTO memory_nodes(id,session_id,layer,category,title,content) VALUES ($1,$2,'semantic','event','Gate','A remembered event')", [nodeId, sessionId]);
+    await enqueueEmbeddings(sessionId, [nodeId], "gemini-embedding-2", 128);
+    let fetches = 0; global.fetch = async () => { fetches++; throw new Error("Unexpected provider fetch"); };
+    const timeout = mock.method(AbortSignal, "timeout", (ms: number) => originalTimeout(Math.min(ms, 25)));
+    const query = mock.method(pool, "query", (async (...args: Parameters<typeof f.run>) => {
+      const result = await f.run(...args);
+      const text = typeof args[0] === "string" ? args[0] : args[0].text;
+      if (text.includes("INSERT INTO model_call_quotas")) await new Promise(resolve => setTimeout(resolve, 70));
+      return result;
+    }) as never);
+    try {
+      const cfg = await getAIConfig(owner);
+      for (let round = 0; round < 3; round++) {
+        assert.equal((await processSemanticJob({ sessionId, cfg })).delayed, true);
+        const embedding = await indexPendingEmbeddings({ sessionId, keys: cfg.keys, model: "gemini-embedding-2", dims: 128 });
+        assert.equal(embedding.failed, 0);
+        const job = (await f.pg.query<{ status: string; attempts: number; lease_token: string | null }>("SELECT status,attempts,lease_token FROM memory_jobs WHERE session_id=$1", [sessionId])).rows[0];
+        const vector = (await f.pg.query<{ status: string; attempts: number; lease_token: string | null }>("SELECT status,attempts,lease_token FROM memory_embeddings WHERE memory_node_id=$1", [nodeId])).rows[0];
+        assert.deepEqual(job, { status: "pending", attempts: 0, lease_token: null });
+        assert.deepEqual(vector, { status: "pending", attempts: 0, lease_token: null });
+        assert.equal(fetches, 0);
+        await f.pg.query("UPDATE memory_jobs SET next_attempt_at=now() WHERE session_id=$1", [sessionId]);
+        await f.pg.query("UPDATE memory_embeddings SET next_attempt_at=now() WHERE memory_node_id=$1", [nodeId]);
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal((await quotaUsage(owner))["gemini-3.5-flash-lite"], 3, "late committed reservations remain charged");
+      assert.equal((await quotaUsage(owner, "embedding"))["gemini-embedding-2"], 3);
+    } finally { query.mock.restore(); timeout.mock.restore(); }
+  } finally {
+    global.fetch = oldFetch;
+    delete process.env.CHRONICLE_SECRET_KEYS; delete process.env.CHRONICLE_SECRET_ACTIVE_KEY;
+    await f.close();
+  }
+});
+
 test("compaction reserves each HTTP attempt and exhausted quotas retain exact excerpts", async () => {
   const f = await accountsDb(); const old = global.fetch;
   process.env.CHRONICLE_SECRET_ACTIVE_KEY = "quota-test";

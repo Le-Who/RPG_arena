@@ -23,3 +23,11 @@ test('JSON compatibility carries phase timing and structured failures',async()=>
   const failed=await turnHttpResponse(false,async()=>({ok:false,code:'AI_FAILED',message:'retry'}),()=>{});
   assert.equal(failed.status,503);
 });
+test('JSON turn response distinguishes local quota outage and admission timeout', async () => {
+  const { turnHttpResponse } = await import('../src/lib/turn-http');
+  for (const [code, status] of [['QUOTA_UNAVAILABLE', 503], ['QUOTA_ADMISSION_TIMEOUT', 504]] as const) {
+    const response = await turnHttpResponse(false, async () => ({ ok: false, code, message: 'No turn committed' }), () => {});
+    assert.equal(response.status, status);
+    assert.equal((await response.json()).code, code);
+  }
+});

@@ -14,6 +14,8 @@ import {
   type StoryDraftGenerationCall,
 } from "../src/lib/story-draft";
 import { routeModelsFor } from "../src/lib/gemini";
+import { callGeminiWithRotation } from "../src/lib/gemini";
+import { QuotaAdmissionError } from "../src/lib/quota-errors";
 import { handleStoryDraftAutofillRequest } from "../src/lib/story-draft-route";
 
 test("route deadline includes stalled config/log work and propagates cancellation", async () => {
@@ -225,6 +227,35 @@ test("autofill rechecks Lite quota before spending the repair call", async () =>
   await assert.rejects(service(blankDraft()), (error: unknown) => error instanceof StoryDraftError && error.status === 429);
   assert.equal(quotaChecks, 2);
   assert.equal(providerCalls, 1);
+});
+
+test("autofill HTTP preserves race-time admission errors after Lite prefilter passes", async t => {
+  const oldFetch = global.fetch;
+  let fetches = 0;
+  try {
+    global.fetch = async () => { fetches++; throw new Error("Unexpected provider fetch"); };
+    for (const [admission, status, code] of [
+      [new QuotaAdmissionError("QUOTA_EXHAUSTED"), 429, "QUOTA_EXHAUSTED"],
+      [new QuotaAdmissionError("QUOTA_UNAVAILABLE"), 503, "QUOTA_UNAVAILABLE"],
+      [new QuotaAdmissionError("QUOTA_ADMISSION_TIMEOUT"), 504, "QUOTA_ADMISSION_TIMEOUT"],
+    ] as const) await t.test(code, async () => {
+      const service = createStoryDraftAutofillService({
+        loadConfig: async () => ({ keys: ["synthetic-secret"], canUseLive: true }),
+        selectModels: async () => ["gemini-3.5-flash-lite"],
+        generate: callGeminiWithRotation,
+        beforeAttempt: async () => { throw admission; },
+        log: async () => {},
+      });
+      const response = await handleStoryDraftAutofillRequest(new Request("https://game.test/api/story-drafts/autofill", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ draft: blankDraft() }),
+      }), service);
+      assert.equal(response.status, status);
+      const body = await response.json();
+      assert.equal(body.code, code);
+      assert.equal(body.message.includes("synthetic-secret"), false);
+      assert.equal(fetches, 0);
+    });
+  } finally { global.fetch = oldFetch; }
 });
 
 test("provider failures do not expose remote response bodies", async () => {

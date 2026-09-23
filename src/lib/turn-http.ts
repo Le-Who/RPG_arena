@@ -6,7 +6,10 @@ import { HttpError } from "./http";
 const failure = (error: unknown): TurnError => error instanceof HttpError
   ? { ok: false, code: error.code as TurnError["code"], message: error.message, ...error.extra }
   : { ok: false, code: "INTERNAL", message: "Не удалось завершить запрос. Проверяем сохранение хода; действие не нужно отправлять заново." };
-const status = (r: TurnError) => r.code === "NOT_FOUND" ? 404 : r.code === "BUSY" ? 429 : r.code === "INVALID_INPUT" ? 400 : r.code === "AI_FAILED" ? 503 : r.code === "INTERNAL" ? 500 : 409;
+const status = (r: TurnError) => r.code === "NOT_FOUND" ? 404 : r.code === "BUSY" ? 429 : r.code === "INVALID_INPUT" ? 400
+  : r.code === "AI_FAILED" || r.code === "QUOTA_UNAVAILABLE" ? 503
+  : r.code === "QUOTA_ADMISSION_TIMEOUT" || r.code === "QUOTA_ADMISSION_CANCELLED" ? 504
+  : r.code === "INTERNAL" ? 500 : 409;
 
 /** The ledger owns completion. Disconnecting the display never cancels an admitted turn. */
 export async function turnHttpResponse(streaming: boolean, run: (runtime: TurnRuntime) => Promise<TurnResponse | TurnError>, after: (job: () => Promise<void>) => void): Promise<Response> {

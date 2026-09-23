@@ -133,6 +133,29 @@ test("performTurn narrative guard persists only canonical, verified narration", 
         }
       } finally { fetchMock.mock.restore(); }
     });
+    await t.test("preset does not commit an offline substitute when quota ledger fails after prefilter", async () => {
+      const ownerId = "preset-ledger-owner", sessionId = randomUUID();
+      await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,scenario_id,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Ledger outage','preset','custom','narrative',$2,$3,1,$4)",
+        [sessionId, JSON.stringify(character), JSON.stringify(world), ownerId]);
+      let fetches = 0;
+      const fetchMock = mock.method(globalThis, "fetch", async () => { fetches++; throw new Error("Unexpected provider fetch"); });
+      const admission = mock.method(pool, "query", (async (query: string | { text: string; values?: unknown[]; rowMode?: string }, values?: unknown[]) => {
+        if ((typeof query === "string" ? query : query.text).includes("INSERT INTO model_call_quotas")) throw new Error("synthetic ledger outage: private details");
+        return run(query, values);
+      }) as never);
+      try {
+        const result = await performTurn({ sessionId, requestId: randomUUID(), expectedTurn: 1, action: "Осмотреть причал", isFree: true }, {
+          loadAIConfig: async () => ({ ...cfg, ownerId, enforceLimits: true }),
+          loadNarrativeConfig: async () => ({ enabled: false, provider: "typesafe", apiKey: "" }),
+          schedule() {},
+        });
+        assert.deepEqual({ ok: result.ok, code: result.ok ? null : result.code }, { ok: false, code: "QUOTA_UNAVAILABLE" });
+        assert.equal(JSON.stringify(result).includes("private details"), false);
+        assert.equal(fetches, 0);
+        assert.equal((await pg.query<{ turn_count: number }>("SELECT turn_count FROM game_sessions WHERE id=$1", [sessionId])).rows[0].turn_count, 1);
+        assert.equal((await pg.query("SELECT id FROM game_turns WHERE session_id=$1", [sessionId])).rows.length, 0);
+      } finally { admission.mock.restore(); fetchMock.mock.restore(); }
+    });
     for (const mode of ["owner-missing-key", "owner-off", "malformed", "duplicate", "pants", "description", "late-escalation"] as const) await t.test(mode, async () => {
       const ownerId = `owner-${mode}`, otherOwnerId = `other-${mode}`, sessionId = randomUUID();
       await pg.query("INSERT INTO ai_settings(id,narrative_guard_enabled,narrative_guard_provider,narrative_guard_key) VALUES ($1,$2,'typesafe',$3),($4,$5,'openrouter',$6)", [

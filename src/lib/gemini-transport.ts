@@ -99,14 +99,17 @@ export async function callGeminiWithRotation(opts: GeminiCallOptions) {
             opts.signal ? AbortSignal.any([AbortSignal.timeout(remaining), opts.signal]) : AbortSignal.timeout(remaining));
         } catch (error) {
           if (error instanceof QuotaAdmissionError) throw new QuotaAdmissionError(error.code, providerAttempts);
+          if (opts.signal?.aborted) throw new QuotaAdmissionError("QUOTA_ADMISSION_CANCELLED", providerAttempts);
+          if (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))
+            throw new QuotaAdmissionError("QUOTA_ADMISSION_TIMEOUT", providerAttempts);
           throw error;
         }
         if (!allowed) {
           lastError = "QUOTA_EXHAUSTED";
           continue models;
         }
-        opts.signal?.throwIfAborted();
-        if (Date.now() >= deadline) throw new Error("AI_DEADLINE");
+        if (opts.signal?.aborted) throw new QuotaAdmissionError("QUOTA_ADMISSION_CANCELLED", providerAttempts);
+        if (Date.now() >= deadline) throw new QuotaAdmissionError("QUOTA_ADMISSION_TIMEOUT", providerAttempts);
         const started = Date.now(), controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), Math.max(1, deadline - Date.now()));
         let retryable = false;

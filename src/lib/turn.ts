@@ -3,6 +3,7 @@ import { after } from "next/server";
 import { and, asc, count, desc, eq, gt, sql } from "drizzle-orm";
 import { db, pool } from "@/db";
 import { quotaAdmission } from "./quota";
+import { QuotaAdmissionError } from "./quota-errors";
 import {
   gameSessions,
   gameTurns,
@@ -361,6 +362,11 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       await logToken({ sessionId, model: res.model, taskType, promptTokens, completionTokens, latencyMs: res.latencyMs, success: true, keyIndex: res.keyIndex });
     } catch (e) {
       if (e instanceof HttpError) throw e;
+      if (e instanceof QuotaAdmissionError && e.code !== "QUOTA_EXHAUSTED") {
+        return { ok: false, code: e.code, message: e.code === "QUOTA_UNAVAILABLE"
+          ? "Проверка дневного лимита сейчас недоступна. Ход не сохранён; повторите попытку."
+          : "Проверка дневного лимита не завершилась вовремя. Ход не сохранён; повторите попытку." };
+      }
       const msg = e instanceof Error ? e.message : String(e);
       if (campaignMode === "free" || (narrativeConfig.enabled && emittedPrefix)) {
         return { ok: false, code: "AI_FAILED", message: "ИИ-мастер сейчас недоступен. Ход не записан — повторите через минуту.", details: msg.slice(0, 200) };

@@ -39,9 +39,11 @@ export async function embedTexts(opts: { keys: string[]; model: string; dims: nu
       if (!await admitBeforeFetch(() => admit(opts.model), signal)) throw new QuotaAdmissionError("QUOTA_EXHAUSTED");
     } catch (error) {
       if (error instanceof QuotaAdmissionError) throw new QuotaAdmissionError(error.code, providerAttempts);
+      if (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))
+        throw new QuotaAdmissionError("QUOTA_ADMISSION_TIMEOUT", providerAttempts);
       throw error;
     }
-    if (Date.now() >= started + budget) throw new Error("AI_DEADLINE");
+    if (Date.now() >= started + budget) throw new QuotaAdmissionError("QUOTA_ADMISSION_TIMEOUT", providerAttempts);
     const batch = opts.texts.length > 1;
     const request = (text: string) => ({ model: `models/${EMBEDDING_MODEL}`, content: { parts: [{ text }] }, outputDimensionality: opts.dims });
     try {
