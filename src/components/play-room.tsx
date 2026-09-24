@@ -1,7 +1,7 @@
 "use client";
 import { buildNarrativeFeed } from "@/lib/narrative-feed";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type React from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, Backpack, BookOpen, BookOpenText, BrainCircuit, Check, ChevronUp, Compass, CornerDownLeft, Dices, Download, Feather, Flag, GitBranch, Globe2, Heart, LoaderCircle, MapPin, Minimize2, Plus, RefreshCw, Send, ShieldCheck, Sparkles, UserRound, WifiOff } from "lucide-react";
 import { useApp } from "./app-shell";
@@ -163,6 +163,17 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   }, [commandReady, commandOwner, commandActive, commandTurn, busy, compacting, compact, setPlayCommands, workspace.reading.motion]);
   const restore = async () => { try { await api(`/api/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) }); await reload(); void refresh(); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } };
 
+  // Memoize derived variables (to respect React Rules of Hooks, call unconditionally before returns)
+  const discoveredLocations = useMemo(() => {
+    if (!snapshot) return [];
+    return snapshot.locations.filter((location) => location.discovered);
+  }, [snapshot]);
+
+  const currentLocationObjects = useMemo(() => {
+    if (!snapshot) return [];
+    return snapshot.sceneObjects.filter((o) => o.locationName === snapshot.session.worldState.currentLocation);
+  }, [snapshot]);
+
   if (loadError) return <div className="empty-state gx-fallback"><BookOpen size={34} /><h3>Не удалось открыть эту главу</h3><p>{loadError}</p><button className="button secondary" onClick={() => void reload().catch((e) => setLoadError(e.message))}><RefreshCw size={15} />Попробовать снова</button><Link className="text-link" href="/campaigns">Вернуться к кампаниям</Link></div>;
   if (!snapshot) return <div className="gx-loading"><span className="gx-loading-orb"><LoaderCircle size={30} className="spin" /></span><h2>Открываем вашу историю…</h2><p>Загружаем мир, персонажей и сохранённые решения.</p></div>;
 
@@ -285,10 +296,10 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
           </div>}
           {sideTab === "world" && <div className="gx-side-section">
             <div className="gx-here"><MapPin size={22} /><small>Вы находитесь здесь</small><h3>{world.currentLocation}</h3><p>{world.worldName}</p></div>
-            {locations.length > 0 && <WorldMap locations={locations.filter((location) => location.discovered)} currentLocation={world.currentLocation} onLocationClick={(name) => { if (active && !busy) { setAction(`Отправиться в «${name}»`); composerRef.current?.focus(); } }} />}
+            {locations.length > 0 && <WorldMap locations={discoveredLocations} currentLocation={world.currentLocation} onLocationClick={(name) => { if (active && !busy) { setAction(`Отправиться в «${name}»`); composerRef.current?.focus(); } }} />}
             <div className="gx-side-title">Известные локации</div>
-            <div className="gx-locs">{locations.filter((location) => location.discovered).map((location) => <div key={location.id} className={`gx-loc ${location.current ? "current" : ""}`}><Compass size={16} /><span><strong>{location.name}</strong><small>{location.description}</small></span>{location.current && <Check size={14} />}</div>)}</div>
-            {!!sceneObjects.filter((o) => o.locationName === world.currentLocation).length && <><div className="gx-side-title">Окружение</div>{sceneObjects.filter((object) => object.locationName === world.currentLocation).map((object) => <div className="gx-scene" key={object.id}><div className="gx-scene-head"><strong>{object.name}</strong><span>{object.state}</span></div><p>{object.description}</p></div>)}</>}
+            <div className="gx-locs">{discoveredLocations.map((location) => <div key={location.id} className={`gx-loc ${location.current ? "current" : ""}`}><Compass size={16} /><span><strong>{location.name}</strong><small>{location.description}</small></span>{location.current && <Check size={14} />}</div>)}</div>
+            {!!currentLocationObjects.length && <><div className="gx-side-title">Окружение</div>{currentLocationObjects.map((object) => <div className="gx-scene" key={object.id}><div className="gx-scene-head"><strong>{object.name}</strong><span>{object.state}</span></div><p>{object.description}</p></div>)}</>}
             <div className="gx-side-title">Знакомые лица</div>
             {npcs.length ? npcs.map((npc) => <div className="gx-npc" key={npc.id}><span className="gx-npc-avatar"><UserRound size={18} /></span><div><strong>{npc.name}</strong><small>{npc.role || "—"} · {npc.status === "dead" ? "Погиб" : npc.relation > 0 ? "Расположен к вам" : npc.relation < 0 ? "Не доверяет" : "Нейтрален"}</small></div><span className={`gx-npc-rel ${npc.relation > 0 ? "pos" : npc.relation < 0 ? "neg" : ""}`}>{npc.relation > 0 ? "+" : ""}{npc.relation}</span></div>) : <p className="gx-side-hint">Новые знакомства ещё впереди.</p>}
           </div>}
