@@ -33,7 +33,7 @@ import {
 import { getAIConfig, logToken, pickModels, type AIConfig } from "./ai-settings";
 import { assembleMemoryDigest, LAYER_INFO, loadRankedNodes, shouldCompact, writeStateEvents, type ModelTier } from "./memory";
 import { retrievedDigest, searchMemory, type RetrievedNode } from "./embeddings";
-import { applyResolution, emptyChanges, parseResolution, type DbOp, type ResolutionPayload } from "./resolution";
+import { applyResolution, emptyChanges, parseResolution, type DbOp, type NpcRow, type ResolutionPayload } from "./resolution";
 import { profileFor } from "./profiles";
 import { runOfflineEngine } from "./engine";
 import { SCENARIOS } from "./scenarios";
@@ -64,6 +64,9 @@ import { verifyNarrative } from "./narrative-verifier";
 import { parseCompleteNarrativeDraft } from "./narrative-stream";
 import { applyLife, buildLifePromptBlock, classifyIntent, emptyLifeChanges, gateByIntent, readLife } from "./world-life";
 import { checkInteraction, inferInteraction } from "./interactions";
+import { AGENDA_PROPOSAL_INSTRUCTION, applyAgenda, buildAgendaPromptBlock, emptyAgendaChanges } from "./world-agenda";
+import { applyConditionTimers, describeConditionEffects } from "./conditions";
+import { buildNarratorPromptBlock, narratorMaxTokens, readNarratorPreferences } from "./narrator-preferences";
 import { GUARDED_RESOLUTION_SCHEMA, NARRATIVE_GENERATION_INSTRUCTION, NARRATIVE_REPAIR_SCHEMA, guardedPreview, hasDescriptiveMetadata, parseNarrativeRepair } from "./narrative-generation";
 
 export type TurnRuntime = {
@@ -77,7 +80,8 @@ const short = (id: string) => id.slice(0, 6);
 
 export function buildCharacterLine(c: CharacterState, rulesProfile: string): string {
   const spec = profileFor(rulesProfile);
-  const conds = c.conditions?.length ? `, состояния: ${c.conditions.join(", ")}` : "";
+  const effects = spec.check === "none" ? "" : describeConditionEffects(c.conditions);
+  const conds = c.conditions?.length ? `, состояния: ${c.conditions.join(", ")}${effects ? ` [механика: ${effects}]` : ""}` : "";
   const skills = c.skills?.length ? `, навыки: ${c.skills.join(", ")}` : "";
   const traits = c.traits?.length ? `, черты: ${c.traits.join(", ")}` : "";
   if (spec.id === "d20") {
@@ -286,6 +290,10 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   const interactionCheck = checkInteraction(inferInteraction(playerAction, interactionState, opts.itemIds ?? []), interactionState);
   const intent = classifyIntent(playerAction);
   const lifeBlock = buildLifePromptBlock(world, intent, interactionCheck.directive);
+  // WORLD-2 / NARR-10: повестка мира и голос рассказчика — оба блока пусты/нейтральны для старых кампаний.
+  const agendaBlock = buildAgendaPromptBlock(world);
+  const narratorPrefs = readNarratorPreferences(world);
+  const narratorBlock = buildNarratorPromptBlock(narratorPrefs);
   const worldLine = `Мир ${world.worldName}, тон: ${world.tone}, эпоха: ${world.era}, главная цель: ${world.mainQuest}, глава ${world.chapter}, накал ${world.danger}/100${world.factions?.length ? `, фракции: ${world.factions.join(", ")}` : ""}`;
 
   let payload: ResolutionPayload | null = null;
@@ -312,7 +320,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       diceBlock: buildDiceBlock(dice),
       playerAction: actionForModel,
     };
-    const system = buildTurnSystemPrompt(ctx) + lifeBlock + (narrativeConfig.enabled ? NARRATIVE_GENERATION_INSTRUCTION : "");
+    const system = buildTurnSystemPrompt(ctx) + lifeBlock + AGENDA_PROPOSAL_INSTRUCTION + agendaBlock + narratorBlock + (narrativeConfig.enabled ? NARRATIVE_GENERATION_INSTRUCTION : "");
     const user = buildTurnUserPrompt(ctx) + (narrativeConfig.enabled ? `\nORIGINAL_EVIDENCE:\n${JSON.stringify(evidence)}\nAGREEMENT_HISTORY (версии в порядке записи; поздняя версия заменяет предыдущую, proposed не означает accepted):\n${JSON.stringify(agreementContext)}` : "");
     const generationStarted = performance.now();
     let streamedJson = "", preview = "";
@@ -325,7 +333,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
         models,
         system,
         user,
-        maxTokens: tier === "flash" ? 2200 : 1800,
+        maxTokens: narratorMaxTokens(tier === "flash" ? 2200 : 1800, narratorPrefs),
         temperature: 0.8,
         responseSchema: narrativeConfig.enabled ? GUARDED_RESOLUTION_SCHEMA : RESOLUTION_RESPONSE_SCHEMA,
         timeoutMs: Math.min(30_000, remainingMs()),
@@ -397,7 +405,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       isFreeAction: opts.isFree,
       resolvedDice: dice,
       rulesProfile: spec.id,
-      character: { name: character.name, archetype: character.archetype, stats: character.stats ?? {}, hp: character.hp, maxHp: character.maxHp },
+      character: { name: character.name, archetype: character.archetype, stats: character.stats ?? {}, hp: character.hp, maxHp: character.maxHp, conditions: character.conditions },
       world: { worldName: world.worldName, currentLocation: world.currentLocation, mainQuest: world.mainQuest, danger: world.danger, chapter: world.chapter, tone: world.tone },
       turnCount: nextTurn,
       scenarioTitle: session.scenarioTitle,
@@ -536,6 +544,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     ...(modelUsed.startsWith("offline-engine") ? { decision: "skipped_offline" } : {}) });
   // ── INTERACT-2/3, NARR-7: время, передачи, договорённости, форма истории ──
   const touchedItemIds = new Set(result.ops.flatMap((op) => (op.t === "inv.update" || op.t === "inv.delete" ? [op.id] : [])));
+  const agendaStartClock = readLife(result.world).clock;
   const mainQuestCompleted = result.applied.quests.some((q) => q.status === "completed" && questRows.some((row) => row.isMain && row.title === q.title));
   const lifeResult = applyLife({ world: result.world, inventory, npcs: npcRows, locations, life: payload.life ?? emptyLifeChanges(), intent,
     defaultMinutes: interactionCheck.defaultMinutes, turnNumber: nextTurn, touchedItemIds, mainQuestCompleted,
@@ -545,6 +554,27 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   result.events.push(...lifeResult.events);
   result.applied.life = lifeResult.applied;
   result.applied.rejected.push(...intentRejected, ...lifeResult.rejected);
+  // ── WORLD-2: повестка мира и цели NPC — после сдвига часов, чтобы «наступившие» события определялись новым временем ──
+  const agendaNpcs: NpcRow[] = npcRows.map((npc) => ({ ...npc }));
+  for (const op of result.ops) {
+    if (op.t === "npc.insert") agendaNpcs.push({ id: op.row.key, ...op.row });
+    if (op.t === "npc.update") {
+      const row = agendaNpcs.find((npc) => npc.id === op.id);
+      if (row) Object.assign(row, op.patch);
+    }
+  }
+  const agendaResult = applyAgenda({ world: result.world, startClock: agendaStartClock, npcs: agendaNpcs, changes: payload.agenda ?? emptyAgendaChanges(), intent, turnNumber: nextTurn, narration: payload.narration });
+  result.world = agendaResult.world;
+  result.events.push(...agendaResult.events);
+  result.applied.agenda = agendaResult.applied;
+  result.applied.rejected.push(...agendaResult.rejected);
+  // ── MECH-4: состояния с длительностью снимаются по часам мира, новые получают срок ──
+  const timers = applyConditionTimers({ world: result.world, character: result.character, clock: readLife(result.world).clock, added: result.applied.conditions.added, turnNumber: nextTurn });
+  result.world = timers.world;
+  result.character = timers.character;
+  result.events.push(...timers.events);
+  result.applied.conditionTimers = { expired: timers.expired, scheduled: timers.scheduled };
+  if (timers.expired.length) result.applied.conditions.removed.push(...timers.expired);
   result.applied.interaction = interactionCheck.interaction
     ? { verb: interactionCheck.interaction.verb, label: interactionCheck.label, target: interactionCheck.interaction.target.name, valid: interactionCheck.valid, reasons: interactionCheck.reasons }
     : null;

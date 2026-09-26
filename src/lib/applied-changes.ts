@@ -54,6 +54,15 @@ export function describeAppliedChanges(applied: AppliedChanges): ChangeChip[] {
     for (const c of life.commitments) add(`${c.isNew ? "Новая договорённость" : "Договорённость"}: ${c.title} — ${COMMITMENT_LABELS[c.status].toLowerCase()}`, c.status === "broken" || c.status === "cancelled" ? "failed" : c.status === "fulfilled" ? "check" : "quest", c.status === "broken" ? "negative" : c.status === "fulfilled" || c.status === "accepted" ? "positive" : "neutral");
     if (life.clock && (life.clock.newDay || life.clock.minutes >= 60)) add(life.clock.newDay ? `Новый день · ${life.clock.to}` : `Прошло ${Math.round(life.clock.minutes / 60)} ч`, "hidden");
   }
+  // WORLD-2: повестка мира
+  if (applied.agenda) {
+    for (const e of applied.agenda.fired) add(`Наступило: ${e.title}`, "hidden", "neutral");
+    for (const e of applied.agenda.scheduled) add(`Запланировано: ${e.title} · ${e.at}`, "quest");
+    for (const title of applied.agenda.cancelled) add(`Отменено: ${title}`, "failed");
+    for (const g of applied.agenda.npcGoals) add(`${g.name}: ${g.goal ? `хочет ${g.goal}` : g.routine}`, "person");
+  }
+  // MECH-4: состояния, снятые временем
+  for (const condition of applied.conditionTimers?.expired ?? []) add(`Прошло со временем: ${condition}`, "condition-remove", "positive");
   if (applied.interaction && !applied.interaction.valid) add(`Недоступно: ${applied.interaction.reasons[0] ?? applied.interaction.label}`, "warning", "negative");
   return chips;
 }

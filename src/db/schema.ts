@@ -93,6 +93,11 @@ export type WorldState = {
   story?: import("../lib/world-life").StoryShape;
   commitments?: import("../lib/world-life").Commitment[];
   holdings?: import("../lib/world-life").Holding[];
+  // WORLD-2 / NARR-10 / MECH-4 (2.8): повестка мира, цели NPC, голос рассказчика и таймеры состояний.
+  agenda?: import("../lib/world-agenda").AgendaEvent[];
+  npcAgendas?: import("../lib/world-agenda").NpcAgenda[];
+  narrator?: import("../lib/narrator-preferences").NarratorPreferences;
+  conditionTimers?: import("../lib/conditions").ConditionTimers;
 };
 
 export type DiceResult = {
@@ -131,6 +136,10 @@ export type AppliedChanges = {
   life?: import("../lib/world-life").LifeApplied;
   /** INTERACT-1: распознанное серверное действие над сущностью. */
   interaction?: { verb: string; label: string; target: string; valid: boolean; reasons: string[] } | null;
+  /** WORLD-2: запланированные/наступившие события и раскрытые цели NPC. */
+  agenda?: import("../lib/world-agenda").AgendaApplied;
+  /** MECH-4: состояния, снятые по времени мира, и новые таймеры. */
+  conditionTimers?: { expired: string[]; scheduled: { condition: string; expiresAt: import("../lib/world-life").WorldClock }[] };
 };
 
 export type TurnContextMeta = {

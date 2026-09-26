@@ -60,9 +60,11 @@ export function hasDescriptiveMetadata(header: Record<string, unknown>): boolean
   // A lossy normalizer cannot certify metadata as safe to stream.
   if (!record(effects) || Object.keys(effects).length !== 4 || !["hp", "xp", "gold", "danger"].every(k => effects[k] === 0)
     || !record(changes) || !Array.isArray(header.choices) || header.choices.some(c => typeof c !== "string")) return false;
-  const known = ["location", "locations", "routes", "quests", "npcs", "inventory", "sceneObjects", "conditions", "flags"];
-  if (Object.keys(changes).some(k => !known.includes(k)) || !known.every(k => k in changes)) return false;
+  const requiredKnown = ["location", "locations", "routes", "quests", "npcs", "inventory", "sceneObjects", "conditions", "flags"];
+  const optionalKnown = ["events", "npcGoals"];
+  if (Object.keys(changes).some(k => !requiredKnown.includes(k) && !optionalKnown.includes(k)) || !requiredKnown.every(k => k in changes)) return false;
   if (!["locations", "routes", "quests", "npcs", "inventory", "sceneObjects"].every(k => Array.isArray(changes[k]) && changes[k].length === 0)
+    || !optionalKnown.every(k => changes[k] === undefined || (Array.isArray(changes[k]) && changes[k].length === 0))
     || !record(changes.conditions) || !Array.isArray(changes.conditions.add) || !Array.isArray(changes.conditions.remove)
     || changes.conditions.add.length || changes.conditions.remove.length || Object.keys(changes.conditions).length !== 2
     || !(record(changes.flags) || Array.isArray(changes.flags)) || Object.keys(changes.flags).length) return false;

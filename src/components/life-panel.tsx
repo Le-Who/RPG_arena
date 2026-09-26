@@ -6,6 +6,7 @@ import { api } from "@/lib/api-client";
 import { COMMITMENT_LABELS, STORY_SHAPE_LABELS, commitmentAlerts, formatClock, readLife, type StoryShape, type StoryShapeKind } from "@/lib/world-life";
 import { WAIT_OPTIONS, formatMinutes, interactionText, type InteractionState } from "@/lib/interactions";
 import { EntityActions } from "./entity-actions";
+import { NarratorSection, WorldAgendaSection } from "./world-agenda-panel";
 
 /** INTERACT-2 / NARR-7: время мира, форма истории, договорённости и вещи, которые сейчас не у героя. */
 export function LifePanel({ sessionId, world, canEdit, disabled, interactionState, onPick, onSaved }: {
@@ -75,10 +76,14 @@ export function LifePanel({ sessionId, world, canEdit, disabled, interactionStat
     }) : <p className="gx-side-hint">Встречи, обещания и сделки появятся, когда вы договоритесь с кем-то в истории. Предложение не равно согласию: статус меняется только после ответа другой стороны.</p>}
     {!!closed.length && <details className="lx-closed"><summary>Закрытые · {closed.length}</summary>{closed.map((c) => <p key={c.id}>{c.title} — {COMMITMENT_LABELS[c.status].toLowerCase()}</p>)}</details>}
 
+    <WorldAgendaSection world={world} />
+
     <div className="gx-side-title"><PackageOpen size={13} />Вещи не у героя</div>
     {life.holdings.length ? life.holdings.slice(-12).reverse().map((h) => <div key={h.id} className="lx-holding">
       <div><strong>{h.name}{h.quantity > 1 ? ` ×${h.quantity}` : ""}</strong><small>{h.holderKind === "npc" ? `У ${h.holderName}` : `Лежит: ${h.holderName}`} · с хода {h.turn}</small></div>
       {h.holderKind === "location" && <EntityActions kind="holding" refId={`${h.holderKey}:${h.name}`} name={h.name} state={interactionState} disabled={disabled} onPick={onPick} />}
     </div>) : <p className="gx-side-hint">Переданные и оставленные вещи сохраняют владельца и место — их можно будет вернуть по сюжету.</p>}
+
+    <NarratorSection sessionId={sessionId} world={world} canEdit={canEdit} disabled={disabled} onSaved={onSaved} />
   </div>;
 }

@@ -17,6 +17,10 @@ import { classifyAction } from "@/lib/action-kind";
 import { WorldMap } from "./world-map";
 import { EntityActions } from "./entity-actions";
 import { LifePanel } from "./life-panel";
+import { RecapCard } from "./recap-card";
+import { recapLastTurnAt, shouldOfferRecap } from "@/lib/recap";
+import { conditionExpiry, conditionRule } from "@/lib/conditions";
+import { formatClock } from "@/lib/world-life";
 import { VisualGallery } from "./visual-gallery";
 import { readLife } from "@/lib/world-life";
 import type { InteractionState } from "@/lib/interactions";
@@ -51,6 +55,8 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const [sideTab, setSideTab] = useState<(typeof SIDE_TABS)[number]["id"]>("hero");
   const [reading, setReading] = useState(false);
   const [compactNeeded, setCompactNeeded] = useState(false);
+  // NARR-9: резюме показывается автоматически после долгого перерыва и по команде.
+  const [recapState, setRecapState] = useState<"auto" | "open" | "closed" | "idle">("idle");
   const [compacting, setCompacting] = useState(false);
   const [older, setOlder] = useState<Snapshot["turns"]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -71,12 +77,14 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const reload = useCallback(async () => {
     const result = await api<Snapshot>(`/api/sessions/${sessionId}?memories=8`);
     setSnapshot(old => old && old.session.turnCount > result.session.turnCount ? old : result);
+    // Первая загрузка после перерыва ≥ 6 ч: предлагаем «Ранее в истории» один раз, без AI.
+    setRecapState(state => state === "idle" ? (shouldOfferRecap({ turnCount: result.session.turnCount, updatedAt: recapLastTurnAt(result.turns, result.session.updatedAt) }) ? "auto" : "closed") : state);
     setCommittedTurn(old => old && result.session.turnCount < old.turnNumber ? old : null);
     setSyncError(""); setLoadError(""); return result;
   }, [sessionId]);
   const onCommitted = useCallback(async (result: TurnResponse) => {
     const suppressScroll = !!document.querySelector('[role="dialog"]');
-    setCommittedTurn(result); setSnapshot(current => applyCommittedSnapshot(current, result)); setCompactNeeded(result.needsCompaction); setAction(""); setItemBindings([]); setSyncError("");
+    setCommittedTurn(result); setSnapshot(current => applyCommittedSnapshot(current, result)); setCompactNeeded(result.needsCompaction); setAction(""); setItemBindings([]); setSyncError(""); setRecapState("closed");
     const refreshStarted = performance.now();
     void reload().then(snapshot => {
       if (snapshot.session.turnCount < result.turnNumber) throw new Error("Состояние сцены ещё обновляется.");
@@ -105,6 +113,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     let active = true;
     api<Snapshot>(`/api/sessions/${sessionId}?memories=8`).then((result) => {
       if (!active) return; setSnapshot(old => old && old.session.turnCount > result.session.turnCount ? old : result);
+      setRecapState(state => state === "idle" ? (!window.location.hash && shouldOfferRecap({ turnCount: result.session.turnCount, updatedAt: recapLastTurnAt(result.turns, result.session.updatedAt) }) ? "auto" : "closed") : state);
       if (window.location.hash && !document.querySelector('[role="dialog"]')) setTimeout(() => { if (!document.querySelector('[role="dialog"]')) document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ behavior: "smooth", block: "center" }); }, 150);
     }).catch((e) => { if (active) setLoadError(e.message); });
     return () => { active = false; };
@@ -161,6 +170,9 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     if (!commandReady) { setPlayCommands([]); return; }
     const commands = [
       { id: "reading", label: "Переключить режим чтения", run: () => setReading(value => !value) },
+      { id: "recap", label: "Ранее в истории", run: () => { setRecapState("open"); setTimeout(() => document.getElementById("recap-title")?.scrollIntoView({ block: "start", behavior: "smooth" }), 60); } },
+      { id: "first", label: "К началу истории", run: () => document.getElementById("turn-1")?.scrollIntoView({ block: "start", behavior: workspace.reading.motion === "reduced" ? "instant" : "smooth" }) },
+      { id: "life", label: "Жизнь мира: время, события, договорённости", run: () => { setReading(false); setSideTab("life"); } },
       { id: "latest", label: "К последнему ходу", run: () => document.getElementById(`turn-${commandTurn}`)?.scrollIntoView({ block: "start", behavior: workspace.reading.motion === "reduced" ? "instant" : "smooth" }) },
       ...(commandOwner && !busy && !compacting ? [{ id: "checkpoints", label: "Контрольные точки и ветки", run: () => setShowCheckpoints(true) }] : []),
       ...(commandOwner && commandActive && !busy && !compacting ? [{ id: "compact", label: "Сохранить главы в память", run: () => { void compact(); } }] : []),
@@ -231,6 +243,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
         {active && session.turnCount === 1 && <div className="gx-onboarding"><div className="gx-onboarding-head"><Sparkles size={16} /><strong>Начните своё приключение</strong></div><p>Опишите первое действие своими словами или выберите один из предложенных вариантов. Каждое решение меняет мир — сервер сохранит все последствия.</p><div className="gx-onboarding-examples">{["Осмотреться и изучить окружение", "Поговорить с ближайшим персонажем", "Проверить инвентарь и снаряжение"].map((example) => <button key={example} onClick={() => { setAction(example); composerRef.current?.focus(); }} disabled={busy}>{example}</button>)}</div><div className="gx-onboarding-foot">Совет: используйте клавишу «/» для быстрого перехода к полю ввода</div></div>}
 
         <div className="gx-feed">
+          {(recapState === "open" || recapState === "auto") && <RecapCard sessionId={sessionId} onClose={() => setRecapState("closed")} onNotify={notify} />}
           {turns[0]?.turnNumber > 1 && <button className="gx-load-earlier" onClick={() => void loadEarlier()} disabled={loadingOlder}>{loadingOlder ? <LoaderCircle size={14} className="spin" /> : <ChevronUp size={14} />}Предыдущие главы</button>}
           {turns.map((turn) => <article className={`gx-turn ${turn.role === "player" ? "is-player" : "is-narrator"}`} key={turn.key} aria-busy={turn.pending || undefined} id={`turn-${turn.turnNumber}${turn.role === "player" ? "-player" : ""}`}>
             <div className="gx-turn-head">
@@ -288,7 +301,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             {session.rulesProfile === "d20" && <div className="gx-stats">{Object.entries(character.stats).map(([key, value]) => <div key={key}><small>{key}</small><strong>{value}</strong></div>)}</div>}
             <div className="gx-side-title">Навыки и черты</div>
             <div className="gx-chips">{[...character.skills, ...character.traits].map((skill) => <span key={skill} className="gx-tag">{skill}</span>)}</div>
-            {!!character.conditions?.length && <><div className="gx-side-title">Состояния</div><div className="gx-chips">{character.conditions.map((condition) => <span key={condition} className="gx-tag warn">{condition}</span>)}</div></>}
+            {!!character.conditions?.length && <><div className="gx-side-title">Состояния</div><div className="gx-chips">{character.conditions.map((condition) => { const rule = session.rulesProfile === "narrative" ? null : conditionRule(condition); const until = conditionExpiry(world, condition); return <span key={condition} className="gx-tag warn" title={rule ? `${rule.label}: ${rule.modifier > 0 ? "+" : ""}${rule.modifier}. ${rule.note}${until ? ` Пройдёт к ${formatClock(until)}.` : ""}` : until ? `Пройдёт к ${formatClock(until)}.` : "Описательное состояние без модификатора"}>{condition}{rule && <small> {rule.modifier > 0 ? "+" : ""}{rule.modifier}</small>}</span>; })}</div></>}
             <div className="gx-side-title"><Flag size={13} />Цели истории</div>
             {quests.map((quest) => <div className="gx-quest" key={quest.id}><div className="gx-quest-head"><span className={`gx-dot ${quest.status === "completed" ? "done" : quest.status === "failed" ? "fail" : ""}`} /><strong>{quest.title}</strong></div><div className="gx-quest-meta"><span>{quest.status === "completed" ? "Завершено" : quest.status === "failed" ? "Провалено" : quest.isMain ? "Главная цель" : "Побочная цель"}</span><span>{quest.progress}%</span></div><div className="gx-bar"><i style={{ width: `${quest.progress}%` }} /></div></div>)}
           </div>}

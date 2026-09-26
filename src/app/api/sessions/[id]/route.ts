@@ -1,4 +1,5 @@
 import { normalizeStoryShape } from "@/lib/world-life";
+import { normalizeNarratorPreferences, writeNarratorPreferences } from "@/lib/narrator-preferences";
 import type { WorldState } from "@/db/schema";
 import { withCampaignAccess } from "@/lib/campaign-access";
 import { after, NextResponse } from "next/server";
@@ -73,21 +74,27 @@ async function handlePATCH(req: Request, { params }: { params: Promise<{ id: str
   if (typeof body.title === "string" && body.title.trim()) patch.title = body.title.trim().slice(0, 80);
   if (typeof body.status === "string" && ["active", "archived", "paused", "finished"].includes(body.status)) patch.status = body.status;
   const storyInput = body.storyShape && typeof body.storyShape === "object" && !Array.isArray(body.storyShape) ? body.storyShape as Record<string, unknown> : null;
-  if (!patch.title && !patch.status && !patch.visibility && !storyInput) return NextResponse.json({ error: "Нет изменений" }, { status: 400 });
+  // NARR-10: голос рассказчика принадлежит кампании и хранится в world_state.narrator.
+  const narratorInput = body.narrator && typeof body.narrator === "object" && !Array.isArray(body.narrator) ? body.narrator : null;
+  if (!patch.title && !patch.status && !patch.visibility && !storyInput && !narratorInput) return NextResponse.json({ error: "Нет изменений" }, { status: 400 });
   const row = await db.transaction(async (tx) => {
     await lockSession(tx, id);
     await assertNoRunningTurn(tx, id);
-    if (storyInput) {
+    if (storyInput || narratorInput) {
       // NARR-7: форма истории редактируется владельцем; статус завершения меняется только событиями хода
       // или явным «продолжить после финала» (reopen).
       const [current] = await tx.select({ worldState: gameSessions.worldState }).from(gameSessions).where(eq(gameSessions.id, id));
       if (!current) return [];
-      const world = current.worldState as WorldState;
-      const previous = normalizeStoryShape(world.story, world);
-      const next = normalizeStoryShape({ ...previous, ...storyInput, status: storyInput.reopen === true ? "ongoing" : previous.status }, world);
-      if (storyInput.reopen !== true && previous.resolvedTurn !== undefined) next.resolvedTurn = previous.resolvedTurn;
-      if (previous.epilogue && storyInput.reopen !== true) next.epilogue = previous.epilogue;
-      return tx.update(gameSessions).set({ ...patch, worldState: { ...world, story: next } }).where(eq(gameSessions.id, id)).returning();
+      let world = current.worldState as WorldState;
+      if (storyInput) {
+        const previous = normalizeStoryShape(world.story, world);
+        const next = normalizeStoryShape({ ...previous, ...storyInput, status: storyInput.reopen === true ? "ongoing" : previous.status }, world);
+        if (storyInput.reopen !== true && previous.resolvedTurn !== undefined) next.resolvedTurn = previous.resolvedTurn;
+        if (previous.epilogue && storyInput.reopen !== true) next.epilogue = previous.epilogue;
+        world = { ...world, story: next };
+      }
+      if (narratorInput) world = writeNarratorPreferences(world, normalizeNarratorPreferences(narratorInput));
+      return tx.update(gameSessions).set({ ...patch, worldState: world }).where(eq(gameSessions.id, id)).returning();
     }
     return tx.update(gameSessions).set(patch).where(eq(gameSessions.id, id)).returning();
   });

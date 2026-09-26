@@ -52,7 +52,7 @@ export async function acquireTurn(input: TurnInput & { requestId: string }): Pro
       if (!last?.choices?.some(choice => choice.trim() === input.action)) throw new HttpError(409, "INVALID_INPUT", "Такого варианта нет в текущей сцене. Обновите её или отправьте свободное действие.");
     }
     // Input mode selects the narration route, not whether campaign mechanics apply.
-    const dice = previous ? previous.dice : serverCheck({ rulesProfile: session.rulesProfile, playerAction: input.action, stats: session.character.stats, danger: session.worldState.danger, turnCount: session.turnCount + 1 });
+    const dice = previous ? previous.dice : serverCheck({ rulesProfile: session.rulesProfile, playerAction: input.action, stats: session.character.stats, danger: session.worldState.danger, turnCount: session.turnCount + 1, conditions: session.character.conditions });
     const token = randomUUID();
     const values = { status: "running" as const, stage: "context" as const, leaseToken: token, leaseExpiresAt: new Date(Date.now() + TURN_LEASE_MS), error: null, dice, updatedAt: new Date() };
     const [row] = previous

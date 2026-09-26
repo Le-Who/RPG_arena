@@ -17,6 +17,7 @@ import type {
 } from "@/db/schema";
 import { profileFor, type ProfileSpec } from "./profiles";
 import { LIFE_SCHEMA_PROPERTIES, parseLifeChanges, type LifeChanges } from "./world-life";
+import { AGENDA_SCHEMA_PROPERTIES, parseAgendaChanges, type AgendaChanges } from "./world-agenda";
 
 // ─────────────────────────────────────────────────────────────
 //  Типы контракта
@@ -57,6 +58,8 @@ export type ResolutionPayload = {
   };
   /** INTERACT-2/3, NARR-7: предложенные время, договорённости, передачи и статус истории. */
   life?: LifeChanges;
+  /** WORLD-2: предложенные отложенные события и цели NPC. */
+  agenda?: AgendaChanges;
 };
 
 /** JSON Schema (подмножество OpenAPI, поддерживаемое Gemini responseSchema). */
@@ -176,6 +179,7 @@ export const RESOLUTION_RESPONSE_SCHEMA: Record<string, unknown> = {
           },
         },
         ...LIFE_SCHEMA_PROPERTIES,
+        ...AGENDA_SCHEMA_PROPERTIES,
       },
       required: ["location", "quests", "npcs", "inventory", "sceneObjects", "conditions", "flags"],
     },
@@ -366,6 +370,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
       },
       stateChanges: { location, locations, routes, quests, npcs, inventory, sceneObjects, conditions, flags },
       life: parseLifeChanges(sc),
+      agenda: parseAgendaChanges(sc),
     },
   };
 }
