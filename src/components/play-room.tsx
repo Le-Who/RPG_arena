@@ -1,7 +1,7 @@
 "use client";
 import { buildNarrativeFeed } from "@/lib/narrative-feed";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type React from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, Backpack, BookOpen, BookOpenText, Camera, Clock3, BrainCircuit, Check, ChevronUp, Compass, CornerDownLeft, Dices, Download, Feather, Flag, GitBranch, Globe2, Heart, LoaderCircle, MapPin, Minimize2, Plus, RefreshCw, Send, ShieldCheck, Sparkles, UserRound, WifiOff } from "lucide-react";
 import { useApp } from "./app-shell";
@@ -170,6 +170,28 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   }, [commandReady, commandOwner, commandActive, commandTurn, busy, compacting, compact, setPlayCommands, workspace.reading.motion]);
   const restore = async () => { try { await api(`/api/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) }); await reload(); void refresh(); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } };
 
+  const turns = useMemo(() => {
+    if (!snapshot) return [];
+    return buildNarrativeFeed(withCommittedTurn([...older, ...snapshot.turns], committedTurn, sessionId), turnRequest.pending, turnRequest.preview);
+  }, [older, snapshot, committedTurn, sessionId, turnRequest.pending, turnRequest.preview]);
+
+  const characterName = snapshot?.session.character.name;
+  const feedArticles = useMemo(() => turns.map((turn) => <article className={`gx-turn ${turn.role === "player" ? "is-player" : "is-narrator"}`} key={turn.key} aria-busy={turn.pending || undefined} id={`turn-${turn.turnNumber}${turn.role === "player" ? "-player" : ""}`}>
+    <div className="gx-turn-head">
+      <span className="gx-turn-avatar">{turn.role === "player" ? <UserRound size={15} /> : <Feather size={15} />}</span>
+      <strong>{turn.role === "player" ? characterName : "Рассказчик"}</strong>
+      <span className="gx-turn-no">Ход {turn.turnNumber}</span>
+      {turn.role !== "player" && <span className="gx-turn-tag">{turn.pending ? "Продолжение формируется" : turn.modelUsed?.startsWith("gemini") ? "AI" : turn.modelUsed?.includes("intro") ? "Пролог" : "Офлайн"}</span>}
+    </div>
+    <div className="gx-prose">{turn.content}</div>
+    {turn.dice && <div className={`gx-dice ${turn.dice.success ? "is-success" : "is-failure"} ${turn.dice.band === "cost" ? "is-cost" : ""}`}>
+      <span className="gx-dice-value"><Dices size={18} /><strong>{turn.dice.total}</strong></span>
+      <div className="gx-dice-body"><strong>{turn.dice.skill || turn.dice.label}</strong><small>{turn.dice.kind === "2d6" ? "Проверка риска · 2d6" : `Серверный d20 · сложность ${turn.dice.dc}`}</small></div>
+      <span className="gx-dice-verdict">{turn.dice.band === "cost" ? "Успех с ценой" : turn.dice.success ? "Успех" : "Неудача"}</span>
+    </div>}
+    {turn.stateChanges && <AppliedChips applied={turn.stateChanges} turnNumber={turn.turnNumber} />}
+  </article>), [turns, characterName]);
+
   if (loadError) return <div className="empty-state gx-fallback"><BookOpen size={34} /><h3>Не удалось открыть эту главу</h3><p>{loadError}</p><button className="button secondary" onClick={() => void reload().catch((e) => setLoadError(e.message))}><RefreshCw size={15} />Попробовать снова</button><Link className="text-link" href="/campaigns">Вернуться к кампаниям</Link></div>;
   if (!snapshot) return <div className="gx-loading"><span className="gx-loading-orb"><LoaderCircle size={30} className="spin" /></span><h2>Открываем вашу историю…</h2><p>Загружаем мир, персонажей и сохранённые решения.</p></div>;
 
@@ -177,7 +199,6 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const character = session.character;
   const world = session.worldState;
   const live = Boolean(settings?.useLiveAI && settings.keysCount + settings.envKeysCount > 0);
-  const turns = buildNarrativeFeed(withCommittedTurn([...older, ...snapshot.turns], committedTurn, sessionId), turnRequest.pending, turnRequest.preview);
   const lastNarrator = [...snapshot.turns].reverse().find((turn) => turn.role === "narrator");
   const isOwner = snapshot.isOwner !== false;
   const active = isOwner && session.status === "active";
@@ -232,21 +253,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
 
         <div className="gx-feed">
           {turns[0]?.turnNumber > 1 && <button className="gx-load-earlier" onClick={() => void loadEarlier()} disabled={loadingOlder}>{loadingOlder ? <LoaderCircle size={14} className="spin" /> : <ChevronUp size={14} />}Предыдущие главы</button>}
-          {turns.map((turn) => <article className={`gx-turn ${turn.role === "player" ? "is-player" : "is-narrator"}`} key={turn.key} aria-busy={turn.pending || undefined} id={`turn-${turn.turnNumber}${turn.role === "player" ? "-player" : ""}`}>
-            <div className="gx-turn-head">
-              <span className="gx-turn-avatar">{turn.role === "player" ? <UserRound size={15} /> : <Feather size={15} />}</span>
-              <strong>{turn.role === "player" ? character.name : "Рассказчик"}</strong>
-              <span className="gx-turn-no">Ход {turn.turnNumber}</span>
-              {turn.role !== "player" && <span className="gx-turn-tag">{turn.pending ? "Продолжение формируется" : turn.modelUsed?.startsWith("gemini") ? "AI" : turn.modelUsed?.includes("intro") ? "Пролог" : "Офлайн"}</span>}
-            </div>
-            <div className="gx-prose">{turn.content}</div>
-            {turn.dice && <div className={`gx-dice ${turn.dice.success ? "is-success" : "is-failure"} ${turn.dice.band === "cost" ? "is-cost" : ""}`}>
-              <span className="gx-dice-value"><Dices size={18} /><strong>{turn.dice.total}</strong></span>
-              <div className="gx-dice-body"><strong>{turn.dice.skill || turn.dice.label}</strong><small>{turn.dice.kind === "2d6" ? "Проверка риска · 2d6" : `Серверный d20 · сложность ${turn.dice.dc}`}</small></div>
-              <span className="gx-dice-verdict">{turn.dice.band === "cost" ? "Успех с ценой" : turn.dice.success ? "Успех" : "Неудача"}</span>
-            </div>}
-            {turn.stateChanges && <AppliedChips applied={turn.stateChanges} turnNumber={turn.turnNumber} />}
-          </article>)}
+          {feedArticles}
           {syncError && <div className="notice" role="alert"><p>{syncError}</p><button className="text-button" onClick={() => void reload().catch(() => setSyncError("Связь пока не восстановлена. Ход сохранён; попробуйте обновить сцену ещё раз."))}>Обновить сцену</button></div>}
           {busy && <div className="gx-thinking" aria-live="polite"><span className="gx-thinking-orb"><Sparkles size={18} /></span><div><strong>{currentCommit ? "Ход сохранён · обновляем мир" : TURN_STAGE_LABELS[turnRequest.stage]}</strong><small>Запрос сохранён. Перезагрузка страницы не создаст двойной ход.</small></div><span className="gx-thinking-dots"><i /><i /><i /></span></div>}
         </div>
