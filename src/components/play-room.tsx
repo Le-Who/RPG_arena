@@ -3,7 +3,7 @@ import { buildNarrativeFeed } from "@/lib/narrative-feed";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type React from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, Backpack, BookOpen, BookOpenText, BrainCircuit, Check, ChevronUp, Compass, CornerDownLeft, Dices, Download, Feather, Flag, GitBranch, Globe2, Heart, LoaderCircle, MapPin, Minimize2, Plus, RefreshCw, Send, ShieldCheck, Sparkles, UserRound, WifiOff } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, Backpack, BookOpen, BookOpenText, Camera, Clock3, BrainCircuit, Check, ChevronUp, Compass, CornerDownLeft, Dices, Download, Feather, Flag, GitBranch, Globe2, Heart, LoaderCircle, MapPin, Minimize2, Plus, RefreshCw, Send, ShieldCheck, Sparkles, UserRound, WifiOff } from "lucide-react";
 import { useApp } from "./app-shell";
 import { api, jsonBody } from "@/lib/api-client";
 import { coverFor, PROFILE_LABELS, SOURCE_LABELS, type Snapshot } from "@/lib/ui-data";
@@ -15,6 +15,11 @@ import { CheckpointDialog } from "./checkpoint-dialog";
 import { useTurnRequest } from "./use-turn-request";
 import { classifyAction } from "@/lib/action-kind";
 import { WorldMap } from "./world-map";
+import { EntityActions } from "./entity-actions";
+import { LifePanel } from "./life-panel";
+import { VisualGallery } from "./visual-gallery";
+import { readLife } from "@/lib/world-life";
+import type { InteractionState } from "@/lib/interactions";
 import { retainedItemBindings, type ItemBinding } from "@/lib/item-bindings";
 import { withCommittedTurn, applyCommittedSnapshot } from "@/lib/committed-turns";
 
@@ -22,6 +27,8 @@ const SIDE_TABS = [
   { id: "hero", icon: UserRound, title: "Герой" },
   { id: "inventory", icon: Backpack, title: "Вещи" },
   { id: "world", icon: Globe2, title: "Мир" },
+  { id: "life", icon: Clock3, title: "Жизнь" },
+  { id: "visuals", icon: Camera, title: "Образы" },
   { id: "memory", icon: BrainCircuit, title: "Память" },
 ] as const;
 
@@ -174,6 +181,15 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const lastNarrator = [...snapshot.turns].reverse().find((turn) => turn.role === "narrator");
   const isOwner = snapshot.isOwner !== false;
   const active = isOwner && session.status === "active";
+  // INTERACT-1: то же состояние, по которому сервер проверяет доступность действий.
+  const interactionState: InteractionState = { currentLocation: world.currentLocation, inventory, npcs, sceneObjects, locations, holdings: readLife(world).holdings };
+  const pickAction = (text: string, itemIds: string[]) => {
+    if (!active || busy) return;
+    setAction(text);
+    setItemBindings(itemIds.flatMap((id) => { const item = inventory.find((i) => i.id === id); return item ? [{ id, name: item.name }] : []; }));
+    composerRef.current?.focus();
+  };
+  const actionsDisabled = busy || !!committedTurn || !active;
   const canAct = active && !busy;
 
   return <div className={`gx-room ${reading ? "gx-reading" : ""}`}>
@@ -280,18 +296,20 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             <div className="gx-side-title">С собой · {inventory.length}</div>
             <p className="gx-side-hint">Вещи — часть мира. Укажите предмет в своём действии, и рассказчик его учтёт.</p>
             {!!committedTurn && <p className="gx-side-hint" role="status">Список вещей обновляется. Продолжить историю можно в поле действия.</p>}
-            <div className="gx-inv">{inventory.map((item) => <div className="gx-inv-item" key={item.id}><span className="gx-inv-icon">{item.icon}</span><div className="gx-inv-body"><h3>{item.name}{item.quantity > 1 && <span className="gx-inv-qty">×{item.quantity}</span>}</h3><p>{item.description}</p>{item.equipped && <small className="gx-inv-eq"><Check size={11} />Экипировано</small>}<button onClick={() => addItemToAction(item.name, item.id)} className="gx-inv-use" disabled={busy || !!committedTurn || !active}>Добавить в действие <Plus size={12} /></button></div></div>)}</div>
+            <div className="gx-inv">{inventory.map((item) => <div className="gx-inv-item" key={item.id}><span className="gx-inv-icon">{item.icon}</span><div className="gx-inv-body"><h3>{item.name}{item.quantity > 1 && <span className="gx-inv-qty">×{item.quantity}</span>}</h3><p>{item.description}</p>{item.equipped && <small className="gx-inv-eq"><Check size={11} />Экипировано</small>}<button onClick={() => addItemToAction(item.name, item.id)} className="gx-inv-use" disabled={busy || !!committedTurn || !active}>Добавить в действие <Plus size={12} /></button><EntityActions kind="item" refId={item.id} name={item.name} state={interactionState} disabled={actionsDisabled} onPick={pickAction} /></div></div>)}</div>
             {!inventory.length && <p className="gx-empty-hint">С собой пока ничего нет.</p>}
           </div>}
           {sideTab === "world" && <div className="gx-side-section">
             <div className="gx-here"><MapPin size={22} /><small>Вы находитесь здесь</small><h3>{world.currentLocation}</h3><p>{world.worldName}</p></div>
             {locations.length > 0 && <WorldMap locations={locations.filter((location) => location.discovered)} currentLocation={world.currentLocation} onLocationClick={(name) => { if (active && !busy) { setAction(`Отправиться в «${name}»`); composerRef.current?.focus(); } }} />}
             <div className="gx-side-title">Известные локации</div>
-            <div className="gx-locs">{locations.filter((location) => location.discovered).map((location) => <div key={location.id} className={`gx-loc ${location.current ? "current" : ""}`}><Compass size={16} /><span><strong>{location.name}</strong><small>{location.description}</small></span>{location.current && <Check size={14} />}</div>)}</div>
-            {!!sceneObjects.filter((o) => o.locationName === world.currentLocation).length && <><div className="gx-side-title">Окружение</div>{sceneObjects.filter((object) => object.locationName === world.currentLocation).map((object) => <div className="gx-scene" key={object.id}><div className="gx-scene-head"><strong>{object.name}</strong><span>{object.state}</span></div><p>{object.description}</p></div>)}</>}
+            <div className="gx-locs">{locations.filter((location) => location.discovered).map((location) => <div key={location.id} className={`gx-loc ${location.current ? "current" : ""}`}><Compass size={16} /><span><strong>{location.name}</strong><small>{location.description}</small>{!location.current && <EntityActions kind="location" refId={location.id} name={location.name} state={interactionState} disabled={actionsDisabled} onPick={pickAction} />}</span>{location.current && <Check size={14} />}</div>)}</div>
+            {!!sceneObjects.filter((o) => o.locationName === world.currentLocation).length && <><div className="gx-side-title">Окружение</div>{sceneObjects.filter((object) => object.locationName === world.currentLocation).map((object) => <div className="gx-scene" key={object.id}><div className="gx-scene-head"><strong>{object.name}</strong><span>{object.state}</span></div><p>{object.description}</p><EntityActions kind="object" refId={object.key} name={object.name} state={interactionState} disabled={actionsDisabled} onPick={pickAction} /></div>)}</>}
             <div className="gx-side-title">Знакомые лица</div>
-            {npcs.length ? npcs.map((npc) => <div className="gx-npc" key={npc.id}><span className="gx-npc-avatar"><UserRound size={18} /></span><div><strong>{npc.name}</strong><small>{npc.role || "—"} · {npc.status === "dead" ? "Погиб" : npc.relation > 0 ? "Расположен к вам" : npc.relation < 0 ? "Не доверяет" : "Нейтрален"}</small></div><span className={`gx-npc-rel ${npc.relation > 0 ? "pos" : npc.relation < 0 ? "neg" : ""}`}>{npc.relation > 0 ? "+" : ""}{npc.relation}</span></div>) : <p className="gx-side-hint">Новые знакомства ещё впереди.</p>}
+            {npcs.length ? npcs.map((npc) => <div className="gx-npc" key={npc.id}><span className="gx-npc-avatar"><UserRound size={18} /></span><div><strong>{npc.name}</strong><small>{npc.role || "—"} · {npc.status === "dead" ? "Погиб" : npc.relation > 0 ? "Расположен к вам" : npc.relation < 0 ? "Не доверяет" : "Нейтрален"}</small></div><span className={`gx-npc-rel ${npc.relation > 0 ? "pos" : npc.relation < 0 ? "neg" : ""}`}>{npc.relation > 0 ? "+" : ""}{npc.relation}</span>{npc.status !== "dead" && <div className="lx-npc-actions"><EntityActions kind="npc" refId={npc.key} name={npc.name} state={interactionState} disabled={actionsDisabled} onPick={pickAction} /></div>}</div>) : <p className="gx-side-hint">Новые знакомства ещё впереди.</p>}
           </div>}
+          {sideTab === "life" && <LifePanel sessionId={sessionId} world={world} canEdit={isOwner} disabled={actionsDisabled} interactionState={interactionState} onPick={pickAction} onSaved={() => { void reload().catch(() => {}); }} />}
+          {sideTab === "visuals" && <VisualGallery sessionId={sessionId} isOwner={isOwner} npcs={npcs.filter((npc) => npc.status !== "dead").map((npc) => ({ key: npc.key, name: npc.name }))} currentLocationId={locations.find((location) => location.current)?.id ?? null} lastTurn={session.turnCount} />}
           {sideTab === "memory" && <div className="gx-side-section">
             <div className="gx-side-title"><BrainCircuit size={14} />Мир помнит</div>
             <p className="gx-side-hint">Факты с подтверждённым источником помогают истории оставаться последовательной.</p>

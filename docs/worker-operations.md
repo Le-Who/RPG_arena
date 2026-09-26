@@ -1,6 +1,6 @@
-# Memory worker — эксплуатация v2.5
+# Memory worker — эксплуатация v2.7
 
-Сверено с рабочим кодом 23 сентября 2026. Worker появился в v2.2; эта инструкция описывает текущую интеграцию. [README](../README.md) · [Roadmap](superpowers/plans/roadmap.md).
+Сверено с рабочим кодом 26 сентября 2026 (v2.7). Worker появился в v2.2; эта инструкция описывает текущую интеграцию и ledger до миграции `0015`. [README](../README.md) · [Roadmap](superpowers/plans/roadmap.md).
 
 ## Назначение
 

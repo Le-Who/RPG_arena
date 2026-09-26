@@ -1,3 +1,4 @@
+import { COMMITMENT_LABELS } from "./world-life";
 import type { AppliedChanges } from "@/db/schema";
 
 export type ChangeIcon = "plus" | "consume" | "minus" | "equip" | "unequip" | "health" | "xp" | "gold" | "danger" | "level" | "warning" | "location" | "quest" | "check" | "failed" | "hidden" | "condition-add" | "condition-remove" | "person" | "object";
@@ -45,5 +46,14 @@ export function describeAppliedChanges(applied: AppliedChanges): ChangeChip[] {
     if (statuses[npc.status]) add(`${npc.name}: ${statuses[npc.status]}`, "person", npc.status === "dead" ? "negative" : "neutral");
   }
   for (const object of applied.sceneObjects) add(`${object.name}: ${object.state}`, "object");
+  // INTERACT-2/3, NARR-7: жизнь мира
+  const life = applied.life;
+  if (life) {
+    if (life.story?.resolved) add("Арка завершена", "check", "positive");
+    for (const t of life.transfers) add(t.ok ? `«${t.name}» → ${t.to}` : `Не передано: «${t.name}»`, t.ok ? "object" : "warning", t.ok ? "neutral" : "negative");
+    for (const c of life.commitments) add(`${c.isNew ? "Новая договорённость" : "Договорённость"}: ${c.title} — ${COMMITMENT_LABELS[c.status].toLowerCase()}`, c.status === "broken" || c.status === "cancelled" ? "failed" : c.status === "fulfilled" ? "check" : "quest", c.status === "broken" ? "negative" : c.status === "fulfilled" || c.status === "accepted" ? "positive" : "neutral");
+    if (life.clock && (life.clock.newDay || life.clock.minutes >= 60)) add(life.clock.newDay ? `Новый день · ${life.clock.to}` : `Прошло ${Math.round(life.clock.minutes / 60)} ч`, "hidden");
+  }
+  if (applied.interaction && !applied.interaction.valid) add(`Недоступно: ${applied.interaction.reasons[0] ?? applied.interaction.label}`, "warning", "negative");
   return chips;
 }

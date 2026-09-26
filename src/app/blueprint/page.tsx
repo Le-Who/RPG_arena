@@ -11,7 +11,7 @@ export default function BlueprintPage() {
     { title: "Интерфейс для длинных историй", text: "Настройки чтения, карта мира, клавиатурная палитра и подробности применённых последствий. Настройки открываются поверх игры или черновика; закрытие несохранённой формы требует выбора." },
   ];
   return <div className="blueprint-page">
-    <div className="page-heading"><div><div className="eyebrow">КАК УСТРОЕН CHRONICLE</div><h1>Модель предлагает. Сервер решает.</h1><p>Текущее устройство проекта · обновлено 23 сентября 2026.</p></div></div>
+    <div className="page-heading"><div><div className="eyebrow">КАК УСТРОЕН CHRONICLE</div><h1>Модель предлагает. Сервер решает.</h1><p>Текущее устройство проекта · v2.7 · обновлено 26 сентября 2026.</p></div></div>
     <section className="blueprint-hero"><span className="feature-icon violet"><BookOpen size={30} /></span><div><h2>Свобода в истории.<br />Проверяемые последствия.</h2><p>Вы выбираете действие. Рассказчик предлагает продолжение. Движок проверяет изменения мира и сохраняет их вместе с результатом хода.</p></div></section>
     <section className="blueprint-section"><div className="section-heading"><h2>Путь одного решения</h2></div><div className="pipeline">{[
       { icon: BookOpen, title: "Ваше действие", text: "Владелец, номер хода и защита повтора" },

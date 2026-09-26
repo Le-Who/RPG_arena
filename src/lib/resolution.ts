@@ -16,6 +16,7 @@ import type {
   WorldState,
 } from "@/db/schema";
 import { profileFor, type ProfileSpec } from "./profiles";
+import { LIFE_SCHEMA_PROPERTIES, parseLifeChanges, type LifeChanges } from "./world-life";
 
 // ─────────────────────────────────────────────────────────────
 //  Типы контракта
@@ -54,6 +55,8 @@ export type ResolutionPayload = {
     conditions: { add: string[]; remove: string[] };
     flags: Record<string, string | number | boolean>;
   };
+  /** INTERACT-2/3, NARR-7: предложенные время, договорённости, передачи и статус истории. */
+  life?: LifeChanges;
 };
 
 /** JSON Schema (подмножество OpenAPI, поддерживаемое Gemini responseSchema). */
@@ -172,6 +175,7 @@ export const RESOLUTION_RESPONSE_SCHEMA: Record<string, unknown> = {
             required: ["key", "value"],
           },
         },
+        ...LIFE_SCHEMA_PROPERTIES,
       },
       required: ["location", "quests", "npcs", "inventory", "sceneObjects", "conditions", "flags"],
     },
@@ -361,6 +365,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
         danger: clampInt(eff.danger, -30, 30),
       },
       stateChanges: { location, locations, routes, quests, npcs, inventory, sceneObjects, conditions, flags },
+      life: parseLifeChanges(sc),
     },
   };
 }
@@ -374,7 +379,7 @@ export function emptyChanges(): ResolutionPayload["stateChanges"] {
 // ─────────────────────────────────────────────────────────────
 export type InvRow = { id: string; name: string; kind: string; quantity: number; equipped: boolean; description: string; icon: string; power: number };
 export type QuestRow = { id: string; key: string; title: string; status: QuestStatus; progress: number; isMain: boolean; description: string };
-export type NpcRow = { id: string; key: string; name: string; role: string; relation: number; status: NpcStatus; description: string };
+export type NpcRow = { id: string; key: string; name: string; role: string; relation: number; status: NpcStatus; description: string; lastLocation?: string | null };
 export type SceneRow = { id: string; key: string; name: string; state: string; locationName: string; description: string };
 export type LocRow = { id: string; name: string; x: number; y: number; current: boolean; discovered: boolean; danger: number; connectedTo?: string[] | null };
 

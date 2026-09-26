@@ -10,6 +10,7 @@ test("direct system/developer handlers deny guest and normal account before diag
   try {
     const guest = "c".repeat(64);
     const { GET: system } = await import("../src/app/api/system/status/route");
+    const { GET: visualModel, PATCH: changeVisualModel } = await import("../src/app/api/system/visual-model/route");
     const { POST: process } = await import("../src/app/api/system/process/route");
     const dev = await import("../src/app/api/developer/typesafe/route");
     const { POST: probe } = await import("../src/app/api/developer/typesafe/test/route");
@@ -17,7 +18,8 @@ test("direct system/developer handlers deny guest and normal account before diag
     const a = await auth.register(guest, "ordinary", "correct horse battery staple");
     for (const cookie of [`chronicle_guest=${"d".repeat(64)}`, `chronicle_guest=${a.guestToken}; chronicle_session=${a.sessionToken}`]) {
       await cookieContext(cookie, async () => {
-        for (const invoke of [system, results, probe, dev.GET,
+        for (const invoke of [system, visualModel, results, probe, dev.GET,
+          () => changeVisualModel(new Request("https://game.test/api/system/visual-model", { method: "PATCH", body: "not-json" })),
           () => process(new Request("https://game.test/api/system/process", { method: "POST", body: "not-json" })),
           () => dev.POST(new Request("https://game.test/api/developer/typesafe", { method: "POST", body: "not-json" }))]) {
           assert.equal((await invoke()).status, 403);
@@ -27,6 +29,41 @@ test("direct system/developer handlers deny guest and normal account before diag
     assert.equal((await f.pg.query<{ n: number }>("SELECT count(*)::int n FROM ai_settings")).rows[0].n, 0);
     assert.equal((await f.pg.query<{ n: number }>("SELECT count(*)::int n FROM token_logs")).rows[0].n, 0);
   } finally { await f.close(); }
+});
+
+test("only allowlisted administrators can select a catalogued image model for future visuals", async () => {
+  const f = await accountsDb();
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.POLLINATIONS_API_KEY;
+  try {
+    const a = await auth.register("a".repeat(64), "visualadmin", "correct horse battery staple");
+    process.env.CHRONICLE_ADMIN_ACCOUNT_IDS = a.identity.account!.id;
+    globalThis.fetch = async (url) => {
+      assert.equal(String(url), "https://gen.pollinations.ai/image/models");
+      return Response.json([{ name: "vendor/fast-image", title: "Fast Image", category: "image", community: false, input_modalities: ["text"], output_modalities: ["image"], supported_endpoints: ["/image/{prompt}"] }]);
+    };
+    const { GET, PATCH } = await import("../src/app/api/system/visual-model/route");
+    await cookieContext(`chronicle_guest=${a.guestToken}; chronicle_session=${a.sessionToken}`, async () => {
+      const current = await GET();
+      assert.equal(current.status, 200);
+      assert.equal((await current.json()).models.length, 1);
+      const noOrigin = await PATCH(new Request("https://game.test/api/system/visual-model", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "vendor/fast-image" }) }));
+      assert.equal(noOrigin.status, 403);
+      const bad = await PATCH(new Request("https://game.test/api/system/visual-model", { method: "PATCH", headers: { "content-type": "application/json", origin: "https://game.test" }, body: JSON.stringify({ model: "vendor/unknown" }) }));
+      assert.equal(bad.status, 400);
+      const good = await PATCH(new Request("https://game.test/api/system/visual-model", { method: "PATCH", headers: { "content-type": "application/json", origin: "https://game.test" }, body: JSON.stringify({ model: "vendor/fast-image" }) }));
+      assert.equal(good.status, 200);
+      assert.equal((await GET().then(response => response.json())).model, "vendor/fast-image");
+      const sessionId = randomUUID();
+      await f.pg.query("INSERT INTO game_sessions(id,owner_id,title,character,world_state) VALUES ($1,$2,'Visual','{\"name\":\"Hero\",\"appearance\":\"dark hair\"}','{\"worldName\":\"City\",\"tone\":\"everyday\",\"era\":\"today\",\"currentLocation\":\"Cafe\"}')", [sessionId, a.identity.profileId]);
+      process.env.POLLINATIONS_API_KEY = "fixture-only";
+      const { createVisual } = await import("../src/lib/visuals");
+      const visual = await createVisual(sessionId, { kind: "portrait", subject: "hero" });
+      assert.equal(visual.model, "vendor/fast-image");
+    });
+    const row = await f.pg.query<{ model: string; updated_by: string }>("SELECT model, updated_by FROM visual_settings WHERE id=1");
+    assert.deepEqual(row.rows[0], { model: "vendor/fast-image", updated_by: a.identity.account!.id });
+  } finally { globalThis.fetch = originalFetch; if (originalKey === undefined) delete process.env.POLLINATIONS_API_KEY; else process.env.POLLINATIONS_API_KEY = originalKey; delete process.env.CHRONICLE_ADMIN_ACCOUNT_IDS; await f.close(); }
 });
 
 test("admin role preserves ownership on diagnostics and personal settings remain usable by guests", async () => {

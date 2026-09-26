@@ -16,7 +16,9 @@ import {
   timestamp,
   real,
   type AnyPgColumn,
+  customType,
   index,
+  check,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
@@ -86,6 +88,11 @@ export type WorldState = {
   flags: Record<string, boolean | string | number>;
   danger: number; // 0-100 накал
   chapter: number;
+  // INTERACT-2 / NARR-7: необязательные поля; старые кампании читаются через readLife() с безопасными значениями.
+  clock?: import("../lib/world-life").WorldClock;
+  story?: import("../lib/world-life").StoryShape;
+  commitments?: import("../lib/world-life").Commitment[];
+  holdings?: import("../lib/world-life").Holding[];
 };
 
 export type DiceResult = {
@@ -120,6 +127,10 @@ export type AppliedChanges = {
   sceneObjects: { name: string; state: string; isNew: boolean }[];
   conditions: { added: string[]; removed: string[] };
   rejected: string[]; // причины отклонённых изменений (наблюдаемость)
+  /** INTERACT-2/3, NARR-7: время, договорённости, передачи и форма истории. */
+  life?: import("../lib/world-life").LifeApplied;
+  /** INTERACT-1: распознанное серверное действие над сущностью. */
+  interaction?: { verb: string; label: string; target: string; valid: boolean; reasons: string[] } | null;
 };
 
 export type TurnContextMeta = {
@@ -565,3 +576,55 @@ export const agreementEvents = pgTable("agreement_events", {
   source: jsonb("source").notNull().$type<AgreementRevision["source"]>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, t => [uniqueIndex("uq_agreement_revision").on(t.agreementId, t.version), index("idx_agreement_session_turn").on(t.sessionId, t.turnNumber)]);
+
+// ─────────────────────────────────────────────────────────────
+//  VIS-1 / VIS-2: ручная визуализация сцен, паспорта внешности
+//  Изображения — не канон: они не меняют состояние мира и не копируются в forks.
+// ─────────────────────────────────────────────────────────────
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType() { return "bytea"; } });
+export type VisualKind = "scene" | "portrait" | "location";
+export type VisualStatus = "pending" | "ready" | "failed";
+
+export const visualIdentities = pgTable("visual_identities", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sessionId: uuid("session_id").notNull().references(() => gameSessions.id, { onDelete: "cascade" }),
+  /** hero | npc:<key> | location:<id> */
+  subjectKey: text("subject_key").notNull(),
+  subjectName: text("subject_name").notNull(),
+  passport: text("passport").notNull().default(""),
+  seed: integer("seed").notNull(),
+  referenceVisualId: uuid("reference_visual_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [uniqueIndex("uq_visual_identities_subject").on(t.sessionId, t.subjectKey)]);
+
+export const sceneVisuals = pgTable("scene_visuals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sessionId: uuid("session_id").notNull().references(() => gameSessions.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id"),
+  kind: text("kind").notNull().$type<VisualKind>(),
+  subjectKey: text("subject_key").notNull().default("scene"),
+  turnNumber: integer("turn_number").notNull().default(0),
+  caption: text("caption").notNull().default(""),
+  prompt: text("prompt").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  seed: integer("seed").notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  status: text("status").notNull().default("pending").$type<VisualStatus>(),
+  attempts: integer("attempts").notNull().default(0),
+  error: text("error"),
+  mimeType: text("mime_type"),
+  image: bytea("image"),
+  latencyMs: integer("latency_ms"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [index("idx_scene_visuals_session").on(t.sessionId, t.createdAt), index("idx_scene_visuals_owner_day").on(t.ownerId, t.createdAt)]);
+
+/** Global image model chosen by an administrator; existing visuals retain their saved model. */
+export const visualSettings = pgTable("visual_settings", {
+  id: integer("id").primaryKey().default(1),
+  model: text("model").notNull(),
+  updatedBy: uuid("updated_by").references(() => accounts.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [check("visual_settings_singleton", sql`${t.id} = 1`)]);

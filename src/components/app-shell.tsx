@@ -6,7 +6,7 @@ import { Fragment, createContext, useCallback, useContext, useEffect, useRef, us
 import { Activity, ArrowRight, Bell, BookOpen, BookOpenText, BrainCircuit, Check, ChevronRight, Compass, Globe2, HelpCircle, LayoutGrid, Menu, MoreHorizontal, Plus, Search, Settings2, Sparkles, UserRound, UsersRound, X } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { WORLDS, coverFor, type Session, type Settings, type Workspace } from "@/lib/ui-data";
-import { DEFAULT_READING, normalizeReading, readingAttributes } from "@/lib/reading-preferences";
+import { DEFAULT_READING, cacheReading, clearCachedReading, normalizeReading, readingAttributes } from "@/lib/reading-preferences";
 import { canSeeAdministration, createWorkspaceLoadGate, parseIdentityResponse, profileChanged, type IdentityView } from "@/lib/ui-identity";
 import type { ReadingPreferences } from "@/db/schema";
 import { Dialog } from "./dialog";
@@ -20,7 +20,7 @@ export function useApp() { const value = useContext(Context); if (!value) throw 
 const navigation = [
   { href: "/", label: "Обзор", icon: LayoutGrid }, { href: "/campaigns", label: "Мои кампании", icon: BookOpen }, { href: "/worlds", label: "Библиотека миров", icon: Globe2 }, { href: "/characters", label: "Персонажи", icon: UsersRound },
 ];
-const tools = [{ href: "/memory", label: "Память мира", icon: BrainCircuit }, { href: "/journal", label: "Журнал приключений", icon: BookOpenText }, { href: "/system", label: "Пульс движка", icon: Activity }];
+const tools = [{ href: "/memory", label: "Память мира", icon: BrainCircuit }, { href: "/journal", label: "Журнал приключений", icon: BookOpenText }, { href: "/system", label: "Пульс движка", icon: Activity }, { href: "/system/visuals", label: "Модель иллюстраций", icon: Sparkles }];
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -32,6 +32,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [workspace, setWorkspace] = useState<Workspace>({ displayName: "Искатель историй", favorites: [], reading: DEFAULT_READING });
+  const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [creator, setCreator] = useState<{ id?: string; mode: "preset" | "free" } | null>(null);
@@ -68,6 +69,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const notify = useCallback((text: string, error = false) => setToast({ text, error }), []);
   const acceptIdentity = useCallback((next: IdentityView) => {
     if (profileChanged(identityRef.current, next)) {
+      clearCachedReading();
+      for (const [name, value] of Object.entries(readingAttributes(DEFAULT_READING))) document.documentElement.setAttribute(name, value);
+      setWorkspaceLoaded(false);
       setSessions([]); setSettings(null); setWorkspace({ id: next.profileId, displayName: "Искатель историй", favorites: [], reading: DEFAULT_READING });
       setCreator(null); setDialog(null); setPlayCommands([]); setToast(null); setFavoriteBusy(false);
       if (window.location.pathname.startsWith("/play/")) router.replace("/");
@@ -91,7 +95,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           if (attempt === 0) continue;
           throw new Error("Профиль изменился во время загрузки. Обновите пространство.");
         }
-        setSessions(s.sessions); setSettings(a); setWorkspace(w); setLoadError("");
+        setSessions(s.sessions); setSettings(a); cacheReading(w.reading); setWorkspace(w); setWorkspaceLoaded(true); setLoadError("");
         return;
       }
     } catch (error) { if (loadGate.current.isCurrent(ticket)) setLoadError(error instanceof Error ? error.message : "Не удалось загрузить пространство"); }
@@ -121,11 +125,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => { channel?.close(); identityChannel.current = null; window.removeEventListener("storage", storage); window.removeEventListener("focus", sync); gate.invalidate(); };
   }, [refresh]);
   useEffect(() => {
+    if (!workspaceLoaded) return;
     const root = document.documentElement;
     const attributes = readingAttributes(workspace.reading);
     for (const [name, value] of Object.entries(attributes)) root.setAttribute(name, value);
-    return () => { for (const name of Object.keys(attributes)) root.removeAttribute(name); };
-  }, [workspace.reading]);
+  }, [workspaceLoaded, workspace.reading]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 4500); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => { const key = (e: KeyboardEvent) => { if (!document.querySelector('[role="dialog"]:not([hidden])') && (e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setDialog("search"); } }; document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key); }, []);
   const newStory = useCallback((id?: string, mode: "preset" | "free" = "preset") => { setDialog(null); setCreator({ id, mode }); }, []);
@@ -145,11 +149,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const updateReading = useCallback(async (reading: ReadingPreferences) => {
     const profileId = identityRef.current?.profileId;
     const next = normalizeReading(reading);
+    const previousReading = workspace.reading;
     let previous: Workspace | null = null;
     setWorkspace((old) => { previous = old; return { ...old, reading: next }; });
+    cacheReading(next);
     try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ reading: next }) }); }
-    catch (error) { if (profileId === identityRef.current?.profileId) { if (previous) setWorkspace(previous); notify(error instanceof Error ? error.message : "Не удалось сохранить настройки чтения", true); } }
-  }, [notify]);
+    catch (error) { if (profileId === identityRef.current?.profileId) { if (previous) setWorkspace(previous); cacheReading(previousReading); notify(error instanceof Error ? error.message : "Не удалось сохранить настройки чтения", true); } }
+  }, [notify, workspace.reading]);
   const title = [...navigation, ...tools, { href: "/settings", label: "Настройки" }, { href: "/blueprint", label: "О движке" }].find((item) => item.href === pathname)?.label ?? "Ваша история";
   const live = Boolean(settings?.useLiveAI && (settings.keysCount + settings.envKeysCount > 0));
   const activeCount = sessions.filter((s) => s.status === "active").length;
@@ -163,7 +169,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Link href="/" className="brand" onClick={() => setSidebar(false)}><span className="brand-symbol"><svg viewBox="0 0 48 48" fill="none"><path d="m24 3 18 10v22L24 45 6 35V13L24 3Zm0 0L14 24l10 21 10-21L24 3ZM6 13l28 11L6 35m36-22L14 24l28 11" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg></span><span className="brand-word">CHRONICLE<span>ENGINE</span></span></Link>
       <div className="workspace-switch"><span className="workspace-icon"><Compass size={18} /></span><div>Личное пространство<small>Здесь живут ваши истории</small></div></div>
       <div className="nav-label">ПРОСТРАНСТВО</div><nav aria-label="Основная навигация">{navigation.map(navItem)}</nav>
-      <div className="nav-label tools-label">ИНСТРУМЕНТЫ</div><nav aria-label="Инструменты">{tools.filter(item => item.href !== "/system" || administration).map(navItem)}</nav>
+      <div className="nav-label tools-label">ИНСТРУМЕНТЫ</div><nav aria-label="Инструменты">{tools.filter(item => !item.href.startsWith("/system") || administration).map(navItem)}</nav>
       <div className="sidebar-spacer" />
       <div className="imagination-card"><span className="imagination-spark"><Sparkles size={22} strokeWidth={1.4} /></span><strong>Не находите свой мир?</strong><p>Там, где заканчиваются шаблоны, начинается ваша история.</p><button onClick={() => newStory(undefined, "free")}>Создать свой мир <ArrowRight size={14} /></button><div className="card-orbit" /></div>
       <Link href="/settings" className={`nav-item bottom-settings ${pathname === "/settings" ? "active" : ""}`} onClick={() => setSidebar(false)}><Settings2 size={18} strokeWidth={1.6} /><span>Настройки</span></Link>

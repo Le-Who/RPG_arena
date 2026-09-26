@@ -62,6 +62,8 @@ import { narrativeReviewRequest } from "./narrative-review-request";
 import { recordNarrativeAttempt, finishNarrativeAttempt, pruneNarrativeDiagnostics } from "./narrative-diagnostics";
 import { verifyNarrative } from "./narrative-verifier";
 import { parseCompleteNarrativeDraft } from "./narrative-stream";
+import { applyLife, buildLifePromptBlock, classifyIntent, emptyLifeChanges, gateByIntent, readLife } from "./world-life";
+import { checkInteraction, inferInteraction } from "./interactions";
 import { GUARDED_RESOLUTION_SCHEMA, NARRATIVE_GENERATION_INSTRUCTION, NARRATIVE_REPAIR_SCHEMA, guardedPreview, hasDescriptiveMetadata, parseNarrativeRepair } from "./narrative-generation";
 
 export type TurnRuntime = {
@@ -279,6 +281,11 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   );
   const digests = buildDigests({ inventory, questRows, npcRows, scene, location: world.currentLocation, playerAction: actionForModel });
   const characterLine = buildCharacterLine(character, spec.id);
+  // INTERACT-1/3: один серверный контракт для кнопок и свободного ввода; проверка доступности до AI.
+  const interactionState = { currentLocation: world.currentLocation, inventory, npcs: npcRows, sceneObjects: scene, locations, holdings: readLife(world).holdings };
+  const interactionCheck = checkInteraction(inferInteraction(playerAction, interactionState, opts.itemIds ?? []), interactionState);
+  const intent = classifyIntent(playerAction);
+  const lifeBlock = buildLifePromptBlock(world, intent, interactionCheck.directive);
   const worldLine = `Мир ${world.worldName}, тон: ${world.tone}, эпоха: ${world.era}, главная цель: ${world.mainQuest}, глава ${world.chapter}, накал ${world.danger}/100${world.factions?.length ? `, фракции: ${world.factions.join(", ")}` : ""}`;
 
   let payload: ResolutionPayload | null = null;
@@ -305,7 +312,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       diceBlock: buildDiceBlock(dice),
       playerAction: actionForModel,
     };
-    const system = buildTurnSystemPrompt(ctx) + (narrativeConfig.enabled ? NARRATIVE_GENERATION_INSTRUCTION : "");
+    const system = buildTurnSystemPrompt(ctx) + lifeBlock + (narrativeConfig.enabled ? NARRATIVE_GENERATION_INSTRUCTION : "");
     const user = buildTurnUserPrompt(ctx) + (narrativeConfig.enabled ? `\nORIGINAL_EVIDENCE:\n${JSON.stringify(evidence)}\nAGREEMENT_HISTORY (версии в порядке записи; поздняя версия заменяет предыдущую, proposed не означает accepted):\n${JSON.stringify(agreementContext)}` : "");
     const generationStarted = performance.now();
     let streamedJson = "", preview = "";
@@ -410,9 +417,15 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
         conditions: eng.conditions,
       },
     };
+    // Офлайн-пресет исполняет проверенный переход детерминированно — тот же контракт, что и у кнопки.
+    const checked = interactionCheck.interaction;
+    if (interactionCheck.valid && checked?.verb === "move" && checked.target.ref) {
+      payload.stateChanges.location = { action: "move", ref: checked.target.ref, name: checked.target.name, description: "", danger: null };
+    }
   }
   if (!payload.choices.length) payload.choices = ["Осмотреться внимательнее", "Заговорить с ближайшим персонажем", "Двигаться дальше"];
 
+  const intentRejected = gateByIntent(payload, intent);
   const validationStarted = performance.now();
   // ── Reducers ──
   const resolutionInput = {
@@ -521,7 +534,22 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   captureDiagnostic({ committedDraftCandidate: { narration: payload.narration, choices: payload.choices },
     acceptedChanges: result.applied, dice, model: modelUsed, generationUsage: { promptTokens, completionTokens },
     ...(modelUsed.startsWith("offline-engine") ? { decision: "skipped_offline" } : {}) });
-  const isChapterBoundary = nextTurn % 12 === 0;
+  // ── INTERACT-2/3, NARR-7: время, передачи, договорённости, форма истории ──
+  const touchedItemIds = new Set(result.ops.flatMap((op) => (op.t === "inv.update" || op.t === "inv.delete" ? [op.id] : [])));
+  const mainQuestCompleted = result.applied.quests.some((q) => q.status === "completed" && questRows.some((row) => row.isMain && row.title === q.title));
+  const lifeResult = applyLife({ world: result.world, inventory, npcs: npcRows, locations, life: payload.life ?? emptyLifeChanges(), intent,
+    defaultMinutes: interactionCheck.defaultMinutes, turnNumber: nextTurn, touchedItemIds, mainQuestCompleted,
+    addedItems: result.applied.inventory.filter((entry) => entry.op === "add" && entry.ok).map((entry) => ({ name: entry.name, quantity: entry.quantity })) });
+  result.world = lifeResult.world;
+  result.ops.push(...lifeResult.ops);
+  result.events.push(...lifeResult.events);
+  result.applied.life = lifeResult.applied;
+  result.applied.rejected.push(...intentRejected, ...lifeResult.rejected);
+  result.applied.interaction = interactionCheck.interaction
+    ? { verb: interactionCheck.interaction.verb, label: interactionCheck.label, target: interactionCheck.interaction.target.name, valid: interactionCheck.valid, reasons: interactionCheck.reasons }
+    : null;
+  // Процедурная граница каждые 12 ходов сохраняется только как совместимое значение для арок без события.
+  const isChapterBoundary = lifeResult.chapterBoundary ?? nextTurn % 12 === 0;
   const contextMeta: TurnContextMeta = { timings, model: modelUsed, rulesProfile: spec.id, digestChars: memoryDigest.length, retrievedIds: [...retrievedIds], retrievalMs, skippedModels: skipped, ...(narrativeAudit ? { narrativeVerification: narrativeAudit } : {}) };
   const narrationOut = result.applied.dead
     ? `${payload.narration}\n\n💀 ${character.name} на грани гибели. История не обрывается — но цена уплачена${spec.resources.gold ? " (−10 средств)" : ""}.`

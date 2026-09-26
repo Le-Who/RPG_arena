@@ -78,7 +78,7 @@ export async function installUiMock(page: Page, { admin = false }: { admin?: boo
     else if (path === "/api/workspace") body = { id: mockProfileId, displayName: "Искатель историй", favorites: ["ashen-crown"], reading: { textScale: "normal", measure: "normal", theme: "midnight", motion: "full" } };
     else if (path === "/api/tokens/stats") body = { today: { totalReq: 7, totalTokens: 12450, errors: 0, embeddingReq: 3 }, quotas: { note: "audit" } };
     else if (path === "/api/system/status") body = {
-      version: "2.5", checkedAt: now, database: "connected",
+      version: "2.7", checkedAt: now, database: "connected",
       capabilities: { generation: false, embeddings: false, extraction: false, hasKeys: false, model: "gemini-embedding-2", dims: 768 },
       turns: { running: 0, completed: 3 }, checkpoints: 1, campaigns: 1,
       queues: { semantic: { pending: 1, processing: 0, completed: 2, failed: 0 }, embeddings: { pending: 0, processing: 0, ready: 2, failed: 0 }, staleSpace: 0, oldestPendingAt: now },
