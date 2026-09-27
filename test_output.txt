@@ -1,0 +1,2655 @@
+
+> test
+> node --import tsx --import ./tests/helpers/test-environment.ts --test --test-concurrency=1 tests/*.test.ts tests/
+
+TAP version 13
+# node:internal/modules/run_main:123
+#     triggerUncaughtException(
+#     ^
+# Error [ERR_UNSUPPORTED_DIR_IMPORT]: Directory import '/app/tests' is not supported resolving ES modules imported from /app/
+#     at finalizeResolution (node:internal/modules/esm/resolve:263:11)
+#     at moduleResolve (node:internal/modules/esm/resolve:861:10)
+#     at defaultResolve (node:internal/modules/esm/resolve:985:11)
+#     at nextResolve (node:internal/modules/esm/hooks:748:28)
+#     at resolveBase (file:///app/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:10334)
+#     at resolveDirectory (file:///app/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:11421)
+#     at resolveTsPaths (file:///app/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:13062)
+#     at resolve (file:///app/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:14748)
+#     at nextResolve (node:internal/modules/esm/hooks:748:28)
+#     at Hooks.resolve (node:internal/modules/esm/hooks:240:30) {
+#   code: 'ERR_UNSUPPORTED_DIR_IMPORT',
+#   url: 'file:///app/tests'
+# }
+# Node.js v22.22.1
+# Subtest: tests
+not ok 1 - tests
+  ---
+  duration_ms: 255.099471
+  type: 'test'
+  location: '/app/tests:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# Subtest: offline legacy assignment rejects transferred guests but accepts account-retained profile IDs
+ok 2 - offline legacy assignment rejects transferred guests but accepts account-retained profile IDs
+  ---
+  duration_ms: 3908.390572
+  type: 'test'
+  ...
+# Subtest: isolated smoke admin requires explicit allowlisted fixture identity and authenticates actual admin API
+ok 3 - isolated smoke admin requires explicit allowlisted fixture identity and authenticates actual admin API
+  ---
+  duration_ms: 3475.872573
+  type: 'test'
+  ...
+# Subtest: registration claims guest campaigns; old guest token loses authority and logout is empty
+ok 4 - registration claims guest campaigns; old guest token loses authority and logout is empty
+  ---
+  duration_ms: 3270.964193
+  type: 'test'
+  ...
+# Subtest: login never adopts; explicit adoption transfers once without copying settings
+ok 5 - login never adopts; explicit adoption transfers once without copying settings
+  ---
+  duration_ms: 2914.46269
+  type: 'test'
+  ...
+# Subtest: concurrent claims yield exactly one account and consumed credential cannot claim again
+ok 6 - concurrent claims yield exactly one account and consumed credential cannot claim again
+  ---
+  duration_ms: 2584.762242
+  type: 'test'
+  ...
+# Subtest: logout-all and password change revoke sessions on other devices without positive cache
+ok 7 - logout-all and password change revoke sessions on other devices without positive cache
+  ---
+  duration_ms: 3640.877764
+  type: 'test'
+  ...
+# Subtest: database rate limit survives service instances and changed usernames
+ok 8 - database rate limit survives service instances and changed usernames
+  ---
+  duration_ms: 2478.115704
+  type: 'test'
+  ...
+# Subtest: expired sessions and a deleted account never revive a consumed guest credential
+ok 9 - expired sessions and a deleted account never revive a consumed guest credential
+  ---
+  duration_ms: 2585.769034
+  type: 'test'
+  ...
+# Subtest: login with an old password cannot create a session after a concurrent password change
+ok 10 - login with an old password cannot create a session after a concurrent password change
+  ---
+  duration_ms: 3155.475109
+  type: 'test'
+  ...
+# Subtest: auth origin is mandatory and admin permission only comes from exact account ID allowlist
+ok 11 - auth origin is mandatory and admin permission only comes from exact account ID allowlist
+  ---
+  duration_ms: 24.987328
+  type: 'test'
+  ...
+# Subtest: versioned scrypt hashes verify with explicit bounded work factors and reject hostile cost fields
+ok 12 - versioned scrypt hashes verify with explicit bounded work factors and reject hostile cost fields
+  ---
+  duration_ms: 767.730758
+  type: 'test'
+  ...
+# Subtest: action classification matches only trimmed current choices
+ok 13 - action classification matches only trimmed current choices
+  ---
+  duration_ms: 2.079379
+  type: 'test'
+  ...
+# Subtest: pending turns retain their original routing flag even if text now matches
+ok 14 - pending turns retain their original routing flag even if text now matches
+  ---
+  duration_ms: 0.369149
+  type: 'test'
+  ...
+# Subtest: plain observation does not require a check solely because scene danger is high
+ok 15 - plain observation does not require a check solely because scene danger is high
+  ---
+  duration_ms: 2.348292
+  type: 'test'
+  ...
+# Subtest: contested observations and ambiguous actions preserve authoritative checks
+ok 16 - contested observations and ambiguous actions preserve authoritative checks
+  ---
+  duration_ms: 2.47197
+  type: 'test'
+  ...
+# Subtest: a check retains the player's exact goal independently of model narration
+ok 17 - a check retains the player's exact goal independently of model narration
+  ---
+  duration_ms: 0.402086
+  type: 'test'
+  ...
+# Subtest: direct system/developer handlers deny guest and normal account before diagnostics or malformed-body effects
+ok 18 - direct system/developer handlers deny guest and normal account before diagnostics or malformed-body effects
+  ---
+  duration_ms: 4035.348448
+  type: 'test'
+  ...
+# Subtest: only allowlisted administrators can select a catalogued image model for future visuals
+ok 19 - only allowlisted administrators can select a catalogued image model for future visuals
+  ---
+  duration_ms: 3375.050126
+  type: 'test'
+  ...
+# Subtest: admin role preserves ownership on diagnostics and personal settings remain usable by guests
+ok 20 - admin role preserves ownership on diagnostics and personal settings remain usable by guests
+  ---
+  duration_ms: 3513.297131
+  type: 'test'
+  ...
+# Subtest: real worker extraction never invokes old enabled Jev pilot for a non-admin owner
+ok 21 - real worker extraction never invokes old enabled Jev pilot for a non-admin owner
+  ---
+  duration_ms: 3291.832894
+  type: 'test'
+  ...
+# Subtest: worker config ignores old enabled Jev settings for guests/non-admin and rechecks allowlist
+ok 22 - worker config ignores old enabled Jev settings for guests/non-admin and rechecks allowlist
+  ---
+  duration_ms: 3182.078214
+  type: 'test'
+  ...
+# Subtest: checkpoint forks and public personal copies preserve immutable agreement chains with isolated identities
+ok 23 - checkpoint forks and public personal copies preserve immutable agreement chains with isolated identities
+  ---
+  duration_ms: 4016.055965
+  type: 'test'
+  ...
+# Subtest: getAIConfig decodes Gemini keys without opening unrelated credentials
+ok 24 - getAIConfig decodes Gemini keys without opening unrelated credentials
+  ---
+  duration_ms: 3302.987724
+  type: 'test'
+  ...
+# Subtest: long applied feedback stays compact but every consequence is available in disclosure
+ok 25 - long applied feedback stays compact but every consequence is available in disclosure
+  ---
+  duration_ms: 20.582023
+  type: 'test'
+  ...
+# Subtest: item feedback distinguishes receipt, consumption, removal, equipment and unequipment
+ok 26 - item feedback distinguishes receipt, consumption, removal, equipment and unequipment
+  ---
+  duration_ms: 2.553373
+  type: 'test'
+  ...
+# Subtest: failed inventory changes are not presented as accomplished actions
+ok 27 - failed inventory changes are not presented as accomplished actions
+  ---
+  duration_ms: 0.360685
+  type: 'test'
+  ...
+# Subtest: resource signs and tones reflect gains, losses and danger without a success checkmark
+ok 28 - resource signs and tones reflect gains, losses and danger without a success checkmark
+  ---
+  duration_ms: 0.60098
+  type: 'test'
+  ...
+# Subtest: quest completion and failure use explicit status, not the same progress-only success label
+ok 29 - quest completion and failure use explicit status, not the same progress-only success label
+  ---
+  duration_ms: 0.685352
+  type: 'test'
+  ...
+# Subtest: added and removed conditions are both visible without guessing whether the condition is beneficial
+ok 30 - added and removed conditions are both visible without guessing whether the condition is beneficial
+  ---
+  duration_ms: 0.434886
+  type: 'test'
+  ...
+# Subtest: level-up, near-death recovery and NPC/scene changes retain their meaning
+ok 31 - level-up, near-death recovery and NPC/scene changes retain their meaning
+  ---
+  duration_ms: 0.351023
+  type: 'test'
+  ...
+# Subtest: real auth handlers require origin, issue private cookies, preserve guest on login and clear sessions on logout
+ok 32 - real auth handlers require origin, issue private cookies, preserve guest on login and clear sessions on logout
+  ---
+  duration_ms: 4149.098752
+  type: 'test'
+  ...
+# Subtest: auth handler rate limit cannot be bypassed by changed logins or untrusted forwarded IPs
+ok 33 - auth handler rate limit cannot be bypassed by changed logins or untrusted forwarded IPs
+  ---
+  duration_ms: 3028.944416
+  type: 'test'
+  ...
+# Subtest: portable HTTP export is owner-only and import remaps structured data without copying jobs or credentials
+ok 34 - portable HTTP export is owner-only and import remaps structured data without copying jobs or credentials
+  ---
+  duration_ms: 4277.160764
+  type: 'test'
+  ...
+# Subtest: portable failed import leaves neither target nor ledger
+ok 35 - portable failed import leaves neither target nor ledger
+  ---
+  duration_ms: 3044.919058
+  type: 'test'
+  ...
+# Subtest: portable document round-trips representative engine state without runtime ownership
+ok 36 - portable document round-trips representative engine state without runtime ownership
+  ---
+  duration_ms: 148.129157
+  type: 'test'
+  ...
+# Subtest: portable document retains d20 dice, applied changes, and verification evidence
+ok 37 - portable document retains d20 dice, applied changes, and verification evidence
+  ---
+  duration_ms: 6.639795
+  type: 'test'
+  ...
+# Subtest: portable document accepts an archived source
+ok 38 - portable document accepts an archived source
+  ---
+  duration_ms: 3.590945
+  type: 'test'
+  ...
+# Subtest: portable JSON preserves bounded 2.7 life and 2.8 agenda, narrator and condition state
+ok 39 - portable JSON preserves bounded 2.7 life and 2.8 agenda, narrator and condition state
+  ---
+  duration_ms: 12.959275
+  type: 'test'
+  ...
+# Subtest: portable import rejects malformed nested fields and unsafe controls before checksum traversal
+ok 40 - portable import rejects malformed nested fields and unsafe controls before checksum traversal
+  ---
+  duration_ms: 11.250214
+  type: 'test'
+  ...
+# Subtest: portable checksum and agreement provenance reject changed claims
+ok 41 - portable checksum and agreement provenance reject changed claims
+  ---
+  duration_ms: 10.126867
+  type: 'test'
+  ...
+# Subtest: portable import rejects duplicate link IDs even when checksum is recalculated
+ok 42 - portable import rejects duplicate link IDs even when checksum is recalculated
+  ---
+  duration_ms: 5.335313
+  type: 'test'
+  ...
+# Subtest: portable import rejects noncanonical and case-colliding UUID identities
+ok 43 - portable import rejects noncanonical and case-colliding UUID identities
+  ---
+  duration_ms: 5.373563
+  type: 'test'
+  ...
+# Subtest: portable import rejects control fields hidden inside audit metadata
+ok 44 - portable import rejects control fields hidden inside audit metadata
+  ---
+  duration_ms: 3.940032
+  type: 'test'
+  ...
+# Subtest: portable import rejects out-of-range world and memory values with a matching checksum
+ok 45 - portable import rejects out-of-range world and memory values with a matching checksum
+  ---
+  duration_ms: 5.024266
+  type: 'test'
+  ...
+# Subtest: proxy raises the body cap only for the exact import POST path
+ok 46 - proxy raises the body cap only for the exact import POST path
+  ---
+  duration_ms: 121.55276
+  type: 'test'
+  ...
+# Subtest: buildMemoryQuery uses the exact action, location and truncated narration identity
+ok 47 - buildMemoryQuery uses the exact action, location and truncated narration identity
+  ---
+  duration_ms: 1.348525
+  type: 'test'
+  ...
+# Subtest: prewarm batches at most three distinct exact queries
+ok 48 - prewarm batches at most three distinct exact queries
+  ---
+  duration_ms: 1.458229
+  type: 'test'
+  ...
+# Subtest: cache expires entries and stays bounded
+ok 49 - cache expires entries and stays bounded
+  ---
+  duration_ms: 0.704415
+  type: 'test'
+  ...
+# Subtest: in-flight prewarm and retrieval coalesce on the exact key
+ok 50 - in-flight prewarm and retrieval coalesce on the exact key
+  ---
+  duration_ms: 0.458091
+  type: 'test'
+  ...
+# Subtest: failed in-flight work is evicted so retrieval can retry
+ok 51 - failed in-flight work is evicted so retrieval can retry
+  ---
+  duration_ms: 0.609222
+  type: 'test'
+  ...
+# Subtest: retrieval waiting on a failed prewarm retries with its own loader
+ok 52 - retrieval waiting on a failed prewarm retries with its own loader
+  ---
+  duration_ms: 0.602937
+  type: 'test'
+  ...
+# Subtest: retrieval abandons a hung shared prewarm within its wait budget
+ok 53 - retrieval abandons a hung shared prewarm within its wait budget
+  ---
+  duration_ms: 11.470385
+  type: 'test'
+  ...
+# Subtest: speculative pending admission is bounded
+ok 54 - speculative pending admission is bounded
+  ---
+  duration_ms: 0.523375
+  type: 'test'
+  ...
+# Subtest: vector cache does not cache ranked results
+ok 55 - vector cache does not cache ranked results
+  ---
+  duration_ms: 0.642167
+  type: 'test'
+  ...
+# Subtest: preview is retired only after the committed feed has been published
+ok 56 - preview is retired only after the committed feed has been published
+  ---
+  duration_ms: 9.388467
+  type: 'test'
+  ...
+# Subtest: a failed feed publication preserves the visible preview
+ok 57 - a failed feed publication preserves the visible preview
+  ---
+  duration_ms: 2.329842
+  type: 'test'
+  ...
+# Subtest: committed response is visible without waiting for snapshot and deduplicates after reload
+ok 58 - committed response is visible without waiting for snapshot and deduplicates after reload
+  ---
+  duration_ms: 1.728782
+  type: 'test'
+  ...
+# Subtest: confirmed state advances version and choices while bulk panels load in background
+ok 59 - confirmed state advances version and choices while bulk panels load in background
+  ---
+  duration_ms: 1.518061
+  type: 'test'
+  ...
+# Subtest: condition catalog maps free text to bounded modifiers by check scope
+ok 60 - condition catalog maps free text to bounded modifiers by check scope
+  ---
+  duration_ms: 6.341776
+  type: 'test'
+  ...
+# Subtest: serverCheck applies condition modifiers deterministically for d20 and 2d6
+ok 61 - serverCheck applies condition modifiers deterministically for d20 and 2d6
+  ---
+  duration_ms: 4.930182
+  type: 'test'
+  ...
+# Subtest: condition timers register on add and expire by world clock, leaving scene-bound conditions alone
+ok 62 - condition timers register on add and expire by world clock, leaving scene-bound conditions alone
+  ---
+  duration_ms: 4.052789
+  type: 'test'
+  ...
+# Subtest: narrator preferences normalize, stay empty by default and change the prompt only when set
+ok 63 - narrator preferences normalize, stay empty by default and change the prompt only when set
+  ---
+  duration_ms: 2.366885
+  type: 'test'
+  ...
+# Subtest: recap offers itself only after a long break and builds deterministic sections from canon
+ok 64 - recap offers itself only after a long break and builds deterministic sections from canon
+  ---
+  duration_ms: 6.103117
+  type: 'test'
+  ...
+# Subtest: database search preserves weighted ranking, diversity, isolation and vector validity at every supported dimension
+ok 65 - database search preserves weighted ranking, diversity, isolation and vector validity at every supported dimension
+  ---
+  duration_ms: 4166.929224
+  type: 'test'
+  ...
+# Subtest: SQL hash matches existing JS hashes, including UTF-16 truncation and malformed legacy arrays
+ok 66 - SQL hash matches existing JS hashes, including UTF-16 truncation and malformed legacy arrays
+  ---
+  duration_ms: 3319.403452
+  type: 'test'
+  ...
+# Subtest: invalid query vectors fail before SQL and query values stay parameterized
+ok 67 - invalid query vectors fail before SQL and query values stay parameterized
+  ---
+  duration_ms: 1.67066
+  type: 'test'
+  ...
+# Subtest: complete migration ledger applies twice safely and preserves real[] storage
+ok 68 - complete migration ledger applies twice safely and preserves real[] storage
+  ---
+  duration_ms: 3123.012537
+  type: 'test'
+  ...
+# Subtest: deployment runner applies full journal, skips replay, and applies future entries
+ok 69 - deployment runner applies full journal, skips replay, and applies future entries
+  ---
+  duration_ms: 3680.398317
+  type: 'test'
+  ...
+# Subtest: failed migration rolls back schema and ledger and can be retried
+ok 70 - failed migration rolls back schema and ledger and can be retried
+  ---
+  duration_ms: 2448.923399
+  type: 'test'
+  ...
+# Subtest: deployment runner locks before reading ledger and rolls back lock failures
+ok 71 - deployment runner locks before reading ledger and rolls back lock failures
+  ---
+  duration_ms: 1.24481
+  type: 'test'
+  ...
+# Subtest: documentation checks existing relative links without fetching external URLs or checking anchors
+ok 72 - documentation checks existing relative links without fetching external URLs or checking anchors
+  ---
+  duration_ms: 23.374824
+  type: 'test'
+  ...
+# Subtest: broken links and missing operational npm scripts identify the source document
+ok 73 - broken links and missing operational npm scripts identify the source document
+  ---
+  duration_ms: 10.796332
+  type: 'test'
+  ...
+# Subtest: migration documentation check rejects duplicate tags, missing SQL and non-increasing journal timestamps
+ok 74 - migration documentation check rejects duplicate tags, missing SQL and non-increasing journal timestamps
+  ---
+  duration_ms: 8.334815
+  type: 'test'
+  ...
+# Subtest: valid ledger, angle-bracket links and images are checked with no dependency on working directory
+ok 75 - valid ledger, angle-bracket links and images are checked with no dependency on working directory
+  ---
+  duration_ms: 10.070718
+  type: 'test'
+  ...
+# Subtest: fenced examples accept longer closers and leave later prose links visible
+ok 76 - fenced examples accept longer closers and leave later prose links visible
+  ---
+  duration_ms: 6.195847
+  type: 'test'
+  ...
+# Subtest: too-short and absent fence closers keep subsequent link examples inside the block
+ok 77 - too-short and absent fence closers keep subsequent link examples inside the block
+  ---
+  duration_ms: 6.44496
+  type: 'test'
+  ...
+# Subtest: nested operational documents validate npm commands but historical plans do not
+ok 78 - nested operational documents validate npm commands but historical plans do not
+  ---
+  duration_ms: 11.726347
+  type: 'test'
+  ...
+# Subtest: missing migration journal is rejected
+ok 79 - missing migration journal is rejected
+  ---
+  duration_ms: 8.079549
+  type: 'test'
+  ...
+# Subtest: inline code and escaped link-like examples are not checked as links
+ok 80 - inline code and escaped link-like examples are not checked as links
+  ---
+  duration_ms: 5.436058
+  type: 'test'
+  ...
+# Subtest: v2.5 reading: unknown, partial and hostile input always yield a renderable theme
+ok 81 - v2.5 reading: unknown, partial and hostile input always yield a renderable theme
+  ---
+  duration_ms: 2.321334
+  type: 'test'
+  ...
+# Subtest: v2.5 reading: every declared option round-trips and maps to data attributes
+ok 82 - v2.5 reading: every declared option round-trips and maps to data attributes
+  ---
+  duration_ms: 0.543755
+  type: 'test'
+  ...
+# Subtest: v2.5 map: projects authored coordinates into the viewBox with padding
+ok 83 - v2.5 map: projects authored coordinates into the viewBox with padding
+  ---
+  duration_ms: 0.964932
+  type: 'test'
+  ...
+# Subtest: v2.5 map: identical or single coordinates never divide by zero
+ok 84 - v2.5 map: identical or single coordinates never divide by zero
+  ---
+  duration_ms: 0.434274
+  type: 'test'
+  ...
+# Subtest: v2.5 map: undiscovered places and their edges stay hidden
+ok 85 - v2.5 map: undiscovered places and their edges stay hidden
+  ---
+  duration_ms: 0.379932
+  type: 'test'
+  ...
+# Subtest: v2.5 map: edges dedupe both directions and ignore self-links
+ok 86 - v2.5 map: edges dedupe both directions and ignore self-links
+  ---
+  duration_ms: 0.532586
+  type: 'test'
+  ...
+# Subtest: v2.5 map: danger maps to three honest risk bands
+ok 87 - v2.5 map: danger maps to three honest risk bands
+  ---
+  duration_ms: 0.21537
+  type: 'test'
+  ...
+# Subtest: v2.5 map: edge labels anchor inward and long names are truncated
+ok 88 - v2.5 map: edge labels anchor inward and long names are truncated
+  ---
+  duration_ms: 0.44037
+  type: 'test'
+  ...
+# Subtest: v2.5 map: adjacent labels alternate above and below to avoid collision
+ok 89 - v2.5 map: adjacent labels alternate above and below to avoid collision
+  ---
+  duration_ms: 0.562913
+  type: 'test'
+  ...
+# Subtest: denied admission makes no provider fetch or provider attempt log
+ok 90 - denied admission makes no provider fetch or provider attempt log
+  ---
+  duration_ms: 4.416135
+  type: 'test'
+  ...
+# Subtest: admission database errors fail closed without provider retry
+ok 91 - admission database errors fail closed without provider retry
+  ---
+  duration_ms: 0.527758
+  type: 'test'
+  ...
+# Subtest: stalled quota admission observes cancellation and late approval cannot fetch
+ok 92 - stalled quota admission observes cancellation and late approval cannot fetch
+  ---
+  duration_ms: 5.753798
+  type: 'test'
+  ...
+# Subtest: admission time consumes the overall provider deadline
+ok 93 - admission time consumes the overall provider deadline
+  ---
+  duration_ms: 261.148949
+  type: 'test'
+  ...
+# Subtest: key-specific 400 still tries the second key on the same model
+ok 94 - key-specific 400 still tries the second key on the same model
+  ---
+  duration_ms: 28.920647
+  type: 'test'
+  ...
+# Subtest: overload retries same model before falling back, and alternate key comes first
+ok 95 - overload retries same model before falling back, and alternate key comes first
+  ---
+  duration_ms: 507.199137
+  type: 'test'
+  ...
+# Subtest: stream exposes incremental text, excludes thoughts and measures complete body
+ok 96 - stream exposes incremental text, excludes thoughts and measures complete body
+  ---
+  duration_ms: 44.800113
+  type: 'test'
+  ...
+# Subtest: truncated streams cannot be committed as successful and attempts reset drafts
+ok 97 - truncated streams cannot be committed as successful and attempts reset drafts
+  ---
+  duration_ms: 253.647793
+  type: 'test'
+  ...
+# Subtest: settings request admitted as account cannot silently retarget guest after logout during body read
+ok 98 - settings request admitted as account cannot silently retarget guest after logout during body read
+  ---
+  duration_ms: 4055.799411
+  type: 'test'
+  ...
+# Subtest: workspace request admitted as account cannot silently retarget guest after logout during body read
+ok 99 - workspace request admitted as account cannot silently retarget guest after logout during body read
+  ---
+  duration_ms: 3268.694918
+  type: 'test'
+  ...
+# Subtest: developer settings admitted as admin cannot retarget guest after logout during body read
+ok 100 - developer settings admitted as admin cannot retarget guest after logout during body read
+  ---
+  duration_ms: 3189.857023
+  type: 'test'
+  ...
+# Subtest: new inventory can be equipped and stacked in the same turn using one generated identity
+ok 101 - new inventory can be equipped and stacked in the same turn using one generated identity
+  ---
+  duration_ms: 8.952667
+  type: 'test'
+  ...
+# Subtest: an independent acquisition after failure is only a provisional candidate for mandatory verification
+ok 102 - an independent acquisition after failure is only a provisional candidate for mandatory verification
+  ---
+  duration_ms: 1.761228
+  type: 'test'
+  ...
+# Subtest: same-turn acquired items can be removed once and failed acquisition cannot be equipped
+ok 103 - same-turn acquired items can be removed once and failed acquisition cannot be equipped
+  ---
+  duration_ms: 0.969277
+  type: 'test'
+  ...
+# Subtest: reacquiring a removed item creates a fresh row instead of updating a deleted identity
+ok 104 - reacquiring a removed item creates a fresh row instead of updating a deleted identity
+  ---
+  duration_ms: 1.557475
+  type: 'test'
+  ...
+# Subtest: hidden item identity is normalized and bound to retry identity
+ok 105 - hidden item identity is normalized and bound to retry identity
+  ---
+  duration_ms: 2.742521
+  type: 'test'
+  ...
+# Subtest: selected item pins exact duplicate-name item and invalid owned refs fail closed
+ok 106 - selected item pins exact duplicate-name item and invalid owned refs fail closed
+  ---
+  duration_ms: 16.606053
+  type: 'test'
+  ...
+# Subtest: legacy settings credentials are decrypted under the source owner and resealed for the target owner
+ok 107 - legacy settings credentials are decrypted under the source owner and resealed for the target owner
+  ---
+  duration_ms: 4.514037
+  type: 'test'
+  ...
+# Subtest: legacy plaintext import requires explicit permission and malformed data is rejected safely
+ok 108 - legacy plaintext import requires explicit permission and malformed data is rejected safely
+  ---
+  duration_ms: 1.225654
+  type: 'test'
+  ...
+# Subtest: narrative credentials count as target credentials and abort an isolated transaction
+ok 109 - narrative credentials count as target credentials and abort an isolated transaction
+  ---
+  duration_ms: 3078.694202
+  type: 'test'
+  ...
+# Subtest: map discovery parser keeps legacy location and normalizes optional plural topology
+ok 110 - map discovery parser keeps legacy location and normalizes optional plural topology
+  ---
+  duration_ms: 4.610122
+  type: 'test'
+  ...
+# Subtest: map discovery parser ignores null and scalar topology entries
+ok 111 - map discovery parser ignores null and scalar topology entries
+  ---
+  duration_ms: 0.552208
+  type: 'test'
+  ...
+# Subtest: reducer discovers several places with unique IDs/positions and writes only explicit routes
+ok 112 - reducer discovers several places with unique IDs/positions and writes only explicit routes
+  ---
+  duration_ms: 5.512866
+  type: 'test'
+  ...
+# Subtest: reducer records successful movement as a bidirectional route
+ok 113 - reducer records successful movement as a bidirectional route
+  ---
+  duration_ms: 0.639888
+  type: 'test'
+  ...
+# Subtest: movement resolves an explicit ID before comparing duplicate location names
+ok 114 - movement resolves an explicit ID before comparing duplicate location names
+  ---
+  duration_ms: 0.549971
+  type: 'test'
+  ...
+# Subtest: first reveal of an existing hidden location emits canonical discovery memory once
+ok 115 - first reveal of an existing hidden location emits canonical discovery memory once
+  ---
+  duration_ms: 0.640696
+  type: 'test'
+  ...
+# Subtest: reducer rejects foreign IDs and ambiguous names without inventing a route
+ok 116 - reducer rejects foreign IDs and ambiguous names without inventing a route
+  ---
+  duration_ms: 0.756869
+  type: 'test'
+  ...
+# Subtest: movement by an explicit foreign location reference fails closed
+ok 117 - movement by an explicit foreign location reference fails closed
+  ---
+  duration_ms: 0.658975
+  type: 'test'
+  ...
+# Subtest: location executor persists both directions without duplicates
+ok 118 - location executor persists both directions without duplicates
+  ---
+  duration_ms: 1.770233
+  type: 'test'
+  ...
+# Subtest: direct map consumers receive discovered locations only
+ok 119 - direct map consumers receive discovered locations only
+  ---
+  duration_ms: 0.731648
+  type: 'test'
+  ...
+# Subtest: state event selection keeps the latest semantic facts under a busy-turn cap
+ok 120 - state event selection keeps the latest semantic facts under a busy-turn cap
+  ---
+  duration_ms: 1.542384
+  type: 'test'
+  ...
+# Subtest: state event batch shares lock/config and writes embedding outbox once
+ok 121 - state event batch shares lock/config and writes embedding outbox once
+  ---
+  duration_ms: 2.828688
+  type: 'test'
+  ...
+# Subtest: evaluation has fixed labels, unique documents and nested corpus sizes
+ok 122 - evaluation has fixed labels, unique documents and nested corpus sizes
+  ---
+  duration_ms: 34.606775
+  type: 'test'
+  ...
+# Subtest: recall and reciprocal rank do not count duplicate hits twice
+ok 123 - recall and reciprocal rank do not count duplicate hits twice
+  ---
+  duration_ms: 0.409205
+  type: 'test'
+  ...
+# Subtest: retrieval uses SQL after migration, uses old reader before migration, and never falls back on SQL failure
+ok 124 - retrieval uses SQL after migration, uses old reader before migration, and never falls back on SQL failure
+  ---
+  duration_ms: 3607.013836
+  type: 'test'
+  ...
+# Subtest: proposal parser bounds payloads and preserves rejected evidence instead of silently accepting malformed terms
+ok 125 - proposal parser bounds payloads and preserves rejected evidence instead of silently accepting malformed terms
+  ---
+  duration_ms: 1.418268
+  type: 'test'
+  ...
+# Subtest: player intention cannot accept or fulfill a contract and new fulfilled history cannot be invented
+ok 126 - player intention cannot accept or fulfill a contract and new fulfilled history cannot be invented
+  ---
+  duration_ms: 1.031558
+  type: 'test'
+  ...
+# Subtest: revisions preserve original object and reject unknown foreign stale and future references
+ok 127 - revisions preserve original object and reject unknown foreign stale and future references
+  ---
+  duration_ms: 0.913365
+  type: 'test'
+  ...
+# Subtest: journal enforces append-only session scoped history, final source binding, chain integrity and atomic rollback
+ok 128 - journal enforces append-only session scoped history, final source binding, chain integrity and atomic rollback
+  ---
+  duration_ms: 3432.89897
+  type: 'test'
+  ...
+# Subtest: diagnostic payloads omit credential fields, bound details and disclose truncation
+ok 129 - diagnostic payloads omit credential fields, bound details and disclose truncation
+  ---
+  duration_ms: 17.406073
+  type: 'test'
+  ...
+# Subtest: diagnostic migration permits repeated request attempts and deletes private history with campaign
+ok 130 - diagnostic migration permits repeated request attempts and deletes private history with campaign
+  ---
+  duration_ms: 3067.866402
+  type: 'test'
+  ...
+# Subtest: evaluation distinguishes unsafe acceptance, false rejection, abstention and availability
+ok 131 - evaluation distinguishes unsafe acceptance, false rejection, abstention and availability
+  ---
+  duration_ms: 1.489408
+  type: 'test'
+  ...
+# Subtest: Russian synthetic corpus covers guarded cases and descriptive safe bypasses
+ok 132 - Russian synthetic corpus covers guarded cases and descriptive safe bypasses
+  ---
+  duration_ms: 2.692255
+  type: 'test'
+  ...
+# Subtest: evidence search migration indexes existing text and follows content edits
+ok 133 - evidence search migration indexes existing text and follows content edits
+  ---
+  duration_ms: 3185.638814
+  type: 'test'
+  ...
+# Subtest: historical evidence retrieves original deal beyond recent history and excludes other campaigns/future
+ok 134 - historical evidence retrieves original deal beyond recent history and excludes other campaigns/future
+  ---
+  duration_ms: 2472.761789
+  type: 'test'
+  ...
+# Subtest: historical verification authority is bound to exact text and does not survive edits
+ok 135 - historical verification authority is bound to exact text and does not survive edits
+  ---
+  duration_ms: 1.045196
+  type: 'test'
+  ...
+# Subtest: review authority belongs only to the same final uncertain draft and exact saved text
+ok 136 - review authority belongs only to the same final uncertain draft and exact saved text
+  ---
+  duration_ms: 0.56174
+  type: 'test'
+  ...
+# Subtest: snapshot preserves evidence text/hash and marks disputed or truncated narrator evidence
+ok 137 - snapshot preserves evidence text/hash and marks disputed or truncated narrator evidence
+  ---
+  duration_ms: 0.526495
+  type: 'test'
+  ...
+# Subtest: evidence queries bind action and IDs rather than interpolating raw input
+ok 138 - evidence queries bind action and IDs rather than interpolating raw input
+  ---
+  duration_ms: 0.51379
+  type: 'test'
+  ...
+# Subtest: original evidence remains retrievable and bounded with 100, 1000 and 10000 historical turns
+ok 139 - original evidence remains retrievable and bounded with 100, 1000 and 10000 historical turns
+  ---
+  duration_ms: 16374.920149
+  type: 'test'
+  ...
+# 100 turns, lexical retrieval: 7.5 ms (local PGlite)
+# 100 turns, source reference: 8.9 ms (local PGlite)
+# 1000 turns, lexical retrieval: 9.5 ms (local PGlite)
+# 1000 turns, source reference: 42.5 ms (local PGlite)
+# 10000 turns, lexical retrieval: 67.5 ms (local PGlite)
+# 10000 turns, source reference: 349.5 ms (local PGlite)
+# Subtest: player is present before streaming starts and both rows retain identity through commit and DB refresh
+ok 140 - player is present before streaming starts and both rows retain identity through commit and DB refresh
+  ---
+  duration_ms: 2.45726
+  type: 'test'
+  ...
+# Subtest: overlapping history pages deduplicate logical turns without collapsing different sessions
+ok 141 - overlapping history pages deduplicate logical turns without collapsing different sessions
+  ---
+  duration_ms: 0.324463
+  type: 'test'
+  ...
+# Subtest: polling cannot move streamed progress backward or reopen a completed request
+ok 142 - polling cannot move streamed progress backward or reopen a completed request
+  ---
+  duration_ms: 22.156529
+  type: 'test'
+  ...
+# Subtest: guarded schema places complete metadata before narration
+ok 143 - guarded schema places complete metadata before narration
+  ---
+  duration_ms: 1.1364
+  type: 'test'
+  ...
+# Subtest: only descriptive sentences stream; dice, automatic XP, consequences and invalid headers hold text
+ok 144 - only descriptive sentences stream; dice, automatic XP, consequences and invalid headers hold text
+  ---
+  duration_ms: 5.955953
+  type: 'test'
+  ...
+# Subtest: repair accepts prose and choices only, refusing attempted state rewrites
+ok 145 - repair accepts prose and choices only, refusing attempted state rewrites
+  ---
+  duration_ms: 1.373277
+  type: 'test'
+  ...
+# Subtest: rejected draft is repaired once against frozen state and choices change together
+ok 146 - rejected draft is repaired once against frozen state and choices change together
+  ---
+  duration_ms: 4.927217
+  type: 'test'
+  ...
+# Subtest: unavailable verifier and expired deadline cannot publish a critical draft
+ok 147 - unavailable verifier and expired deadline cannot publish a critical draft
+  ---
+  duration_ms: 1.080147
+  type: 'test'
+  ...
+# Subtest: late escalation cannot replace already emitted prose with a different story
+ok 148 - late escalation cannot replace already emitted prose with a different story
+  ---
+  duration_ms: 0.515329
+  type: 'test'
+  ...
+# Subtest: repair cannot manufacture evidence for a supposedly independent acquisition
+ok 149 - repair cannot manufacture evidence for a supposedly independent acquisition
+  ---
+  duration_ms: 0.675041
+  type: 'test'
+  ...
+# Subtest: empty proposal is still material when reducer adds XP or flags change
+ok 150 - empty proposal is still material when reducer adds XP or flags change
+  ---
+  duration_ms: 0.489354
+  type: 'test'
+  ...
+# Subtest: repair and verifier cannot mutate the authoritative reducer snapshot
+ok 151 - repair and verifier cannot mutate the authoritative reducer snapshot
+  ---
+  duration_ms: 1.026958
+  type: 'test'
+  ...
+# Subtest: a verified response arriving after the deadline cannot authorize saving
+ok 152 - a verified response arriving after the deadline cannot authorize saving
+  ---
+  duration_ms: 0.667311
+  type: 'test'
+  ...
+# Subtest: plain description skips remote calls, whereas provider exceptions fail closed
+ok 153 - plain description skips remote calls, whereas provider exceptions fail closed
+  ---
+  duration_ms: 0.600916
+  type: 'test'
+  ...
+# Subtest: empty scopes are omitted, then repaired choices are checked without losing historical checks
+ok 154 - empty scopes are omitted, then repaired choices are checked without losing historical checks
+  ---
+  duration_ms: 1.231383
+  type: 'test'
+  ...
+# Subtest: unknown or nonempty agreement scope retains the agreement check
+ok 155 - unknown or nonempty agreement scope retains the agreement check
+  ---
+  duration_ms: 1.512848
+  type: 'test'
+  ...
+# Subtest: an optional review can resolve uncertainty against the same frozen draft without repair
+ok 156 - an optional review can resolve uncertainty against the same frozen draft without repair
+  ---
+  duration_ms: 2.231434
+  type: 'test'
+  ...
+# Subtest: review does not override a confident rejection or rescue an expired deadline
+ok 157 - review does not override a confident rejection or rescue an expired deadline
+  ---
+  duration_ms: 0.946266
+  type: 'test'
+  ...
+# Subtest: malformed review cannot approve and its rejection is supplied to the single repair
+ok 158 - malformed review cannot approve and its rejection is supplied to the single repair
+  ---
+  duration_ms: 1.775469
+  type: 'test'
+  ...
+# Subtest: both uncertain drafts get separate reviews with exactly one repair
+ok 159 - both uncertain drafts get separate reviews with exactly one repair
+  ---
+  duration_ms: 2.887912
+  type: 'test'
+  ...
+# Subtest: offline narration describes accepted inventory and exact resource deltas only
+ok 160 - offline narration describes accepted inventory and exact resource deltas only
+  ---
+  duration_ms: 1.359782
+  type: 'test'
+  ...
+# Subtest: ordinary description skips provider checks but missing/invalid declarations do not
+ok 161 - ordinary description skips provider checks but missing/invalid declarations do not
+  ---
+  duration_ms: 4.187489
+  type: 'test'
+  ...
+# Subtest: failed pants acquisition selects outcome and accepted-state checks, independent of declaration
+ok 162 - failed pants acquisition selects outcome and accepted-state checks, independent of declaration
+  ---
+  duration_ms: 0.360009
+  type: 'test'
+  ...
+# Subtest: historical references in action or prose require independent-source checks
+ok 163 - historical references in action or prose require independent-source checks
+  ---
+  duration_ms: 0.554427
+  type: 'test'
+  ...
+# Subtest: unlisted consequential prose escalates even when the model declares only description
+ok 164 - unlisted consequential prose escalates even when the model declares only description
+  ---
+  duration_ms: 0.282159
+  type: 'test'
+  ...
+# Subtest: a harmless description cannot bypass checks on consequential choices and accepted notes
+ok 165 - a harmless description cannot bypass checks on consequential choices and accepted notes
+  ---
+  duration_ms: 0.232875
+  type: 'test'
+  ...
+# Subtest: checks are bounded, independently answerable and never trust narration as historical proof
+ok 166 - checks are bounded, independently answerable and never trust narration as historical proof
+  ---
+  duration_ms: 0.667975
+  type: 'test'
+  ...
+# Subtest: independent acquisition criteria require positive evidence even when narration omits the item
+ok 167 - independent acquisition criteria require positive evidence even when narration omits the item
+  ---
+  duration_ms: 0.380225
+  type: 'test'
+  ...
+# Subtest: review accepts only complete decisions with references matching immutable state
+ok 168 - review accepts only complete decisions with references matching immutable state
+  ---
+  duration_ms: 3.493439
+  type: 'test'
+  ...
+# Subtest: wrong question IDs, duplicate decisions and invented evidence cannot approve a draft
+ok 169 - wrong question IDs, duplicate decisions and invented evidence cannot approve a draft
+  ---
+  duration_ms: 0.979276
+  type: 'test'
+  ...
+# Subtest: duplicate JSON keys and extra response fields are rejected
+ok 170 - duplicate JSON keys and extra response fields are rejected
+  ---
+  duration_ms: 0.382736
+  type: 'test'
+  ...
+# Subtest: a request or unverified narration cannot establish a historical contradiction
+ok 171 - a request or unverified narration cannot establish a historical contradiction
+  ---
+  duration_ms: 0.741045
+  type: 'test'
+  ...
+# Subtest: confirmed history can establish a contradiction but current candidates and future sources cannot
+ok 172 - confirmed history can establish a contradiction but current candidates and future sources cannot
+  ---
+  duration_ms: 0.469288
+  type: 'test'
+  ...
+# Subtest: independent acquisition approval requires a citation outside the draft and provisional changes
+ok 173 - independent acquisition approval requires a citation outside the draft and provisional changes
+  ---
+  duration_ms: 0.424455
+  type: 'test'
+  ...
+# Subtest: path-only citations are filled from the frozen snapshot, without model-rewritten JSON
+ok 174 - path-only citations are filled from the frozen snapshot, without model-rewritten JSON
+  ---
+  duration_ms: 0.707144
+  type: 'test'
+  ...
+# Subtest: multiple checks can cite the same maximum-length draft without exhausting evidence coverage
+ok 175 - multiple checks can cite the same maximum-length draft without exhausting evidence coverage
+  ---
+  duration_ms: 1.080216
+  type: 'test'
+  ...
+# Subtest: no accepted operation is lack of support, not evidence that the opposite happened
+ok 176 - no accepted operation is lack of support, not evidence that the opposite happened
+  ---
+  duration_ms: 1.138016
+  type: 'test'
+  ...
+# Subtest: default checking uses personal then administrator credentials and skips when neither exists
+ok 177 - default checking uses personal then administrator credentials and skips when neither exists
+  ---
+  duration_ms: 1.435702
+  type: 'test'
+  ...
+# Subtest: narrative credentials skip without keys and never borrow shadow or Gemini credentials
+ok 178 - narrative credentials skip without keys and never borrow shadow or Gemini credentials
+  ---
+  duration_ms: 1.135205
+  type: 'test'
+  ...
+# Subtest: public settings expose readiness and provider model without raw credentials
+ok 179 - public settings expose readiness and provider model without raw credentials
+  ---
+  duration_ms: 0.223638
+  type: 'test'
+  ...
+# Subtest: settings updates reject invalid inputs and clear credentials on provider change
+ok 180 - settings updates reject invalid inputs and clear credentials on provider change
+  ---
+  duration_ms: 1.062478
+  type: 'test'
+  ...
+# Subtest: additive migration preserves existing credentials and enables verification preference by default
+ok 181 - additive migration preserves existing credentials and enables verification preference by default
+  ---
+  duration_ms: 3136.723359
+  type: 'test'
+  ...
+# Subtest: settings endpoint rejects malformed or oversized bodies before any storage access
+ok 182 - settings endpoint rejects malformed or oversized bodies before any storage access
+  ---
+  duration_ms: 39.39424
+  type: 'test'
+  ...
+# Subtest: only complete metadata preceding top-level narration is admitted
+ok 183 - only complete metadata preceding top-level narration is admitted
+  ---
+  duration_ms: 6.46922
+  type: 'test'
+  ...
+# Subtest: nested narration and braces in escaped strings do not impersonate top-level fields
+ok 184 - nested narration and braces in escaped strings do not impersonate top-level fields
+  ---
+  duration_ms: 0.344052
+  type: 'test'
+  ...
+# Subtest: incomplete escapes and duplicate keys withhold unsafe admission
+ok 185 - incomplete escapes and duplicate keys withhold unsafe admission
+  ---
+  duration_ms: 0.486075
+  type: 'test'
+  ...
+# Subtest: sentence buffering holds unfinished assertions and never flushes arbitrary partial tails
+ok 186 - sentence buffering holds unfinished assertions and never flushes arbitrary partial tails
+  ---
+  duration_ms: 0.535588
+  type: 'test'
+  ...
+# Subtest: final draft rejects duplicate metadata after narration and nested duplicate effects
+ok 187 - final draft rejects duplicate metadata after narration and nested duplicate effects
+  ---
+  duration_ms: 0.727653
+  type: 'test'
+  ...
+# Subtest: performTurn narrative guard persists only canonical, verified narration
+    # Subtest: repair
+    ok 1 - repair
+      ---
+      duration_ms: 247.026136
+      type: 'test'
+      ...
+    # Subtest: unavailable
+    ok 2 - unavailable
+      ---
+      duration_ms: 94.76116
+      type: 'test'
+      ...
+    # Subtest: off
+    ok 3 - off
+      ---
+      duration_ms: 76.345057
+      type: 'test'
+      ...
+    # Subtest: preset does not commit an offline substitute when quota ledger fails after prefilter
+    ok 4 - preset does not commit an offline substitute when quota ledger fails after prefilter
+      ---
+      duration_ms: 51.116169
+      type: 'test'
+      ...
+    # Subtest: owner-missing-key
+    ok 5 - owner-missing-key
+      ---
+      duration_ms: 78.896393
+      type: 'test'
+      ...
+    # Subtest: owner-off
+    ok 6 - owner-off
+      ---
+      duration_ms: 76.097852
+      type: 'test'
+      ...
+    # Subtest: malformed
+    ok 7 - malformed
+      ---
+      duration_ms: 62.094397
+      type: 'test'
+      ...
+    # Subtest: duplicate
+    ok 8 - duplicate
+      ---
+      duration_ms: 62.054516
+      type: 'test'
+      ...
+    # Subtest: pants
+    ok 9 - pants
+      ---
+      duration_ms: 110.123804
+      type: 'test'
+      ...
+    # Subtest: description
+    ok 10 - description
+      ---
+      duration_ms: 79.517338
+      type: 'test'
+      ...
+    # Subtest: late-escalation
+    ok 11 - late-escalation
+      ---
+      duration_ms: 79.928
+      type: 'test'
+      ...
+    # Subtest: agreement terms survive a long history, amendment, failed verification and replay
+    ok 12 - agreement terms survive a long history, amendment, failed verification and replay
+      ---
+      duration_ms: 1000.122425
+      type: 'test'
+      ...
+    # Subtest: attempt diagnostics preserve truncation, cursor scope and expired-record filtering
+    ok 13 - attempt diagnostics preserve truncation, cursor scope and expired-record filtering
+      ---
+      duration_ms: 29.188626
+      type: 'test'
+      ...
+    # Subtest: missing personal key uses administrator Jev without exposing its credential in diagnostics
+    ok 14 - missing personal key uses administrator Jev without exposing its credential in diagnostics
+      ---
+      duration_ms: 75.34158
+      type: 'test'
+      ...
+    # Subtest: twenty consecutive story turns preserve amended terms and never propagate a rejected district claim
+    ok 15 - twenty consecutive story turns preserve amended terms and never propagate a rejected district claim
+      ---
+      duration_ms: 1593.955476
+      type: 'test'
+      ...
+    # Subtest: failed-roll acquisition requires independent evidence: false; unavailable: false
+    ok 16 - failed-roll acquisition requires independent evidence: false; unavailable: false
+      ---
+      duration_ms: 53.70201
+      type: 'test'
+      ...
+    # Subtest: failed-roll acquisition requires independent evidence: true; unavailable: false
+    ok 17 - failed-roll acquisition requires independent evidence: true; unavailable: false
+      ---
+      duration_ms: 75.818688
+      type: 'test'
+      ...
+    # Subtest: failed-roll acquisition requires independent evidence: true; unavailable: true
+    ok 18 - failed-roll acquisition requires independent evidence: true; unavailable: true
+      ---
+      duration_ms: 68.909993
+      type: 'test'
+      ...
+    # Subtest: uncertain Jev result is reviewed without regenerating or changing the turn
+    ok 19 - uncertain Jev result is reviewed without regenerating or changing the turn
+      ---
+      duration_ms: 69.67954
+      type: 'test'
+      ...
+    # Subtest: expired lease after verification cannot commit a late accepted draft
+    ok 20 - expired lease after verification cannot commit a late accepted draft
+      ---
+      duration_ms: 58.811537
+      type: 'test'
+      ...
+    # Subtest: committed gameplay returns before diagnostic persistence starts
+    ok 21 - committed gameplay returns before diagnostic persistence starts
+      ---
+      duration_ms: 49.687928
+      type: 'test'
+      ...
+    # Subtest: guarded offline preset needs no provider and persists deterministic consequences
+    ok 22 - guarded offline preset needs no provider and persists deterministic consequences
+      ---
+      duration_ms: 41.998974
+      type: 'test'
+      ...
+    1..22
+ok 188 - performTurn narrative guard persists only canonical, verified narration
+  ---
+  duration_ms: 8203.196673
+  type: 'test'
+  ...
+# Subtest: all atomic checks are batched once and only consistently confident answers pass
+ok 189 - all atomic checks are batched once and only consistently confident answers pass
+  ---
+  duration_ms: 31.229649
+  type: 'test'
+  ...
+# Subtest: contradictions, insufficient evidence and low confidence never pass
+ok 190 - contradictions, insufficient evidence and low confidence never pass
+  ---
+  duration_ms: 4.512058
+  type: 'test'
+  ...
+# Subtest: missing answers, malformed probabilities, wrong model and extra answers fail closed
+ok 191 - missing answers, malformed probabilities, wrong model and extra answers fail closed
+  ---
+  duration_ms: 3.038663
+  type: 'test'
+  ...
+# Subtest: no key, oversized state, HTTP error and abort are explicit and do not disclose provider bodies
+ok 192 - no key, oversized state, HTTP error and abort are explicit and do not disclose provider bodies
+  ---
+  duration_ms: 9.470694
+  type: 'test'
+  ...
+# Subtest: unchecked description consumes no provider call and has a distinct skipped status
+ok 193 - unchecked description consumes no provider call and has a distinct skipped status
+  ---
+  duration_ms: 0.347568
+  type: 'test'
+  ...
+# Subtest: OpenRouter credentials use only Decisions endpoint and requested Jev model
+ok 194 - OpenRouter credentials use only Decisions endpoint and requested Jev model
+  ---
+  duration_ms: 1.655291
+  type: 'test'
+  ...
+# Subtest: failed activity cleanup leaves a durable transfer block, not a play/login outage
+ok 195 - failed activity cleanup leaves a durable transfer block, not a play/login outage
+  ---
+  duration_ms: 4343.068449
+  type: 'test'
+  ...
+# Subtest: proxy repairs consumed guest cookies without granting access and keeps health independent
+ok 196 - proxy repairs consumed guest cookies without granting access and keeps health independent
+  ---
+  duration_ms: 3168.350343
+  type: 'test'
+  ...
+# Subtest: unsafe APIs reject same-site sibling origins before identity/storage access
+ok 197 - unsafe APIs reject same-site sibling origins before identity/storage access
+  ---
+  duration_ms: 8.254313
+  type: 'test'
+  ...
+# Subtest: initial and repaired guest cookies are Secure in production even behind an HTTP-origin proxy
+ok 198 - initial and repaired guest cookies are Secure in production even behind an HTTP-origin proxy
+  ---
+  duration_ms: 3151.05868
+  type: 'test'
+  ...
+# Subtest: empty queues report no age or failed jobs
+ok 199 - empty queues report no age or failed jobs
+  ---
+  duration_ms: 1.914673
+  type: 'test'
+  ...
+# Subtest: queue snapshot includes both extraction and embedding backlogs using UTC database timestamps
+ok 200 - queue snapshot includes both extraction and embedding backlogs using UTC database timestamps
+  ---
+  duration_ms: 0.760248
+  type: 'test'
+  ...
+# Subtest: invalid dates and future clock skew cannot produce negative queue ages
+ok 201 - invalid dates and future clock skew cannot produce negative queue ages
+  ---
+  duration_ms: 0.282609
+  type: 'test'
+  ...
+# Subtest: timezone offsets are respected and invalid counts do not corrupt the snapshot
+ok 202 - timezone offsets are respected and invalid counts do not corrupt the snapshot
+  ---
+  duration_ms: 0.255368
+  type: 'test'
+  ...
+# Subtest: personal settings, draft retries and connection tests share the effective owner's app budgets
+ok 203 - personal settings, draft retries and connection tests share the effective owner's app budgets
+  ---
+  duration_ms: 4213.238595
+  type: 'test'
+  ...
+# Subtest: embedding batches, prewarm, cache misses and indexing all reserve before HTTP
+ok 204 - embedding batches, prewarm, cache misses and indexing all reserve before HTTP
+  ---
+  duration_ms: 3309.285363
+  type: 'test'
+  ...
+# Subtest: semantic job contention after preflight defers without spending a provider retry
+ok 205 - semantic job contention after preflight defers without spending a provider retry
+  ---
+  duration_ms: 3119.368537
+  type: 'test'
+  ...
+# Subtest: slow committed admission defers repeated semantic and embedding jobs without burning delivery retries
+ok 206 - slow committed admission defers repeated semantic and embedding jobs without burning delivery retries
+  ---
+  duration_ms: 3489.341891
+  type: 'test'
+  ...
+# Subtest: compaction reserves each HTTP attempt and exhausted quotas retain exact excerpts
+ok 207 - compaction reserves each HTTP attempt and exhausted quotas retain exact excerpts
+  ---
+  duration_ms: 3064.878561
+  type: 'test'
+  ...
+# Subtest: quota day uses Pacific DST and rejects invalid zones
+ok 208 - quota day uses Pacific DST and rejects invalid zones
+  ---
+  duration_ms: 25.581579
+  type: 'test'
+  ...
+# Subtest: real reservations carry legacy UTC logs once, count late logs and isolate budgets
+ok 209 - real reservations carry legacy UTC logs once, count late logs and isolate budgets
+  ---
+  duration_ms: 3679.223469
+  type: 'test'
+  ...
+# Subtest: real quota + transport counts retries, rotation, fallback and no-fetch denial
+ok 210 - real quota + transport counts retries, rotation, fallback and no-fetch denial
+  ---
+  duration_ms: 4422.139543
+  type: 'test'
+  ...
+# Subtest: database reachability alone does not report a fresh empty database ready
+ok 211 - database reachability alone does not report a fresh empty database ready
+  ---
+  duration_ms: 3066.180764
+  type: 'test'
+  ...
+# Subtest: readiness requires the shipped migration and working vector/hash functions
+ok 212 - readiness requires the shipped migration and working vector/hash functions
+  ---
+  duration_ms: 3189.829955
+  type: 'test'
+  ...
+# Subtest: health response hides internal capabilities and connection failures
+ok 213 - health response hides internal capabilities and connection failures
+  ---
+  duration_ms: 2.690375
+  type: 'test'
+  ...
+# Subtest: cached reading preferences are applied before the workspace request
+ok 214 - cached reading preferences are applied before the workspace request
+  ---
+  duration_ms: 3.518833
+  type: 'test'
+  ...
+# Subtest: invalid or unavailable browser cache cannot set untrusted attributes
+ok 215 - invalid or unavailable browser cache cannot set untrusted attributes
+  ---
+  duration_ms: 2.555602
+  type: 'test'
+  ...
+# Subtest: v2.2 request validation rejects coercion, empty actions and malformed IDs
+ok 216 - v2.2 request validation rejects coercion, empty actions and malformed IDs
+  ---
+  duration_ms: 2.470987
+  type: 'test'
+  ...
+# Subtest: v2.2 idempotency hash binds action, mode and base scene
+ok 217 - v2.2 idempotency hash binds action, mode and base scene
+  ---
+  duration_ms: 0.531373
+  type: 'test'
+  ...
+# Subtest: v2.2 JSON reader checks real streamed size without trusting Content-Length
+ok 218 - v2.2 JSON reader checks real streamed size without trusting Content-Length
+  ---
+  duration_ms: 37.848062
+  type: 'test'
+  ...
+# Subtest: v2.2 pending request parsing survives reload but ignores corrupted or foreign storage
+ok 219 - v2.2 pending request parsing survives reload but ignores corrupted or foreign storage
+  ---
+  duration_ms: 1.219533
+  type: 'test'
+  ...
+# Subtest: v2.2 canonical checksum is independent of PostgreSQL JSONB key order
+ok 220 - v2.2 canonical checksum is independent of PostgreSQL JSONB key order
+  ---
+  duration_ms: 2.250542
+  type: 'test'
+  ...
+# Subtest: v2.2 fork remaps all identities, canonical refs, links and retrieval provenance
+ok 221 - v2.2 fork remaps all identities, canonical refs, links and retrieval provenance
+  ---
+  duration_ms: 5.117082
+  type: 'test'
+  ...
+# Subtest: v2.2 snapshot rejects future-memory
+ok 222 - v2.2 snapshot rejects future-memory
+  ---
+  duration_ms: 0.479859
+  type: 'test'
+  ...
+# Subtest: v2.2 snapshot rejects foreign-item
+ok 223 - v2.2 snapshot rejects foreign-item
+  ---
+  duration_ms: 0.289561
+  type: 'test'
+  ...
+# Subtest: v2.2 snapshot rejects wrong-location
+ok 224 - v2.2 snapshot rejects wrong-location
+  ---
+  duration_ms: 0.71353
+  type: 'test'
+  ...
+# Subtest: v2.2 snapshot rejects duplicate-identity
+ok 225 - v2.2 snapshot rejects duplicate-identity
+  ---
+  duration_ms: 0.705169
+  type: 'test'
+  ...
+# Subtest: v2.2 snapshot rejects external-link
+ok 226 - v2.2 snapshot rejects external-link
+  ---
+  duration_ms: 0.325111
+  type: 'test'
+  ...
+# Subtest: v2.2 snapshot rejects missing-last-turn
+ok 227 - v2.2 snapshot rejects missing-last-turn
+  ---
+  duration_ms: 0.274047
+  type: 'test'
+  ...
+# Subtest: v2.2 snapshot rejects new-format
+ok 228 - v2.2 snapshot rejects new-format
+  ---
+  duration_ms: 0.292801
+  type: 'test'
+  ...
+# Subtest: v2.2 compaction chunks preserve all text without splitting Unicode surrogate pairs
+ok 229 - v2.2 compaction chunks preserve all text without splitting Unicode surrogate pairs
+  ---
+  duration_ms: 2.71555
+  type: 'test'
+  ...
+# Subtest: v2.2 queue retries use bounded exponential backoff
+ok 230 - v2.2 queue retries use bounded exponential backoff
+  ---
+  duration_ms: 0.229147
+  type: 'test'
+  ...
+# Subtest: v2.2 inventory context pins an explicitly referenced item beyond the first fourteen
+ok 231 - v2.2 inventory context pins an explicitly referenced item beyond the first fourteen
+  ---
+  duration_ms: 90.544858
+  type: 'test'
+  ...
+# Subtest: parseResolution: текстовый фолбэк без JSON
+ok 232 - parseResolution: текстовый фолбэк без JSON
+  ---
+  duration_ms: 3.311036
+  type: 'test'
+  ...
+# Subtest: applied resource deltas match final counters after caps, recovery and level-up
+ok 233 - applied resource deltas match final counters after caps, recovery and level-up
+  ---
+  duration_ms: 5.814667
+  type: 'test'
+  ...
+# Subtest: equipping unchanged or depleted inventory does not announce a successful change
+ok 234 - equipping unchanged or depleted inventory does not announce a successful change
+  ---
+  duration_ms: 1.290742
+  type: 'test'
+  ...
+# Subtest: new completed quests report 100 percent and capped relationships report the actual delta
+ok 235 - new completed quests report 100 percent and capped relationships report the actual delta
+  ---
+  duration_ms: 1.909192
+  type: 'test'
+  ...
+# Subtest: parseResolution: нормализует и клампит JSON
+ok 236 - parseResolution: нормализует и клампит JSON
+  ---
+  duration_ms: 0.332203
+  type: 'test'
+  ...
+# Subtest: reducer: расходник нельзя использовать дважды (INV-1h)
+ok 237 - reducer: расходник нельзя использовать дважды (INV-1h)
+  ---
+  duration_ms: 0.561528
+  type: 'test'
+  ...
+# Subtest: reducer: предмет не появляется из текста при провале; лимиты профиля narrative обнуляют ресурсы
+ok 238 - reducer: предмет не появляется из текста при провале; лимиты профиля narrative обнуляют ресурсы
+  ---
+  duration_ms: 0.872113
+  type: 'test'
+  ...
+# Subtest: reducer: переход в новую локацию создаёт узел и синхронизирует world.currentLocation (RES-1g)
+ok 239 - reducer: переход в новую локацию создаёт узел и синхронизирует world.currentLocation (RES-1g)
+  ---
+  duration_ms: 1.002147
+  type: 'test'
+  ...
+# Subtest: reducer: завершённый квест нельзя переоткрыть; мёртвый NPC не меняется
+ok 240 - reducer: завершённый квест нельзя переоткрыть; мёртвый NPC не меняется
+  ---
+  duration_ms: 0.659867
+  type: 'test'
+  ...
+# Subtest: dice: детерминированные броски и 2d6-полосы
+ok 241 - dice: детерминированные броски и 2d6-полосы
+  ---
+  duration_ms: 1.70824
+  type: 'test'
+  ...
+# Subtest: daily limits: пропускаем исчерпанные модели с учётом числа ключей
+ok 242 - daily limits: пропускаем исчерпанные модели с учётом числа ключей
+  ---
+  duration_ms: 0.310913
+  type: 'test'
+  ...
+# Subtest: extractor: факт без цитаты-доказательства отбрасывается
+ok 243 - extractor: факт без цитаты-доказательства отбрасывается
+  ---
+  duration_ms: 0.718825
+  type: 'test'
+  ...
+# Subtest: utils: slugify и cosine
+ok 244 - utils: slugify и cosine
+  ---
+  duration_ms: 0.288003
+  type: 'test'
+  ...
+# Subtest: v2.2 reducer: an unknown explicit item ref cannot fall back to an owned name
+ok 245 - v2.2 reducer: an unknown explicit item ref cannot fall back to an owned name
+  ---
+  duration_ms: 0.309237
+  type: 'test'
+  ...
+# Subtest: v2.2 reducer: colliding short item IDs are rejected rather than taking the first item
+ok 246 - v2.2 reducer: colliding short item IDs are rejected rather than taking the first item
+  ---
+  duration_ms: 0.464016
+  type: 'test'
+  ...
+# Subtest: reading preferences turn malformed input into safe defaults
+ok 247 - reading preferences turn malformed input into safe defaults
+  ---
+  duration_ms: 9.822577
+  type: 'test'
+  ...
+# Subtest: world map graph removes duplicate, self and dangling routes
+ok 248 - world map graph removes duplicate, self and dangling routes
+  ---
+  duration_ms: 5.648404
+  type: 'test'
+  ...
+# Subtest: streamed JSON limit rejects a body larger than the declared budget
+ok 249 - streamed JSON limit rejects a body larger than the declared budget
+  ---
+  duration_ms: 37.694711
+  type: 'test'
+  ...
+# Subtest: v2.5 reading migration is additive and preserves legacy columns
+ok 250 - v2.5 reading migration is additive and preserves legacy columns
+  ---
+  duration_ms: 1.220427
+  type: 'test'
+  ...
+# Subtest: search DB work has a transaction-local timeout and releases its connection
+ok 251 - search DB work has a transaction-local timeout and releases its connection
+  ---
+  duration_ms: 2.570465
+  type: 'test'
+  ...
+# Subtest: failed queries destroy connections and do not retry unbounded legacy scans
+ok 252 - failed queries destroy connections and do not retry unbounded legacy scans
+  ---
+  duration_ms: 1.043104
+  type: 'test'
+  ...
+# Subtest: pool acquisition is bounded and late connections are released
+ok 253 - pool acquisition is bounded and late connections are released
+  ---
+  duration_ms: 16.21838
+  type: 'test'
+  ...
+# Subtest: settings writers seal Gemini, Jev, and narrative credentials for raw storage
+ok 254 - settings writers seal Gemini, Jev, and narrative credentials for raw storage
+  ---
+  duration_ms: 4.797236
+  type: 'test'
+  ...
+# Subtest: narrative provider-only changes do not decrypt under the new provider AAD
+ok 255 - narrative provider-only changes do not decrypt under the new provider AAD
+  ---
+  duration_ms: 0.59694
+  type: 'test'
+  ...
+# Subtest: clear-key writes are empty while settings views remain masked
+ok 256 - clear-key writes are empty while settings views remain masked
+  ---
+  duration_ms: 0.585991
+  type: 'test'
+  ...
+# Subtest: partial writers do not read or overwrite unrelated broken credentials
+ok 257 - partial writers do not read or overwrite unrelated broken credentials
+  ---
+  duration_ms: 0.478185
+  type: 'test'
+  ...
+# Subtest: rotation check and dry-run are read-only while apply reseals bounded fixtures
+ok 258 - rotation check and dry-run are read-only while apply reseals bounded fixtures
+  ---
+  duration_ms: 3114.350484
+  type: 'test'
+  ...
+# Subtest: rotation refuses unreadable data without overwriting its row
+ok 259 - rotation refuses unreadable data without overwriting its row
+  ---
+  duration_ms: 2435.302099
+  type: 'test'
+  ...
+# Subtest: rotation rejects malformed Gemini storage before resealing another credential
+ok 260 - rotation rejects malformed Gemini storage before resealing another credential
+  ---
+  duration_ms: 2413.295566
+  type: 'test'
+  ...
+# Subtest: rotation preserves a legacy SQL NULL keys value while rotating another credential
+ok 261 - rotation preserves a legacy SQL NULL keys value while rotating another credential
+  ---
+  duration_ms: 2500.048631
+  type: 'test'
+  ...
+# Subtest: rotation compare-and-swap preserves a concurrent provider credential update
+ok 262 - rotation compare-and-swap preserves a concurrent provider credential update
+  ---
+  duration_ms: 2478.513608
+  type: 'test'
+  ...
+# Subtest: authenticated envelopes use a fresh IV and are bound to owner and purpose
+ok 263 - authenticated envelopes use a fresh IV and are bound to owner and purpose
+  ---
+  duration_ms: 3.699913
+  type: 'test'
+  ...
+# Subtest: tampering, malformed envelopes, and unknown envelope versions are rejected
+ok 264 - tampering, malformed envelopes, and unknown envelope versions are rejected
+  ---
+  duration_ms: 0.799421
+  type: 'test'
+  ...
+# Subtest: keyrings require a valid active id and exact 32-byte base64 key material
+ok 265 - keyrings require a valid active id and exact 32-byte base64 key material
+  ---
+  duration_ms: 0.664331
+  type: 'test'
+  ...
+# Subtest: legacy plaintext is readable only with an explicit opt-in and empty values need no keyring
+ok 266 - legacy plaintext is readable only with an explicit opt-in and empty values need no keyring
+  ---
+  duration_ms: 0.235812
+  type: 'test'
+  ...
+# Subtest: old key material remains readable and can be resealed with the active key
+ok 267 - old key material remains readable and can be resealed with the active key
+  ---
+  duration_ms: 1.156764
+  type: 'test'
+  ...
+# Subtest: settings decoder uses distinct owner and provider contexts
+ok 268 - settings decoder uses distinct owner and provider contexts
+  ---
+  duration_ms: 2.381387
+  type: 'test'
+  ...
+# Subtest: smoke fixtures install an isolated keyring readable under strict mode
+ok 269 - smoke fixtures install an isolated keyring readable under strict mode
+  ---
+  duration_ms: 3.059554
+  type: 'test'
+  ...
+# Subtest: shared smoke keyring decrypts across processes while an independent ring cannot
+not ok 270 - shared smoke keyring decrypts across processes while an independent ring cannot
+  ---
+  duration_ms: 494.857778
+  type: 'test'
+  location: '/app/tests/smoke-secret-fixtures.test.ts:2:2223'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: /home/jules/.nvm/versions/node/v22.22.1/bin/node --import tsx --input-type=module --eval import { openSecret } from './src/lib/secret-vault.ts'; openSecret(process.env.FIXTURE, process.env.CONTEXT);
+    file:///app/[eval1]:1
+    import { openSecret } from './src/lib/secret-vault.ts'; openSecret(process.env.FIXTURE, process.env.CONTEXT);
+             ^^^^^^^^^^
+    SyntaxError: The requested module './src/lib/secret-vault.ts' does not provide an export named 'openSecret'
+        at ModuleJob._instantiate (node:internal/modules/esm/module_job:226:21)
+        at async ModuleJob.run (node:internal/modules/esm/module_job:335:5)
+        at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:272:26)
+        at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:268:20)
+        at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+
+    Node.js v22.22.1
+
+  code: 1
+  stack: |-
+    ModuleJob._instantiate (node:internal/modules/esm/module_job:226:21)
+    async ModuleJob.run (node:internal/modules/esm/module_job:335:5)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:272:26)
+    async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:268:20)
+    async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    ChildProcess.exithandler (node:child_process:417:12)
+    ChildProcess.emit (node:events:519:28)
+    maybeClose (node:internal/child_process:1101:16)
+    ChildProcess._handle.onexit (node:internal/child_process:304:5)
+  ...
+# Subtest: masking checks reject HTTP errors before inspecting response JSON
+ok 271 - masking checks reject HTTP errors before inspecting response JSON
+  ---
+  duration_ms: 31.851567
+  type: 'test'
+  ...
+# Subtest: concurrent startup calls share migration work and successful work is not repeated
+ok 272 - concurrent startup calls share migration work and successful work is not repeated
+  ---
+  duration_ms: 1.31323
+  type: 'test'
+  ...
+# Subtest: startup migration errors reject readiness without leaking details and allow a later retry
+ok 273 - startup migration errors reject readiness without leaking details and allow a later retry
+  ---
+  duration_ms: 0.818455
+  type: 'test'
+  ...
+# Subtest: instrumentation never initializes DB for disabled migration or non-Node runtime
+ok 274 - instrumentation never initializes DB for disabled migration or non-Node runtime
+  ---
+  duration_ms: 0.393457
+  type: 'test'
+  ...
+# Subtest: failed opt-in startup terminates even when the framework catches rejected preparation
+ok 275 - failed opt-in startup terminates even when the framework catches rejected preparation
+  ---
+  duration_ms: 405.485206
+  type: 'test'
+  ...
+# Subtest: route deadline includes stalled config/log work and propagates cancellation
+ok 276 - route deadline includes stalled config/log work and propagates cancellation
+  ---
+  duration_ms: 47.308762
+  type: 'test'
+  ...
+# Subtest: autofill rejects a short supplied pitch without rewriting it
+ok 277 - autofill rejects a short supplied pitch without rewriting it
+  ---
+  duration_ms: 0.795659
+  type: 'test'
+  ...
+# Subtest: creation highlights invalid authored lists and whitespace instead of truncating
+ok 278 - creation highlights invalid authored lists and whitespace instead of truncating
+  ---
+  duration_ms: 0.542883
+  type: 'test'
+  ...
+# Subtest: draft validation rejects oversized user input instead of truncating it
+ok 279 - draft validation rejects oversized user input instead of truncating it
+  ---
+  duration_ms: 0.389565
+  type: 'test'
+  ...
+# Subtest: patch filtering preserves every non-empty user value and excludes rulesProfile
+ok 280 - patch filtering preserves every non-empty user value and excludes rulesProfile
+  ---
+  duration_ms: 0.626749
+  type: 'test'
+  ...
+# Subtest: patch filtering preserves each populated story text field
+ok 281 - patch filtering preserves each populated story text field
+  ---
+  duration_ms: 0.732225
+  type: 'test'
+  ...
+# Subtest: whitespace-only draft fields are fillable while whitespace-only generated values are invalid
+ok 282 - whitespace-only draft fields are fillable while whitespace-only generated values are invalid
+  ---
+  duration_ms: 0.412774
+  type: 'test'
+  ...
+# Subtest: autofill skips the provider when every text field is populated
+ok 283 - autofill skips the provider when every text field is populated
+  ---
+  duration_ms: 1.630799
+  type: 'test'
+  ...
+# Subtest: autofill uses only Lite, fills missing fields and logs creation without a session
+ok 284 - autofill uses only Lite, fills missing fields and logs creation without a session
+  ---
+  duration_ms: 0.986857
+  type: 'test'
+  ...
+# Subtest: autofill repairs malformed output once inside the shared 30 second deadline
+ok 285 - autofill repairs malformed output once inside the shared 30 second deadline
+  ---
+  duration_ms: 1.01377
+  type: 'test'
+  ...
+# Subtest: autofill never makes a second repair attempt
+ok 286 - autofill never makes a second repair attempt
+  ---
+  duration_ms: 0.686265
+  type: 'test'
+  ...
+# Subtest: autofill rechecks Lite quota before spending the repair call
+ok 287 - autofill rechecks Lite quota before spending the repair call
+  ---
+  duration_ms: 0.6362
+  type: 'test'
+  ...
+# Subtest: autofill HTTP preserves race-time admission errors after Lite prefilter passes
+    # Subtest: QUOTA_EXHAUSTED
+    ok 1 - QUOTA_EXHAUSTED
+      ---
+      duration_ms: 2.954793
+      type: 'test'
+      ...
+    # Subtest: QUOTA_UNAVAILABLE
+    ok 2 - QUOTA_UNAVAILABLE
+      ---
+      duration_ms: 1.600827
+      type: 'test'
+      ...
+    # Subtest: QUOTA_ADMISSION_TIMEOUT
+    ok 3 - QUOTA_ADMISSION_TIMEOUT
+      ---
+      duration_ms: 1.256766
+      type: 'test'
+      ...
+    1..3
+ok 288 - autofill HTTP preserves race-time admission errors after Lite prefilter passes
+  ---
+  duration_ms: 6.559304
+  type: 'test'
+  ...
+# Subtest: provider failures do not expose remote response bodies
+ok 289 - provider failures do not expose remote response bodies
+  ---
+  duration_ms: 0.58852
+  type: 'test'
+  ...
+# Subtest: autofill reports AI_REQUIRED before provider or quota work when live AI is unavailable
+ok 290 - autofill reports AI_REQUIRED before provider or quota work when live AI is unavailable
+  ---
+  duration_ms: 0.36108
+  type: 'test'
+  ...
+# Subtest: generated lists must stay within item count, item length and form length limits
+ok 291 - generated lists must stay within item count, item length and form length limits
+  ---
+  duration_ms: 0.613921
+  type: 'test'
+  ...
+# Subtest: generated list items cannot hide more than six comma-delimited values
+ok 292 - generated list items cannot hide more than six comma-delimited values
+  ---
+  duration_ms: 0.212151
+  type: 'test'
+  ...
+# Subtest: creation routing is always Lite-only regardless of the user's routing profile
+ok 293 - creation routing is always Lite-only regardless of the user's routing profile
+  ---
+  duration_ms: 0.25594
+  type: 'test'
+  ...
+# Subtest: autofill HTTP handler accepts {draft} and exposes structured domain errors
+ok 294 - autofill HTTP handler accepts {draft} and exposes structured domain errors
+  ---
+  duration_ms: 2.604738
+  type: 'test'
+  ...
+# Subtest: client guard discards a whole patch after edits, mode changes or a newer request
+ok 295 - client guard discards a whole patch after edits, mode changes or a newer request
+  ---
+  duration_ms: 0.331773
+  type: 'test'
+  ...
+# Subtest: real-provider evaluation corpus contains 24 valid Russian draft scenarios
+ok 296 - real-provider evaluation corpus contains 24 valid Russian draft scenarios
+  ---
+  duration_ms: 1.311247
+  type: 'test'
+  ...
+# Subtest: evaluation scorer checks completeness, preservation and final server validity
+ok 297 - evaluation scorer checks completeness, preservation and final server validity
+  ---
+  duration_ms: 0.467423
+  type: 'test'
+  ...
+# Subtest: unit-test bootstrap overrides inherited database and removes real-provider configuration
+ok 298 - unit-test bootstrap overrides inherited database and removes real-provider configuration
+  ---
+  duration_ms: 248.02828
+  type: 'test'
+  ...
+# Subtest: turn transport emits draft before commit, and background runs after work
+ok 299 - turn transport emits draft before commit, and background runs after work
+  ---
+  duration_ms: 38.296396
+  type: 'test'
+  ...
+# Subtest: JSON compatibility carries phase timing and structured failures
+ok 300 - JSON compatibility carries phase timing and structured failures
+  ---
+  duration_ms: 4.147859
+  type: 'test'
+  ...
+# Subtest: JSON turn response distinguishes local quota outage and admission timeout
+ok 301 - JSON turn response distinguishes local quota outage and admission timeout
+  ---
+  duration_ms: 2.572638
+  type: 'test'
+  ...
+# Subtest: narration preview decodes only complete escapes and never exposes JSON state
+ok 302 - narration preview decodes only complete escapes and never exposes JSON state
+  ---
+  duration_ms: 8.497208
+  type: 'test'
+  ...
+# Subtest: NDJSON turn reader handles split UTF8 and rejects EOF without committed result
+ok 303 - NDJSON turn reader handles split UTF8 and rejects EOF without committed result
+  ---
+  duration_ms: 35.565639
+  type: 'test'
+  ...
+# Subtest: TypeSafe request batches at most six facts and marks player action as intent
+ok 304 - TypeSafe request batches at most six facts and marks player action as intent
+  ---
+  duration_ms: 2.83956
+  type: 'test'
+  ...
+# Subtest: TypeSafe response validator requires every bounded choice answer
+ok 305 - TypeSafe response validator requires every bounded choice answer
+  ---
+  duration_ms: 1.136937
+  type: 'test'
+  ...
+# Subtest: disabled, missing-key and empty paths make zero provider calls
+ok 306 - disabled, missing-key and empty paths make zero provider calls
+  ---
+  duration_ms: 0.489725
+  type: 'test'
+  ...
+# Subtest: provider call uses bearer auth, has no retries, and validates the complete response
+ok 307 - provider call uses bearer auth, has no retries, and validates the complete response
+  ---
+  duration_ms: 29.164498
+  type: 'test'
+  ...
+# Subtest: five-second timeout covers response body reading and still makes one attempt
+ok 308 - five-second timeout covers response body reading and still makes one attempt
+  ---
+  duration_ms: 14.732156
+  type: 'test'
+  ...
+# Subtest: pilot config lookup and provider errors become diagnostics instead of worker failures
+ok 309 - pilot config lookup and provider errors become diagnostics instead of worker failures
+  ---
+  duration_ms: 0.950369
+  type: 'test'
+  ...
+# Subtest: disabled pilot returns diagnostics without invoking the verifier
+ok 310 - disabled pilot returns diagnostics without invoking the verifier
+  ---
+  duration_ms: 0.493732
+  type: 'test'
+  ...
+# Subtest: enabled pilot without a key returns diagnostics without invoking the verifier
+ok 311 - enabled pilot without a key returns diagnostics without invoking the verifier
+  ---
+  duration_ms: 0.482831
+  type: 'test'
+  ...
+# Subtest: environment key has priority and settings views expose only masks
+ok 312 - environment key has priority and settings views expose only masks
+  ---
+  duration_ms: 0.561727
+  type: 'test'
+  ...
+# Subtest: real-provider evaluation corpus has 60 balanced labelled Russian examples
+ok 313 - real-provider evaluation corpus has 60 balanced labelled Russian examples
+  ---
+  duration_ms: 1.642349
+  type: 'test'
+  ...
+# Subtest: evaluation scorer reports confusion, errors, latency and token totals
+ok 314 - evaluation scorer reports confusion, errors, latency and token totals
+  ---
+  duration_ms: 0.479775
+  type: 'test'
+  ...
+# Subtest: administrative navigation defaults closed for loading, guests and ordinary accounts
+ok 315 - administrative navigation defaults closed for loading, guests and ordinary accounts
+  ---
+  duration_ms: 1.516536
+  type: 'test'
+  ...
+# Subtest: partial or inconsistent identity responses never become an authenticated UI state
+ok 316 - partial or inconsistent identity responses never become an authenticated UI state
+  ---
+  duration_ms: 0.855849
+  type: 'test'
+  ...
+# Subtest: registration preserving the profile keeps drafts; login/logout changing profile resets scoped data
+ok 317 - registration preserving the profile keeps drafts; login/logout changing profile resets scoped data
+  ---
+  duration_ms: 0.36528
+  type: 'test'
+  ...
+# Subtest: a later refresh or identity change invalidates old workspace results
+ok 318 - a later refresh or identity change invalidates old workspace results
+  ---
+  duration_ms: 0.372251
+  type: 'test'
+  ...
+# Subtest: embedding contract: stable Embedding 2 and asymmetric text task prefixes
+ok 319 - embedding contract: stable Embedding 2 and asymmetric text task prefixes
+  ---
+  duration_ms: 1.811584
+  type: 'test'
+  ...
+# Subtest: vector validation rejects incompatible, empty, non-finite and zero vectors
+ok 320 - vector validation rejects incompatible, empty, non-finite and zero vectors
+  ---
+  duration_ms: 1.039112
+  type: 'test'
+  ...
+# Subtest: memory precedence: delayed extraction never rolls back or overwrites canonical state
+ok 321 - memory precedence: delayed extraction never rolls back or overwrites canonical state
+  ---
+  duration_ms: 0.249776
+  type: 'test'
+  ...
+# Subtest: extractor: intentions, partial quotations, NaN and malformed facts are not evidence
+ok 322 - extractor: intentions, partial quotations, NaN and malformed facts are not evidence
+  ---
+  duration_ms: 0.96096
+  type: 'test'
+  ...
+# Subtest: offline engine reuses the authoritative dice result instead of rolling again
+ok 323 - offline engine reuses the authoritative dice result instead of rolling again
+  ---
+  duration_ms: 2.816587
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: нуар × d20 × preset
+ok 324 - genre/profile/mode contract: нуар × d20 × preset
+  ---
+  duration_ms: 3.027185
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: киберпанк × d20 × preset
+ok 325 - genre/profile/mode contract: киберпанк × d20 × preset
+  ---
+  duration_ms: 0.590148
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: бытовая драма × d20 × preset
+ok 326 - genre/profile/mode contract: бытовая драма × d20 × preset
+  ---
+  duration_ms: 0.236238
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: хоррор × d20 × preset
+ok 327 - genre/profile/mode contract: хоррор × d20 × preset
+  ---
+  duration_ms: 0.40775
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: научная фантастика × d20 × preset
+ok 328 - genre/profile/mode contract: научная фантастика × d20 × preset
+  ---
+  duration_ms: 0.547247
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: фэнтези × d20 × preset
+ok 329 - genre/profile/mode contract: фэнтези × d20 × preset
+  ---
+  duration_ms: 0.225646
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: нуар × d20 × free
+ok 330 - genre/profile/mode contract: нуар × d20 × free
+  ---
+  duration_ms: 0.210346
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: киберпанк × d20 × free
+ok 331 - genre/profile/mode contract: киберпанк × d20 × free
+  ---
+  duration_ms: 0.165149
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: бытовая драма × d20 × free
+ok 332 - genre/profile/mode contract: бытовая драма × d20 × free
+  ---
+  duration_ms: 0.969187
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: хоррор × d20 × free
+ok 333 - genre/profile/mode contract: хоррор × d20 × free
+  ---
+  duration_ms: 0.365563
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: научная фантастика × d20 × free
+ok 334 - genre/profile/mode contract: научная фантастика × d20 × free
+  ---
+  duration_ms: 0.277617
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: фэнтези × d20 × free
+ok 335 - genre/profile/mode contract: фэнтези × d20 × free
+  ---
+  duration_ms: 0.141812
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: нуар × rules-light × preset
+ok 336 - genre/profile/mode contract: нуар × rules-light × preset
+  ---
+  duration_ms: 0.110911
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: киберпанк × rules-light × preset
+ok 337 - genre/profile/mode contract: киберпанк × rules-light × preset
+  ---
+  duration_ms: 0.092938
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: бытовая драма × rules-light × preset
+ok 338 - genre/profile/mode contract: бытовая драма × rules-light × preset
+  ---
+  duration_ms: 0.087643
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: хоррор × rules-light × preset
+ok 339 - genre/profile/mode contract: хоррор × rules-light × preset
+  ---
+  duration_ms: 0.085402
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: научная фантастика × rules-light × preset
+ok 340 - genre/profile/mode contract: научная фантастика × rules-light × preset
+  ---
+  duration_ms: 0.117389
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: фэнтези × rules-light × preset
+ok 341 - genre/profile/mode contract: фэнтези × rules-light × preset
+  ---
+  duration_ms: 0.140232
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: нуар × rules-light × free
+ok 342 - genre/profile/mode contract: нуар × rules-light × free
+  ---
+  duration_ms: 0.107818
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: киберпанк × rules-light × free
+ok 343 - genre/profile/mode contract: киберпанк × rules-light × free
+  ---
+  duration_ms: 0.105774
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: бытовая драма × rules-light × free
+ok 344 - genre/profile/mode contract: бытовая драма × rules-light × free
+  ---
+  duration_ms: 0.108375
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: хоррор × rules-light × free
+ok 345 - genre/profile/mode contract: хоррор × rules-light × free
+  ---
+  duration_ms: 0.10525
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: научная фантастика × rules-light × free
+ok 346 - genre/profile/mode contract: научная фантастика × rules-light × free
+  ---
+  duration_ms: 0.106188
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: фэнтези × rules-light × free
+ok 347 - genre/profile/mode contract: фэнтези × rules-light × free
+  ---
+  duration_ms: 0.103523
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: нуар × narrative × preset
+ok 348 - genre/profile/mode contract: нуар × narrative × preset
+  ---
+  duration_ms: 0.329706
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: киберпанк × narrative × preset
+ok 349 - genre/profile/mode contract: киберпанк × narrative × preset
+  ---
+  duration_ms: 0.137946
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: бытовая драма × narrative × preset
+ok 350 - genre/profile/mode contract: бытовая драма × narrative × preset
+  ---
+  duration_ms: 0.132484
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: хоррор × narrative × preset
+ok 351 - genre/profile/mode contract: хоррор × narrative × preset
+  ---
+  duration_ms: 0.122277
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: научная фантастика × narrative × preset
+ok 352 - genre/profile/mode contract: научная фантастика × narrative × preset
+  ---
+  duration_ms: 0.1117
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: фэнтези × narrative × preset
+ok 353 - genre/profile/mode contract: фэнтези × narrative × preset
+  ---
+  duration_ms: 0.152868
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: нуар × narrative × free
+ok 354 - genre/profile/mode contract: нуар × narrative × free
+  ---
+  duration_ms: 0.132315
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: киберпанк × narrative × free
+ok 355 - genre/profile/mode contract: киберпанк × narrative × free
+  ---
+  duration_ms: 0.115467
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: бытовая драма × narrative × free
+ok 356 - genre/profile/mode contract: бытовая драма × narrative × free
+  ---
+  duration_ms: 0.116376
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: хоррор × narrative × free
+ok 357 - genre/profile/mode contract: хоррор × narrative × free
+  ---
+  duration_ms: 0.106669
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: научная фантастика × narrative × free
+ok 358 - genre/profile/mode contract: научная фантастика × narrative × free
+  ---
+  duration_ms: 0.185199
+  type: 'test'
+  ...
+# Subtest: genre/profile/mode contract: фэнтези × narrative × free
+ok 359 - genre/profile/mode contract: фэнтези × narrative × free
+  ---
+  duration_ms: 0.163914
+  type: 'test'
+  ...
+# Subtest: eight complete presets include non-fantasy authored worlds
+ok 360 - eight complete presets include non-fantasy authored worlds
+  ---
+  duration_ms: 0.237927
+  type: 'test'
+  ...
+# Subtest: guest credentials are random, stable and cannot be replaced with the public profile id
+ok 361 - guest credentials are random, stable and cannot be replaced with the public profile id
+  ---
+  duration_ms: 8.490027
+  type: 'test'
+  ...
+# Subtest: campaign policy isolates private and legacy campaigns and makes publication read-only
+ok 362 - campaign policy isolates private and legacy campaigns and makes publication read-only
+  ---
+  duration_ms: 4.768823
+  type: 'test'
+  ...
+# Subtest: admin model choices contain only official text-to-image endpoint models
+ok 363 - admin model choices contain only official text-to-image endpoint models
+  ---
+  duration_ms: 2.467004
+  type: 'test'
+  ...
+# Subtest: catalogue downloads are bounded before parsing external model data
+ok 364 - catalogue downloads are bounded before parsing external model data
+  ---
+  duration_ms: 29.357802
+  type: 'test'
+  ...
+# Subtest: visual model selection has one durable row in the append-only migration ledger
+ok 365 - visual model selection has one durable row in the append-only migration ledger
+  ---
+  duration_ms: 3730.855195
+  type: 'test'
+  ...
+# Subtest: worker processes have distinct stable heartbeat keys, separate from owner-scoped request ticks
+ok 366 - worker processes have distinct stable heartbeat keys, separate from owner-scoped request ticks
+  ---
+  duration_ms: 1.270918
+  type: 'test'
+  ...
+# Subtest: separate Node processes generate independent default worker identities
+ok 367 - separate Node processes generate independent default worker identities
+  ---
+  duration_ms: 267.39655
+  type: 'test'
+  ...
+# Subtest: stopping one worker does not mark another live instance stopped
+ok 368 - stopping one worker does not mark another live instance stopped
+  ---
+  duration_ms: 1.01479
+  type: 'test'
+  ...
+# Subtest: legacy and new heartbeat rows coexist without making stopped or stale processes online
+ok 369 - legacy and new heartbeat rows coexist without making stopped or stale processes online
+  ---
+  duration_ms: 0.251754
+  type: 'test'
+  ...
+# Subtest: worker health reports absent instances and clamps future clock skew
+ok 370 - worker health reports absent instances and clamps future clock skew
+  ---
+  duration_ms: 0.238655
+  type: 'test'
+  ...
+# Subtest: SIGTERM during awaited startup closes the pool without starting or heartbeating the worker
+ok 371 - SIGTERM during awaited startup closes the pool without starting or heartbeating the worker
+  ---
+  duration_ms: 358.136641
+  type: 'test'
+  ...
+# Subtest: startup migration failure logs its safe code instead of the generic error name
+ok 372 - startup migration failure logs its safe code instead of the generic error name
+  ---
+  duration_ms: 355.994104
+  type: 'test'
+  ...
+# Subtest: old campaigns read an empty agenda without injecting agenda instructions
+ok 373 - old campaigns read an empty agenda without injecting agenda instructions
+  ---
+  duration_ms: 4.529669
+  type: 'test'
+  ...
+# Subtest: parseAgendaChanges clips, defaults kind and drops empty entries
+ok 374 - parseAgendaChanges clips, defaults kind and drops empty entries
+  ---
+  duration_ms: 1.050538
+  type: 'test'
+  ...
+# Subtest: the resolution parser carries agenda proposals through stateChanges
+ok 375 - the resolution parser carries agenda proposals through stateChanges
+  ---
+  duration_ms: 1.070916
+  type: 'test'
+  ...
+# Subtest: scheduling: relative and absolute times, next-day rollover, npc binding and rejections
+ok 376 - scheduling: relative and absolute times, next-day rollover, npc binding and rejections
+  ---
+  duration_ms: 2.509965
+  type: 'test'
+  ...
+# Subtest: claims never schedule events; questions may reveal world events but not npc goals
+ok 377 - claims never schedule events; questions may reveal world events but not npc goals
+  ---
+  duration_ms: 0.7896
+  type: 'test'
+  ...
+# Subtest: clock passing an event marks it due; only narrated evidence can complete it
+ok 378 - clock passing an event marks it due; only narrated evidence can complete it
+  ---
+  duration_ms: 2.075927
+  type: 'test'
+  ...
+# Subtest: a due event may still be cancelled before narration confirms it
+ok 379 - a due event may still be cancelled before narration confirms it
+  ---
+  duration_ms: 0.376886
+  type: 'test'
+  ...
+# Subtest: cancel by ref or title, duplicates merge, npc goals upsert
+ok 380 - cancel by ref or title, duplicates merge, npc goals upsert
+  ---
+  duration_ms: 0.707831
+  type: 'test'
+  ...
+# Subtest: NPC goals reject dead or ambiguous people, and separate participants keep separate events
+ok 381 - NPC goals reject dead or ambiguous people, and separate participants keep separate events
+  ---
+  duration_ms: 0.649105
+  type: 'test'
+  ...
+# Subtest: pending events are capped so a runaway model cannot flood the agenda
+ok 382 - pending events are capped so a runaway model cannot flood the agenda
+  ---
+  duration_ms: 3.475156
+  type: 'test'
+  ...
+# Subtest: event proposals use the clock at turn start and can fire when this turn crosses their time
+ok 383 - event proposals use the clock at turn start and can fire when this turn crosses their time
+  ---
+  duration_ms: 0.458568
+  type: 'test'
+  ...
+# Subtest: an already planned event can be confirmed in the same turn that crosses its time
+ok 384 - an already planned event can be confirmed in the same turn that crosses its time
+  ---
+  duration_ms: 0.374493
+  type: 'test'
+  ...
+# Subtest: same-title events at different times on one day remain separate
+ok 385 - same-title events at different times on one day remain separate
+  ---
+  duration_ms: 0.271805
+  type: 'test'
+  ...
+# Subtest: new agenda facts need a quote in the final narration when committed by a turn
+ok 386 - new agenda facts need a quote in the final narration when committed by a turn
+  ---
+  duration_ms: 0.390943
+  type: 'test'
+  ...
+# Subtest: old campaigns read safe defaults for clock, story shape, commitments and holdings
+ok 387 - old campaigns read safe defaults for clock, story shape, commitments and holdings
+  ---
+  duration_ms: 2.572661
+  type: 'test'
+  ...
+# Subtest: clock advances across days and formats part of day
+ok 388 - clock advances across days and formats part of day
+  ---
+  duration_ms: 0.378753
+  type: 'test'
+  ...
+# Subtest: intent classifier separates action, intention, claim and question
+ok 389 - intent classifier separates action, intention, claim and question
+  ---
+  duration_ms: 2.776098
+  type: 'test'
+  ...
+# Subtest: accepted transfer moves the item to a present NPC once, with memory and holding
+ok 390 - accepted transfer moves the item to a present NPC once, with memory and holding
+  ---
+  duration_ms: 1.719253
+  type: 'test'
+  ...
+# Subtest: an item added back to the hero clears its holding record
+ok 391 - an item added back to the hero clears its holding record
+  ---
+  duration_ms: 0.492948
+  type: 'test'
+  ...
+# Subtest: intention, refusal, missing item and double-touch never deduct the item
+ok 392 - intention, refusal, missing item and double-touch never deduct the item
+  ---
+  duration_ms: 1.583697
+  type: 'test'
+  ...
+# Subtest: claimed agreements stay proposals; accepted ones get deadlines and alerts
+ok 393 - claimed agreements stay proposals; accepted ones get deadlines and alerts
+  ---
+  duration_ms: 0.915201
+  type: 'test'
+  ...
+# Subtest: an invalid commitment time is rejected instead of silently becoming noon
+ok 394 - an invalid commitment time is rejected instead of silently becoming noon
+  ---
+  duration_ms: 0.42035
+  type: 'test'
+  ...
+# Subtest: story shape drives chapter boundaries and arc resolution
+ok 395 - story shape drives chapter boundaries and arc resolution
+  ---
+  duration_ms: 0.638757
+  type: 'test'
+  ...
+# Subtest: resolution schema and parser carry life changes
+ok 396 - resolution schema and parser carry life changes
+  ---
+  duration_ms: 1.833986
+  type: 'test'
+  ...
+# Subtest: claims cannot complete quests; questions do not move or spend
+ok 397 - claims cannot complete quests; questions do not move or spend
+  ---
+  duration_ms: 0.470737
+  type: 'test'
+  ...
+# Subtest: button text and free text resolve to the same interaction contract
+ok 398 - button text and free text resolve to the same interaction contract
+  ---
+  duration_ms: 6.280955
+  type: 'test'
+  ...
+# Subtest: server availability checks: presence, ownership, reachability
+ok 399 - server availability checks: presence, ownership, reachability
+  ---
+  duration_ms: 2.241953
+  type: 'test'
+  ...
+# Subtest: server rejects references to missing objects, holdings and locations
+ok 400 - server rejects references to missing objects, holdings and locations
+  ---
+  duration_ms: 0.44657
+  type: 'test'
+  ...
+# Subtest: a transfer requires the recipient to be present in the current location
+ok 401 - a transfer requires the recipient to be present in the current location
+  ---
+  duration_ms: 0.29908
+  type: 'test'
+  ...
+# Subtest: returning one item decrements a larger holding instead of erasing it
+ok 402 - returning one item decrements a larger holding instead of erasing it
+  ---
+  duration_ms: 0.470572
+  type: 'test'
+  ...
+# Subtest: applied change chips describe life consequences
+ok 403 - applied change chips describe life consequences
+  ---
+  duration_ms: 0.949994
+  type: 'test'
+  ...
+# Subtest: visual prompts are bounded, contain no service IDs and seeds are stable
+ok 404 - visual prompts are bounded, contain no service IDs and seeds are stable
+  ---
+  duration_ms: 2.003659
+  type: 'test'
+  ...
+# Subtest: provider responses must be real images of bounded size
+ok 405 - provider responses must be real images of bounded size
+  ---
+  duration_ms: 40.598726
+  type: 'test'
+  ...
+1..405
+# tests 430
+# suites 0
+# pass 428
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 236381.822858

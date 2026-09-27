@@ -34,13 +34,13 @@ test("shared smoke keyring decrypts across processes while an independent ring c
     const shared = installSyntheticSecretKeyring("shared-v1");
     const context = secretContext("smoke-owner", "typesafe-pilot");
     const sealed = sealSecret("synthetic-cross-process", context, shared);
-    const childCode = `import { openSecret } from './src/lib/secret-vault.ts'; openSecret(process.env.FIXTURE, process.env.CONTEXT);`;
+    const childCode = `const { openSecret } = (await import('./src/lib/secret-vault.ts')).default; openSecret(process.env.FIXTURE, process.env.CONTEXT);`;
     const baseEnv = { ...process.env, FIXTURE: sealed, CONTEXT: context, ARENA_ISOLATED_TEST_DB: "1" };
     const independent = { active: "other-v1", keys: { "other-v1": Buffer.alloc(32, 31).toString("base64") } };
-    await assert.rejects(exec(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", childCode], {
+    await assert.rejects(exec(process.execPath, ["--import", "tsx", "--eval", childCode], {
       cwd: process.cwd(), env: { ...baseEnv, CHRONICLE_SECRET_ACTIVE_KEY: independent.active, CHRONICLE_SECRET_KEYS: JSON.stringify(independent.keys) },
     }));
-    await exec(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", childCode], {
+    await exec(process.execPath, ["--import", "tsx", "--eval", childCode], {
       cwd: process.cwd(), env: { ...baseEnv, CHRONICLE_SECRET_ACTIVE_KEY: shared.active, CHRONICLE_SECRET_KEYS: JSON.stringify(shared.keys) },
     });
     assert.deepEqual(requireSharedIsolatedSecretKeyring(), shared);
