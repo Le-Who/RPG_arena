@@ -1,0 +1,3 @@
+## 2024-03-24 - Unnecessary allocations during React re-renders in array filters
+**Learning:** Found an anti-pattern in the codebase where `.toLowerCase()` was being called on query state strings inside `.filter()` loops during renders (e.g., `list.filter(item => item.name.toLowerCase().includes(query.toLowerCase()))`). This causes repeated string allocation for `query.toLowerCase()` for every item in the list, and triggers unnecessary filtering on every render because `filtered` arrays weren't memoized.
+**Action:** Always extract `query.toLowerCase()` outside of `.filter()` loops, and use `useMemo` on the resulting filtered arrays to avoid recalculating the list and preventing unnecessary re-renders of downstream components.
