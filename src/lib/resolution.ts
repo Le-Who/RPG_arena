@@ -18,6 +18,7 @@ import type {
 import { profileFor, type ProfileSpec } from "./profiles";
 import { LIFE_SCHEMA_PROPERTIES, parseLifeChanges, type LifeChanges } from "./world-life";
 import { AGENDA_SCHEMA_PROPERTIES, parseAgendaChanges, type AgendaChanges } from "./world-agenda";
+import { SOCIAL_SCHEMA_PROPERTIES, parseSocialChanges, type SocialChanges } from "./world-social";
 
 // ─────────────────────────────────────────────────────────────
 //  Типы контракта
@@ -60,6 +61,8 @@ export type ResolutionPayload = {
   life?: LifeChanges;
   /** WORLD-2: предложенные отложенные события и цели NPC. */
   agenda?: AgendaChanges;
+  /** WORLD-2b/3b (2.9): структурированный распорядок и знания NPC. */
+  social?: SocialChanges;
 };
 
 /** JSON Schema (подмножество OpenAPI, поддерживаемое Gemini responseSchema). */
@@ -180,6 +183,7 @@ export const RESOLUTION_RESPONSE_SCHEMA: Record<string, unknown> = {
         },
         ...LIFE_SCHEMA_PROPERTIES,
         ...AGENDA_SCHEMA_PROPERTIES,
+        ...SOCIAL_SCHEMA_PROPERTIES,
       },
       required: ["location", "quests", "npcs", "inventory", "sceneObjects", "conditions", "flags"],
     },
@@ -371,6 +375,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
       stateChanges: { location, locations, routes, quests, npcs, inventory, sceneObjects, conditions, flags },
       life: parseLifeChanges(sc),
       agenda: parseAgendaChanges(sc),
+      social: parseSocialChanges(sc),
     },
   };
 }
@@ -706,7 +711,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         id: existing.id,
         patch: { relation, status, role: n.role || undefined, description: n.note ? `${existing.description ? existing.description + " " : ""}[ход ${turnNumber}] ${n.note}`.slice(0, 1200) : undefined, lastLocation: world.currentLocation },
       });
-      npcsApplied.push({ name: existing.name, relation, delta: relation - existing.relation, status, isNew: false });
+      npcsApplied.push({ name: existing.name, relation, delta: relation - existing.relation, status, isNew: false, ...(n.note ? { note: n.note.slice(0, 200) } : {}) });
       if (Math.abs(delta) >= 10 || status !== existing.status || n.note) {
         events.push({
           layer: "semantic",
@@ -725,7 +730,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
       const relation = Math.max(-100, Math.min(100, delta));
       const status = n.status ?? "alive";
       ops.push({ t: "npc.insert", row: { key, name: n.name, role: n.role, description: n.note, relation, status, lastLocation: world.currentLocation } });
-      npcsApplied.push({ name: n.name, relation, delta, status, isNew: true });
+      npcsApplied.push({ name: n.name, relation, delta, status, isNew: true, ...(n.note ? { note: n.note.slice(0, 200) } : {}) });
       events.push({
         layer: "semantic",
         category: "npc",

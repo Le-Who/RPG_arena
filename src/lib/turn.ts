@@ -62,10 +62,11 @@ import { narrativeReviewRequest } from "./narrative-review-request";
 import { recordNarrativeAttempt, finishNarrativeAttempt, pruneNarrativeDiagnostics } from "./narrative-diagnostics";
 import { verifyNarrative } from "./narrative-verifier";
 import { parseCompleteNarrativeDraft } from "./narrative-stream";
-import { applyLife, buildLifePromptBlock, classifyIntent, emptyLifeChanges, gateByIntent, readLife } from "./world-life";
+import { applyLife, buildLifePromptBlock, classifyIntent, emptyLifeChanges, gateByIntent, normName, readLife } from "./world-life";
 import { checkInteraction, inferInteraction } from "./interactions";
 import { AGENDA_PROPOSAL_INSTRUCTION, applyAgenda, buildAgendaPromptBlock, emptyAgendaChanges } from "./world-agenda";
-import { applyConditionTimers, describeConditionEffects } from "./conditions";
+import { applyConditionTimers, describeConditionCures, describeConditionEffects, gateConditionRemovals } from "./conditions";
+import { applySocial, buildSocialPromptBlock, emptySocialChanges, SOCIAL_PROPOSAL_INSTRUCTION } from "./world-social";
 import { buildNarratorPromptBlock, narratorMaxTokens, readNarratorPreferences } from "./narrator-preferences";
 import { GUARDED_RESOLUTION_SCHEMA, NARRATIVE_GENERATION_INSTRUCTION, NARRATIVE_REPAIR_SCHEMA, guardedPreview, hasDescriptiveMetadata, parseNarrativeRepair } from "./narrative-generation";
 
@@ -292,6 +293,8 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   const lifeBlock = buildLifePromptBlock(world, intent, interactionCheck.directive);
   // WORLD-2 / NARR-10: повестка мира и голос рассказчика — оба блока пусты/нейтральны для старых кампаний.
   const agendaBlock = buildAgendaPromptBlock(world);
+  // WORLD-2b/3b (2.9): присутствие по распорядку и связи — серверный расчёт, пустой для кампаний без записей.
+  const socialBlock = buildSocialPromptBlock(world, npcRows);
   const narratorPrefs = readNarratorPreferences(world);
   const narratorBlock = buildNarratorPromptBlock(narratorPrefs);
   const worldLine = `Мир ${world.worldName}, тон: ${world.tone}, эпоха: ${world.era}, главная цель: ${world.mainQuest}, глава ${world.chapter}, накал ${world.danger}/100${world.factions?.length ? `, фракции: ${world.factions.join(", ")}` : ""}`;
@@ -320,7 +323,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       diceBlock: buildDiceBlock(dice),
       playerAction: actionForModel,
     };
-    const system = buildTurnSystemPrompt(ctx) + lifeBlock + AGENDA_PROPOSAL_INSTRUCTION + agendaBlock + narratorBlock + (narrativeConfig.enabled ? NARRATIVE_GENERATION_INSTRUCTION : "");
+    const system = buildTurnSystemPrompt(ctx) + lifeBlock + AGENDA_PROPOSAL_INSTRUCTION + agendaBlock + SOCIAL_PROPOSAL_INSTRUCTION + socialBlock + (spec.resources.conditions ? describeConditionCures(character.conditions) : "") + narratorBlock + (narrativeConfig.enabled ? NARRATIVE_GENERATION_INSTRUCTION : "");
     const user = buildTurnUserPrompt(ctx) + (narrativeConfig.enabled ? `\nORIGINAL_EVIDENCE:\n${JSON.stringify(evidence)}\nAGREEMENT_HISTORY (версии в порядке записи; поздняя версия заменяет предыдущую, proposed не означает accepted):\n${JSON.stringify(agreementContext)}` : "");
     const generationStarted = performance.now();
     let streamedJson = "", preview = "";
@@ -568,6 +571,22 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   result.events.push(...agendaResult.events);
   result.applied.agenda = agendaResult.applied;
   result.applied.rejected.push(...agendaResult.rejected);
+  // ── MECH-4b (2.9): длительные состояния снимаются только проверяемым событием этого хода ──
+  const consumedItems = result.applied.inventory.filter((entry) => entry.ok && entry.op === "consume")
+    .map((entry) => ({ name: entry.name, kind: inventory.find((item) => normName(item.name) === normName(entry.name))?.kind ?? "" }));
+  const conditionGate = gateConditionRemovals(result.applied.conditions.removed, { intent, minutes: lifeResult.applied.clock?.minutes ?? 0, consumed: consumedItems,
+    action: opts.action, heroName: character.name, goldSpent: Math.max(0, -result.applied.gold), narration: payload.narration, dice: dice ? { success: dice.success, skill: dice.skill } : null });
+  if (conditionGate.restored.length) {
+    const restored = new Set(conditionGate.restored);
+    const kept = result.character.conditions ?? [];
+    result.character = { ...result.character, conditions: [...kept, ...conditionGate.restored.filter((c) => !kept.includes(c))] };
+    result.applied.conditions.removed = result.applied.conditions.removed.filter((c) => !restored.has(c));
+    result.applied.rejected.push(...conditionGate.reasons);
+    const current = result.character.conditions ?? [];
+    result.events = result.events.map((event) => event.entityKey === "character:conditions"
+      ? { ...event, content: current.length ? `Текущие состояния ${result.character.name}: ${current.join(", ")} (обновлено на ходу ${nextTurn}).` : `У ${result.character.name} нет активных состояний (ход ${nextTurn}).` }
+      : event);
+  }
   // ── MECH-4: состояния с длительностью снимаются по часам мира, новые получают срок ──
   const timers = applyConditionTimers({ world: result.world, character: result.character, clock: readLife(result.world).clock, added: result.applied.conditions.added, turnNumber: nextTurn });
   result.world = timers.world;
@@ -575,6 +594,15 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   result.events.push(...timers.events);
   result.applied.conditionTimers = { expired: timers.expired, scheduled: timers.scheduled };
   if (timers.expired.length) result.applied.conditions.removed.push(...timers.expired);
+  // ── WORLD-2b/3b (2.9): связи, распорядок и знания NPC, исходы просроченных договорённостей ──
+  const socialResult = applySocial({ world: result.world, startClock: agendaStartClock, startLocation: world.currentLocation, npcs: agendaNpcs, locations,
+    applied: result.applied, changes: payload.social ?? emptySocialChanges(), intent, turnNumber: nextTurn, narration: payload.narration,
+    interaction: interactionCheck.interaction ? { label: interactionCheck.label, target: interactionCheck.interaction.target.name } : null });
+  result.world = socialResult.world;
+  result.ops.push(...socialResult.ops);
+  result.events.push(...socialResult.events);
+  result.applied.social = socialResult.applied;
+  result.applied.rejected.push(...socialResult.rejected);
   result.applied.interaction = interactionCheck.interaction
     ? { verb: interactionCheck.interaction.verb, label: interactionCheck.label, target: interactionCheck.interaction.target.name, valid: interactionCheck.valid, reasons: interactionCheck.reasons }
     : null;

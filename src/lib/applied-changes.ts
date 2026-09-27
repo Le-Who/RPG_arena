@@ -51,7 +51,7 @@ export function describeAppliedChanges(applied: AppliedChanges): ChangeChip[] {
   if (life) {
     if (life.story?.resolved) add("Арка завершена", "check", "positive");
     for (const t of life.transfers) add(t.ok ? `«${t.name}» → ${t.to}` : `Не передано: «${t.name}»`, t.ok ? "object" : "warning", t.ok ? "neutral" : "negative");
-    for (const c of life.commitments) add(`${c.isNew ? "Новая договорённость" : "Договорённость"}: ${c.title} — ${COMMITMENT_LABELS[c.status].toLowerCase()}`, c.status === "broken" || c.status === "cancelled" ? "failed" : c.status === "fulfilled" ? "check" : "quest", c.status === "broken" ? "negative" : c.status === "fulfilled" || c.status === "accepted" ? "positive" : "neutral");
+    for (const c of life.commitments) add(`${c.isNew ? "Новая договорённость" : "Договорённость"}: ${c.title} — ${c.rescheduled ? "перенесено" : COMMITMENT_LABELS[c.status].toLowerCase()}`, c.status === "broken" || c.status === "cancelled" ? "failed" : c.status === "fulfilled" ? "check" : "quest", c.status === "broken" ? "negative" : c.status === "fulfilled" || c.status === "accepted" ? "positive" : "neutral");
     if (life.clock && (life.clock.newDay || life.clock.minutes >= 60)) add(life.clock.newDay ? `Новый день · ${life.clock.to}` : `Прошло ${Math.round(life.clock.minutes / 60)} ч`, "hidden");
   }
   // WORLD-2: повестка мира
@@ -62,7 +62,39 @@ export function describeAppliedChanges(applied: AppliedChanges): ChangeChip[] {
     for (const g of applied.agenda.npcGoals) add(`${g.name}: ${g.goal ? `хочет ${g.goal}` : g.routine}`, "person");
   }
   // MECH-4: состояния, снятые временем
+  // WORLD-2b/3b (2.9): люди мира
+  if (applied.social) {
+    for (const m of applied.social.missed) add(`Неявка: ${m.title}${m.penalty ? ` · отношения −${m.penalty}${m.parties.length ? ` (${m.parties.join(", ")})` : ""}` : " · без штрафа"}`, "failed", "negative");
+    for (const s of applied.social.schedules) add(s.removed ? `${s.name}: больше не бывает в «${s.place}»` : `Распорядок: ${s.name} — «${s.place}», ${s.window}`, "person");
+    for (const k of applied.social.knowledge) add(`${k.name} узнаёт: ${k.fact}`, "person");
+    for (const o of applied.social.overdue) add(`Просрочено: ${o.title}`, "hidden");
+  }
   for (const condition of applied.conditionTimers?.expired ?? []) add(`Прошло со временем: ${condition}`, "condition-remove", "positive");
   if (applied.interaction && !applied.interaction.valid) add(`Недоступно: ${applied.interaction.reasons[0] ?? applied.interaction.label}`, "warning", "negative");
   return chips;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  NARR-3: «что было → что стало → почему» по группам
+// ─────────────────────────────────────────────────────────────
+export type ConsequenceGroup = "Отношения" | "Ресурсы" | "Цели" | "Состояния" | "Люди и договорённости";
+export type ConsequenceRow = { group: ConsequenceGroup; subject: string; before: string | null; after: string; reason: string };
+const fmt = (value: number) => `${value > 0 ? "+" : ""}${value}`;
+
+export function describeConsequences(applied: AppliedChanges): ConsequenceRow[] {
+  const rows: ConsequenceRow[] = [];
+  for (const npc of applied.npcs) {
+    if (npc.isNew) rows.push({ group: "Отношения", subject: npc.name, before: null, after: `знакомство, ${fmt(npc.relation)}`, reason: npc.note ?? "" });
+    else if (npc.delta) rows.push({ group: "Отношения", subject: npc.name, before: fmt(npc.relation - npc.delta), after: fmt(npc.relation), reason: npc.note ?? "" });
+  }
+  for (const [key, label] of [["hp", "Здоровье"], ["gold", "Средства"], ["xp", "Опыт"], ["danger", "Опасность"]] as const) {
+    if (applied[key]) rows.push({ group: "Ресурсы", subject: label, before: null, after: signed(applied[key]), reason: "" });
+  }
+  for (const quest of applied.quests) rows.push({ group: "Цели", subject: quest.title, before: null, after: quest.status === "completed" ? "выполнена" : quest.status === "failed" ? "провалена" : `${quest.progress}%`, reason: quest.isNew ? "новая цель" : "" });
+  for (const condition of applied.conditions.added) rows.push({ group: "Состояния", subject: condition, before: "нет", after: "есть", reason: "" });
+  for (const condition of applied.conditions.removed) rows.push({ group: "Состояния", subject: condition, before: "есть", after: "снято", reason: (applied.conditionTimers?.expired ?? []).includes(condition) ? "прошло со временем" : "" });
+  for (const c of applied.life?.commitments ?? []) rows.push({ group: "Люди и договорённости", subject: c.title, before: null, after: c.rescheduled ? "перенесено" : COMMITMENT_LABELS[c.status].toLowerCase(), reason: c.downgraded ? "нужно подтверждение сценой" : "" });
+  for (const m of applied.social?.missed ?? []) rows.push({ group: "Люди и договорённости", subject: m.title, before: "договорились", after: "неявка", reason: m.penalty ? `правило договорённости: отношения −${m.penalty}` : "правило последствий не задано — отношения не изменены" });
+  for (const b of applied.social?.bonds ?? []) if (b.kind === "gift" || b.kind === "meeting" || b.kind === "knowledge") rows.push({ group: "Люди и договорённости", subject: b.name, before: null, after: b.text, reason: "" });
+  return rows;
 }

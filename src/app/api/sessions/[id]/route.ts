@@ -1,4 +1,5 @@
-import { normalizeStoryShape } from "@/lib/world-life";
+import { HttpError } from "@/lib/http";
+import { continueStory, normalizeStoryShape } from "@/lib/world-life";
 import { normalizeNarratorPreferences, writeNarratorPreferences } from "@/lib/narrator-preferences";
 import type { WorldState } from "@/db/schema";
 import { withCampaignAccess } from "@/lib/campaign-access";
@@ -6,7 +7,7 @@ import { after, NextResponse } from "next/server";
 import { prewarmSessionChoices } from "@/lib/choice-prewarm";
 import { db } from "@/db";
 import { gameSessions, gameTurns, memoryNodes, inventoryItems, worldLocations, quests, npcs, sceneObjects } from "@/db/schema";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { embeddingStats } from "@/lib/embeddings";
 import { lockSession, assertNoRunningTurn } from "@/lib/turn-admission";
 import { httpError, readJsonObject } from "@/lib/http";
@@ -83,10 +84,20 @@ async function handlePATCH(req: Request, { params }: { params: Promise<{ id: str
     if (storyInput || narratorInput) {
       // NARR-7: форма истории редактируется владельцем; статус завершения меняется только событиями хода
       // или явным «продолжить после финала» (reopen).
-      const [current] = await tx.select({ worldState: gameSessions.worldState }).from(gameSessions).where(eq(gameSessions.id, id));
+      const [current] = await tx.select({ worldState: gameSessions.worldState, turnCount: gameSessions.turnCount }).from(gameSessions).where(eq(gameSessions.id, id));
       if (!current) return [];
       let world = current.worldState as WorldState;
-      if (storyInput) {
+      if (storyInput && typeof storyInput.continueAs === "string") {
+        // NARR-9b: явное продолжение после финала арки; прошлая арка остаётся каноном в arcHistory.
+        const continued = continueStory(world, storyInput, current.turnCount ?? 0);
+        if (!continued.ok) throw new HttpError(400, "INVALID_STORY", continued.error);
+        world = continued.world;
+        // Retain historical quests, but only the new arc owns the main-goal role.
+        await tx.update(quests).set({ isMain: false }).where(and(eq(quests.sessionId, id), eq(quests.isMain, true)));
+        if (world.story?.kind === "arc") await tx.insert(quests).values({ sessionId: id, key: `arc-${crypto.randomUUID()}`,
+          title: world.story.goal, description: `${world.story.stakes}. ${world.story.conflict}. Финал: ${world.story.endCondition}`,
+          status: "active", progress: 0, isMain: true, updatedTurn: current.turnCount ?? 0 });
+      } else if (storyInput) {
         const previous = normalizeStoryShape(world.story, world);
         const next = normalizeStoryShape({ ...previous, ...storyInput, status: storyInput.reopen === true ? "ongoing" : previous.status }, world);
         if (storyInput.reopen !== true && previous.resolvedTurn !== undefined) next.resolvedTurn = previous.resolvedTurn;

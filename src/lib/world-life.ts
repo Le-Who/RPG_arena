@@ -35,7 +35,16 @@ export type Commitment = {
   createdTurn: number;
   updatedTurn: number;
   note: string;
+  /** Историческое поле импорта; не запускает автоматические штрафы. */
+  missEffect?: "none" | "relation";
+  /** Историческое поле импорта; границы хода не доказывают присутствие или отсутствие. */
+  attendance?: "present" | "absent";
+  /** Переносы, неявка и закрытие — исход объясняется событиями. */
+  history?: CommitmentHistoryEntry[];
 };
+export type CommitmentHistoryEntry = { turn: number; kind: "rescheduled" | "missed" | "fulfilled" | "broken" | "cancelled"; from: WorldClock | null; to: WorldClock | null };
+/** NARR-9b (2.9): завершённые арки остаются каноном кампании после явного продолжения. */
+export type ArcRecord = { goal: string; stakes: string; conflict: string; endCondition: string; epilogue: string; resolvedTurn: number; closedTurn: number; closedAt: WorldClock };
 export type Holding = {
   id: string;
   name: string;
@@ -51,7 +60,7 @@ export type WorldLife = { clock: WorldClock; story: StoryShape; commitments: Com
 /** Как сервер трактует сообщение игрока (INTERACT-3). */
 export type IntentKind = "act" | "intend" | "claim" | "ask";
 
-export type CommitmentChange = { ref: string | null; title: string; parties: string[]; place: string; day: number | null; time: string; status: CommitmentStatus | null; note: string };
+export type CommitmentChange = { ref: string | null; title: string; parties: string[]; place: string; day: number | null; time: string; status: CommitmentStatus | null; note: string; missEffect?: "none" | "relation" | null };
 export type TransferChange = { ref: string; to: string; quantity: number; accepted: boolean };
 export type LifeChanges = {
   advanceMinutes: number | null;
@@ -62,7 +71,7 @@ export type LifeChanges = {
 export type LifeApplied = {
   intent: IntentKind;
   clock: { from: string; to: string; minutes: number; newDay: boolean } | null;
-  commitments: { title: string; status: CommitmentStatus; isNew: boolean; downgraded?: boolean }[];
+  commitments: { title: string; status: CommitmentStatus; isNew: boolean; downgraded?: boolean; rescheduled?: boolean }[];
   transfers: { name: string; to: string; quantity: number; ok: boolean; reason?: string }[];
   story: { kind: StoryShapeKind; resolved: boolean } | null;
 };
@@ -167,8 +176,8 @@ export function readLife(world: WorldState): WorldLife {
   return {
     clock,
     story: normalizeStoryShape(world.story, world),
-    commitments: Array.isArray(world.commitments) ? world.commitments.filter(isRecord).slice(-MAX_COMMITMENTS) as Commitment[] : [],
-    holdings: Array.isArray(world.holdings) ? world.holdings.filter(isRecord).slice(-MAX_HOLDINGS) as Holding[] : [],
+    commitments: Array.isArray(world.commitments) ? structuredClone(world.commitments.filter(isRecord).slice(-MAX_COMMITMENTS)) as Commitment[] : [],
+    holdings: Array.isArray(world.holdings) ? structuredClone(world.holdings.filter(isRecord).slice(-MAX_HOLDINGS)) as Holding[] : [],
   };
 }
 
@@ -427,13 +436,17 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
     if (existing) {
       if (["fulfilled", "cancelled", "broken"].includes(existing.status)) { rejected.push(`COMMITMENT: «${existing.title}» уже закрыто`); continue; }
       if (existing.status === "accepted" && downgraded) { continue; }
+      // WORLD-3b: перенос срока принятой встречи — отдельный исход, а не неявка; отметка присутствия сбрасывается.
+      const rescheduled = !!due && !!existing.due && existing.status === "accepted" && clockValue(due) !== clockValue(existing.due) && (status === "accepted" || status === "proposed");
+      if (rescheduled) { existing.history = [...(existing.history ?? []), { turn: input.turnNumber, kind: "rescheduled" as const, from: { ...existing.due! }, to: { ...due! } }].slice(-8); delete existing.attendance; }
+      if (status === "fulfilled" || status === "broken" || status === "cancelled") existing.history = [...(existing.history ?? []), { turn: input.turnNumber, kind: status, from: existing.due ? { ...existing.due } : null, to: null }].slice(-8);
       existing.status = status;
       existing.updatedTurn = input.turnNumber;
       if (change.place) existing.place = change.place;
       if (due) existing.due = due;
       if (change.parties.length) existing.parties = change.parties;
       if (change.note) existing.note = `${existing.note ? existing.note + " " : ""}[ход ${input.turnNumber}] ${change.note}`.slice(-400);
-      applied.commitments.push({ title: existing.title, status, isNew: false, ...(downgraded ? { downgraded } : {}) });
+      applied.commitments.push({ title: existing.title, status, isNew: false, ...(downgraded ? { downgraded } : {}), ...(rescheduled ? { rescheduled } : {}) });
       events.push({ layer: "semantic", category: "quest", title: `Договорённость: ${existing.title}`, content: `${COMMITMENT_LABELS[status]}${existing.parties.length ? ` — ${existing.parties.join(", ")}` : ""}${existing.place ? `, место: ${existing.place}` : ""}${existing.due ? `, срок: ${formatClock(existing.due)}` : ""}.`, importance: status === "accepted" ? 70 : 55, entityKey: `commitment:${existing.id}`, mode: "upsert" });
     } else {
       if (!change.title) continue;
@@ -493,7 +506,7 @@ export function buildLifePromptBlock(world: WorldState, intent: IntentKind, inte
   const alerts = commitmentAlerts(life);
   const open = life.commitments.filter((c) => c.status === "proposed" || c.status === "accepted");
   const commitments = open.length
-    ? open.slice(-10).map((c) => `${c.id}: «${c.title}» [${COMMITMENT_LABELS[c.status]}]${c.parties.length ? ` с ${c.parties.join(", ")}` : ""}${c.place ? `, ${c.place}` : ""}${c.due ? `, срок ${formatClock(c.due)}` : ""}`).join("; ")
+    ? open.slice(-10).map((c) => `${c.id}: «${c.title}» [${COMMITMENT_LABELS[c.status]}]${c.parties.length ? ` с ${c.parties.join(", ")}` : ""}${c.place ? `, ${c.place}` : ""}${c.due ? `, срок ${formatClock(c.due)}` : ""}${c.missEffect === "relation" ? ", неявка обидит" : ""}`).join("; ")
     : "нет";
   const holdings = life.holdings.length
     ? life.holdings.slice(-12).map((h) => `«${h.name}» ×${h.quantity} — ${h.holderKind === "npc" ? `у ${h.holderName}` : `лежит в «${h.holderName}»`}`).join("; ")
@@ -506,13 +519,57 @@ export function buildLifePromptBlock(world: WorldState, intent: IntentKind, inte
         ? "Игрок задаёт ВОПРОС: ответь через восприятие героя, без перемещения и трат."
         : "Игрок совершает действие: опиши попытку и её реальный результат.";
   return `
-ФОРМА ИСТОРИИ: ${describeStoryShape(life.story)}
+ФОРМА ИСТОРИИ: ${describeStoryShape(life.story)}${arcHistoryLine(world)}
 ВРЕМЯ МИРА: ${formatClock(life.clock)}. Ход не равен фиксированному часу — укажи stateChanges.time.advanceMinutes по реальной длительности действия.
-ДОГОВОРЁННОСТИ И ПЛАНЫ: ${commitments}${alerts.due.length ? `. СКОРО СРОК: ${alerts.due.map((c) => c.title).join(", ")}` : ""}${alerts.overdue.length ? `. ПРОСРОЧЕНО (мир реагирует): ${alerts.overdue.map((c) => c.title).join(", ")}` : ""}
+ДОГОВОРЁННОСТИ И ПЛАНЫ: ${commitments}${alerts.due.length ? `. СКОРО СРОК: ${alerts.due.map((c) => c.title).join(", ")}` : ""}${alerts.overdue.length ? `. ПРОСРОЧЕНО (часы не доказывают неявку; исход и реакцию нужно показать в сцене): ${alerts.overdue.map((c) => c.title).join(", ")}` : ""}
 ВЕЩИ НЕ У ГЕРОЯ: ${holdings}
 ТИП ВЫСКАЗЫВАНИЯ ИГРОКА: ${INTENT_LABELS[intent]}. ${intentRule}
 ${interactionDirective}
 · stateChanges.commitments — встречи/обещания/сделки: proposed — предложено; accepted — обе стороны явно согласились в сцене; fulfilled/broken/cancelled — закрытие существующего по ref.
 · stateChanges.transfers — только когда предмет из инвентаря реально перешёл получателю в этой сцене (accepted=true). Отказ получателя — accepted=false.
 · stateChanges.story.status = "resolved" — только при выполнении условия завершения арки; иначе "ongoing".`;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  NARR-9b (2.9): явное продолжение после завершённой арки
+// ─────────────────────────────────────────────────────────────
+const MAX_ARCS = 12;
+
+export function readArcHistory(world: WorldState): ArcRecord[] {
+  const raw = (world as WorldState & { arcHistory?: unknown }).arcHistory;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(isRecord).map((a) => {
+    const at: Record<string, unknown> = isRecord(a.closedAt) ? a.closedAt : {};
+    const day = Number(at.day), minute = Number(at.minute);
+    return {
+      goal: str(a.goal, 240), stakes: str(a.stakes, 240), conflict: str(a.conflict, 240), endCondition: str(a.endCondition, 240),
+      epilogue: str(a.epilogue, 1200), resolvedTurn: Math.max(0, Math.floor(Number(a.resolvedTurn) || 0)), closedTurn: Math.max(0, Math.floor(Number(a.closedTurn) || 0)),
+      closedAt: Number.isFinite(day) && Number.isFinite(minute) ? { day: Math.max(1, Math.floor(day)), minute: Math.max(0, Math.min(DAY - 1, Math.floor(minute))) } : { day: 1, minute: 0 },
+    };
+  }).slice(-MAX_ARCS);
+}
+
+export type ContinueStoryResult = { ok: true; world: WorldState } | { ok: false; error: string };
+
+/** Завершённая арка уходит в arcHistory (канон), история продолжается выбранной формой. Ходы и память не меняются. */
+export function continueStory(world: WorldState, input: Record<string, unknown>, turnCount: number): ContinueStoryResult {
+  const current = normalizeStoryShape(world.story, world);
+  if (current.kind !== "arc" || current.status !== "resolved") return { ok: false, error: "Продолжение доступно после завершения арки." };
+  const kind = (["scene", "open-life", "arc"] as const).find((k) => k === input.continueAs);
+  if (!kind) return { ok: false, error: "Неизвестная форма продолжения." };
+  const focus = Array.isArray(input.focus) ? input.focus : typeof input.focus === "string" ? input.focus.split("\n") : [];
+  const arc = kind === "arc";
+  const next = normalizeStoryShape({ kind, goal: arc ? input.goal : "", stakes: arc ? input.stakes : "", conflict: arc ? input.conflict : "", endCondition: arc ? input.endCondition : "", focus: arc ? [] : focus, status: "ongoing" }, world);
+  if (arc && (!next.goal || !next.stakes || !next.conflict || !next.endCondition)) return { ok: false, error: "Для новой арки нужны цель, ставки, конфликт и условие завершения." };
+  const record: ArcRecord = {
+    goal: current.goal || (world.mainQuest ?? "").slice(0, 240), stakes: current.stakes, conflict: current.conflict, endCondition: current.endCondition,
+    epilogue: current.epilogue ?? "", resolvedTurn: current.resolvedTurn ?? turnCount, closedTurn: turnCount, closedAt: { ...readLife(world).clock },
+  };
+  return { ok: true, world: { ...world, mainQuest: arc ? next.goal : "", story: next, arcHistory: [...readArcHistory(world), record].slice(-MAX_ARCS) } as WorldState };
+}
+
+function arcHistoryLine(world: WorldState): string {
+  const arcs = readArcHistory(world);
+  if (!arcs.length) return "";
+  return `\nЗАВЕРШЁННЫЕ АРКИ (канон, не переигрывай): ${arcs.slice(-3).map((a) => `${JSON.stringify(a.goal || "арка")} — ход ${a.resolvedTurn}${a.epilogue ? `, итог: ${JSON.stringify(a.epilogue.slice(0, 160))}` : ""}`).join("; ")}`;
 }

@@ -98,6 +98,10 @@ export type WorldState = {
   npcAgendas?: import("../lib/world-agenda").NpcAgenda[];
   narrator?: import("../lib/narrator-preferences").NarratorPreferences;
   conditionTimers?: import("../lib/conditions").ConditionTimers;
+  // WORLD-2b/3b, NARR-9b (2.9): связи и распорядок NPC, завершённые арки.
+  npcBonds?: import("../lib/world-social").NpcBond[];
+  npcSchedules?: import("../lib/world-social").ScheduleSlot[];
+  arcHistory?: import("../lib/world-life").ArcRecord[];
 };
 
 export type DiceResult = {
@@ -127,7 +131,7 @@ export type AppliedChanges = {
   dead: boolean;
   location: { from: string; to: string; isNew: boolean } | null;
   quests: { title: string; status: string; progress: number; isNew: boolean }[];
-  npcs: { name: string; relation: number; delta: number; status: string; isNew: boolean }[];
+  npcs: { name: string; relation: number; delta: number; status: string; isNew: boolean; note?: string }[];
   inventory: { op: string; name: string; quantity: number; ok: boolean; reason?: string }[];
   sceneObjects: { name: string; state: string; isNew: boolean }[];
   conditions: { added: string[]; removed: string[] };
@@ -140,6 +144,8 @@ export type AppliedChanges = {
   agenda?: import("../lib/world-agenda").AgendaApplied;
   /** MECH-4: состояния, снятые по времени мира, и новые таймеры. */
   conditionTimers?: { expired: string[]; scheduled: { condition: string; expiresAt: import("../lib/world-life").WorldClock }[] };
+  /** WORLD-2b/3b (2.9): связи, распорядок, знания NPC и исходы встреч. */
+  social?: import("../lib/world-social").SocialApplied;
 };
 
 export type TurnContextMeta = {

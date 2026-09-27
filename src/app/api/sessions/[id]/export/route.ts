@@ -1,10 +1,21 @@
 import { withCampaignAccess } from "@/lib/campaign-access";
 import { exportCampaignMarkdown, exportPortableCampaign } from "@/lib/campaign-export";
 import { currentProfileId } from "@/lib/identity";
+import { markdownToBookHtml } from "@/lib/campaign-book";
 export const dynamic = "force-dynamic";
 async function handleGET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (new URL(request.url).searchParams.get("format") === "json") {
+  const format = new URL(request.url).searchParams.get("format");
+  if (format === "html") {
+    // ECO-1c: книга для офлайн-чтения из того же Markdown — без скриптов, внешних ресурсов и служебных данных.
+    const markdown = await exportCampaignMarkdown(id);
+    if (markdown === null) return Response.json({ error: "История не найдена" }, { status: 404 });
+    return new Response(markdownToBookHtml(markdown), { headers: {
+      "Content-Type": "text/html; charset=utf-8", "Content-Disposition": `attachment; filename="chronicle-${id.slice(0, 8)}.html"`,
+      "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'",
+    } });
+  }
+  if (format === "json") {
     const document = await exportPortableCampaign(id, await currentProfileId());
     if (!document) return Response.json({ ok: false, code: "NOT_FOUND", message: "Кампания не найдена." }, { status: 404 });
     return Response.json(document, { headers: { "Content-Disposition": `attachment; filename="chronicle-${id.slice(0, 8)}.json"` } });

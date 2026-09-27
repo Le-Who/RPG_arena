@@ -1,7 +1,7 @@
 "use client";
 import { buildNarrativeFeed } from "@/lib/narrative-feed";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type React from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, Backpack, BookOpen, BookOpenText, Camera, Clock3, BrainCircuit, Check, ChevronUp, Compass, CornerDownLeft, Dices, Download, Feather, Flag, GitBranch, Globe2, Heart, LoaderCircle, MapPin, Minimize2, Plus, RefreshCw, Send, ShieldCheck, Sparkles, UserRound, WifiOff } from "lucide-react";
 import { useApp } from "./app-shell";
@@ -17,12 +17,14 @@ import { classifyAction } from "@/lib/action-kind";
 import { WorldMap } from "./world-map";
 import { EntityActions } from "./entity-actions";
 import { LifePanel } from "./life-panel";
+import { ArcFinale } from "./arc-finale";
+import { NpcBondDetails, PresenceStrip } from "./social-panel";
 import { RecapCard } from "./recap-card";
 import { recapLastTurnAt, shouldOfferRecap } from "@/lib/recap";
-import { conditionExpiry, conditionRule } from "@/lib/conditions";
+import { conditionExpiry, conditionRule, describeCure } from "@/lib/conditions";
 import { formatClock } from "@/lib/world-life";
 import { VisualGallery } from "./visual-gallery";
-import { readLife } from "@/lib/world-life";
+import { readLife, type StoryShapeKind } from "@/lib/world-life";
 import type { InteractionState } from "@/lib/interactions";
 import { retainedItemBindings, type ItemBinding } from "@/lib/item-bindings";
 import { withCommittedTurn, applyCommittedSnapshot } from "@/lib/committed-turns";
@@ -36,11 +38,41 @@ const SIDE_TABS = [
   { id: "memory", icon: BrainCircuit, title: "Память" },
 ] as const;
 
+// NARR-4 (2.9): первые подсказки зависят от формы истории, а не только от приключенческого жанра.
+const FIRST_ACTIONS: Record<StoryShapeKind, string[]> = {
+  arc: ["Осмотреться и изучить окружение", "Поговорить с ближайшим персонажем", "Разузнать, что мешает цели"],
+  "open-life": ["Оглядеться и решить, с чего начать день", "Написать или позвонить знакомому", "Заняться привычным делом"],
+  scene: ["Осмотреться", "Заговорить с тем, кто рядом", "Сделать первый решительный шаг"],
+};
+
 function lastNarratorChoices(snapshot: Snapshot | null): string[] {
   if (!snapshot) return [];
   const last = [...snapshot.turns].reverse().find((turn) => turn.role === "narrator");
   return last?.choices ?? [];
 }
+
+type FeedTurn = ReturnType<typeof buildNarrativeFeed>[number];
+
+/** PERF-1 (2.9): лента мемоизирована — набор текста в поле действия не перерисовывает все ходы истории. */
+const FeedTurns = memo(function FeedTurns({ turns, heroName }: { turns: FeedTurn[]; heroName: string }) {
+  return <>
+    {turns.map((turn) => <article className={`gx-turn ${turn.role === "player" ? "is-player" : "is-narrator"}`} key={turn.key} aria-busy={turn.pending || undefined} id={`turn-${turn.turnNumber}${turn.role === "player" ? "-player" : ""}`}>
+            <div className="gx-turn-head">
+              <span className="gx-turn-avatar">{turn.role === "player" ? <UserRound size={15} /> : <Feather size={15} />}</span>
+              <strong>{turn.role === "player" ? heroName : "Рассказчик"}</strong>
+              <span className="gx-turn-no">Ход {turn.turnNumber}</span>
+              {turn.role !== "player" && <span className="gx-turn-tag">{turn.pending ? "Продолжение формируется" : turn.modelUsed?.startsWith("gemini") ? "AI" : turn.modelUsed?.includes("intro") ? "Пролог" : "Офлайн"}</span>}
+            </div>
+            <div className="gx-prose">{turn.content}</div>
+            {turn.dice && <div className={`gx-dice ${turn.dice.success ? "is-success" : "is-failure"} ${turn.dice.band === "cost" ? "is-cost" : ""}`}>
+              <span className="gx-dice-value"><Dices size={18} /><strong>{turn.dice.total}</strong></span>
+              <div className="gx-dice-body"><strong>{turn.dice.skill || turn.dice.label}</strong><small>{turn.dice.kind === "2d6" ? "Проверка риска · 2d6" : `Серверный d20 · сложность ${turn.dice.dc}`}</small></div>
+              <span className="gx-dice-verdict">{turn.dice.band === "cost" ? "Успех с ценой" : turn.dice.success ? "Успех" : "Неудача"}</span>
+            </div>}
+            {turn.stateChanges && <AppliedChips applied={turn.stateChanges} turnNumber={turn.turnNumber} />}
+          </article>)}
+  </>;
+});
 
 export function PlayRoom({ sessionId }: { sessionId: string }) {
   const { settings, sessions, refresh, notify, setPlayCommands, workspace } = useApp();
@@ -173,15 +205,19 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
       { id: "recap", label: "Ранее в истории", run: () => { setRecapState("open"); setTimeout(() => document.getElementById("recap-title")?.scrollIntoView({ block: "start", behavior: "smooth" }), 60); } },
       { id: "first", label: "К началу истории", run: () => document.getElementById("turn-1")?.scrollIntoView({ block: "start", behavior: workspace.reading.motion === "reduced" ? "instant" : "smooth" }) },
       { id: "life", label: "Жизнь мира: время, события, договорённости", run: () => { setReading(false); setSideTab("life"); } },
+      { id: "people", label: "Люди: распорядок, связи и знания", run: () => { setReading(false); setSideTab("world"); } },
+      { id: "book", label: "Скачать книгу для чтения офлайн (HTML)", run: () => { const link = document.createElement("a"); link.href = `/api/sessions/${sessionId}/export?format=html`; link.rel = "noopener"; link.click(); } },
       { id: "latest", label: "К последнему ходу", run: () => document.getElementById(`turn-${commandTurn}`)?.scrollIntoView({ block: "start", behavior: workspace.reading.motion === "reduced" ? "instant" : "smooth" }) },
       ...(commandOwner && !busy && !compacting ? [{ id: "checkpoints", label: "Контрольные точки и ветки", run: () => setShowCheckpoints(true) }] : []),
       ...(commandOwner && commandActive && !busy && !compacting ? [{ id: "compact", label: "Сохранить главы в память", run: () => { void compact(); } }] : []),
     ];
     setPlayCommands(commands);
     return () => setPlayCommands([]);
-  }, [commandReady, commandOwner, commandActive, commandTurn, busy, compacting, compact, setPlayCommands, workspace.reading.motion]);
+  }, [commandReady, commandOwner, commandActive, commandTurn, busy, compacting, compact, setPlayCommands, workspace.reading.motion, sessionId]);
   const restore = async () => { try { await api(`/api/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) }); await reload(); void refresh(); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } };
 
+  const feedTurns = useMemo(() => snapshot ? buildNarrativeFeed(withCommittedTurn([...older, ...snapshot.turns], committedTurn, sessionId), turnRequest.pending, turnRequest.preview) : [],
+    [snapshot, older, committedTurn, sessionId, turnRequest.pending, turnRequest.preview]);
   if (loadError) return <div className="empty-state gx-fallback"><BookOpen size={34} /><h3>Не удалось открыть эту главу</h3><p>{loadError}</p><button className="button secondary" onClick={() => void reload().catch((e) => setLoadError(e.message))}><RefreshCw size={15} />Попробовать снова</button><Link className="text-link" href="/campaigns">Вернуться к кампаниям</Link></div>;
   if (!snapshot) return <div className="gx-loading"><span className="gx-loading-orb"><LoaderCircle size={30} className="spin" /></span><h2>Открываем вашу историю…</h2><p>Загружаем мир, персонажей и сохранённые решения.</p></div>;
 
@@ -189,7 +225,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const character = session.character;
   const world = session.worldState;
   const live = Boolean(settings?.useLiveAI && settings.keysCount + settings.envKeysCount > 0);
-  const turns = buildNarrativeFeed(withCommittedTurn([...older, ...snapshot.turns], committedTurn, sessionId), turnRequest.pending, turnRequest.preview);
+  const turns = feedTurns;
   const lastNarrator = [...snapshot.turns].reverse().find((turn) => turn.role === "narrator");
   const isOwner = snapshot.isOwner !== false;
   const active = isOwner && session.status === "active";
@@ -212,6 +248,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
         <span className={`gx-save ${busy ? "is-busy" : ""}`}>{busy ? <LoaderCircle size={13} className="spin" /> : <Check size={13} />}<span>{busy ? "Ход в обработке" : "Сохранено"}</span></span>
         <button className="gx-tool" aria-label="Развилки истории" title="Развилки истории" onClick={() => setShowCheckpoints(true)} disabled={!isOwner || busy}><GitBranch size={16} /><span>Развилки</span></button>
         <a className="gx-tool icon-only" href={`/api/sessions/${sessionId}/export`} title="Скачать историю" aria-label="Скачать историю"><Download size={16} /></a>
+        <a className="gx-tool icon-only" href={`/api/sessions/${sessionId}/export?format=html`} title="Книга для чтения офлайн (HTML)" aria-label="Скачать книгу для чтения офлайн"><BookOpen size={16} /></a>
         {isOwner && <a className="gx-tool" href={`/api/sessions/${sessionId}/export?format=json`} title="Переносимая копия кампании" aria-label="Скачать кампанию JSON">JSON</a>}
         <button className="gx-tool icon-only" onClick={() => setReading(!reading)} aria-label={reading ? "Выйти из режима чтения" : "Режим чтения"} title={reading ? "Обычный режим" : "Режим чтения"}>{reading ? <Minimize2 size={16} /> : <BookOpenText size={17} />}</button>
       </div>
@@ -240,26 +277,13 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
 
         {!live && <div className="gx-offline"><Sparkles size={15} /><span>{session.campaignMode === "free" ? "Для продолжения свободной истории нужен ИИ-мастер." : "Сейчас историю ведёт упрощённый движок пресета."} <Link href="/settings">Подключить Gemini <ArrowRight size={12} /></Link></span></div>}
 
-        {active && session.turnCount === 1 && <div className="gx-onboarding"><div className="gx-onboarding-head"><Sparkles size={16} /><strong>Начните своё приключение</strong></div><p>Опишите первое действие своими словами или выберите один из предложенных вариантов. Каждое решение меняет мир — сервер сохранит все последствия.</p><div className="gx-onboarding-examples">{["Осмотреться и изучить окружение", "Поговорить с ближайшим персонажем", "Проверить инвентарь и снаряжение"].map((example) => <button key={example} onClick={() => { setAction(example); composerRef.current?.focus(); }} disabled={busy}>{example}</button>)}</div><div className="gx-onboarding-foot">Совет: используйте клавишу «/» для быстрого перехода к полю ввода</div></div>}
+        {active && session.turnCount === 1 && <div className="gx-onboarding"><div className="gx-onboarding-head"><Sparkles size={16} /><strong>{readLife(world).story.kind === "open-life" ? "Начните свою историю" : "Начните своё приключение"}</strong></div><p>Опишите первое действие своими словами или выберите один из предложенных вариантов. Каждое решение меняет мир — сервер сохранит все последствия.</p><div className="gx-onboarding-examples">{FIRST_ACTIONS[readLife(world).story.kind].map((example) => <button key={example} onClick={() => { setAction(example); composerRef.current?.focus(); }} disabled={busy}>{example}</button>)}</div><div className="gx-onboarding-foot">Совет: используйте клавишу «/» для быстрого перехода к полю ввода</div></div>}
 
         <div className="gx-feed">
           {(recapState === "open" || recapState === "auto") && <RecapCard sessionId={sessionId} onClose={() => setRecapState("closed")} onNotify={notify} />}
           {turns[0]?.turnNumber > 1 && <button className="gx-load-earlier" onClick={() => void loadEarlier()} disabled={loadingOlder}>{loadingOlder ? <LoaderCircle size={14} className="spin" /> : <ChevronUp size={14} />}Предыдущие главы</button>}
-          {turns.map((turn) => <article className={`gx-turn ${turn.role === "player" ? "is-player" : "is-narrator"}`} key={turn.key} aria-busy={turn.pending || undefined} id={`turn-${turn.turnNumber}${turn.role === "player" ? "-player" : ""}`}>
-            <div className="gx-turn-head">
-              <span className="gx-turn-avatar">{turn.role === "player" ? <UserRound size={15} /> : <Feather size={15} />}</span>
-              <strong>{turn.role === "player" ? character.name : "Рассказчик"}</strong>
-              <span className="gx-turn-no">Ход {turn.turnNumber}</span>
-              {turn.role !== "player" && <span className="gx-turn-tag">{turn.pending ? "Продолжение формируется" : turn.modelUsed?.startsWith("gemini") ? "AI" : turn.modelUsed?.includes("intro") ? "Пролог" : "Офлайн"}</span>}
-            </div>
-            <div className="gx-prose">{turn.content}</div>
-            {turn.dice && <div className={`gx-dice ${turn.dice.success ? "is-success" : "is-failure"} ${turn.dice.band === "cost" ? "is-cost" : ""}`}>
-              <span className="gx-dice-value"><Dices size={18} /><strong>{turn.dice.total}</strong></span>
-              <div className="gx-dice-body"><strong>{turn.dice.skill || turn.dice.label}</strong><small>{turn.dice.kind === "2d6" ? "Проверка риска · 2d6" : `Серверный d20 · сложность ${turn.dice.dc}`}</small></div>
-              <span className="gx-dice-verdict">{turn.dice.band === "cost" ? "Успех с ценой" : turn.dice.success ? "Успех" : "Неудача"}</span>
-            </div>}
-            {turn.stateChanges && <AppliedChips applied={turn.stateChanges} turnNumber={turn.turnNumber} />}
-          </article>)}
+          <FeedTurns turns={turns} heroName={character.name} />
+          <ArcFinale sessionId={sessionId} world={world} turnCount={session.turnCount} canEdit={isOwner} disabled={busy || compacting} onSaved={() => { void reload().catch(() => {}); }} onBranch={() => setShowCheckpoints(true)} />
           {syncError && <div className="notice" role="alert"><p>{syncError}</p><button className="text-button" onClick={() => void reload().catch(() => setSyncError("Связь пока не восстановлена. Ход сохранён; попробуйте обновить сцену ещё раз."))}>Обновить сцену</button></div>}
           {busy && <div className="gx-thinking" aria-live="polite"><span className="gx-thinking-orb"><Sparkles size={18} /></span><div><strong>{currentCommit ? "Ход сохранён · обновляем мир" : TURN_STAGE_LABELS[turnRequest.stage]}</strong><small>Запрос сохранён. Перезагрузка страницы не создаст двойной ход.</small></div><span className="gx-thinking-dots"><i /><i /><i /></span></div>}
         </div>
@@ -301,7 +325,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             {session.rulesProfile === "d20" && <div className="gx-stats">{Object.entries(character.stats).map(([key, value]) => <div key={key}><small>{key}</small><strong>{value}</strong></div>)}</div>}
             <div className="gx-side-title">Навыки и черты</div>
             <div className="gx-chips">{[...character.skills, ...character.traits].map((skill) => <span key={skill} className="gx-tag">{skill}</span>)}</div>
-            {!!character.conditions?.length && <><div className="gx-side-title">Состояния</div><div className="gx-chips">{character.conditions.map((condition) => { const rule = session.rulesProfile === "narrative" ? null : conditionRule(condition); const until = conditionExpiry(world, condition); return <span key={condition} className="gx-tag warn" title={rule ? `${rule.label}: ${rule.modifier > 0 ? "+" : ""}${rule.modifier}. ${rule.note}${until ? ` Пройдёт к ${formatClock(until)}.` : ""}` : until ? `Пройдёт к ${formatClock(until)}.` : "Описательное состояние без модификатора"}>{condition}{rule && <small> {rule.modifier > 0 ? "+" : ""}{rule.modifier}</small>}</span>; })}</div></>}
+            {!!character.conditions?.length && <><div className="gx-side-title">Состояния</div><div className="gx-chips">{character.conditions.map((condition) => { const rule = session.rulesProfile === "narrative" ? null : conditionRule(condition); const until = conditionExpiry(world, condition); return <span key={condition} className="gx-tag warn" title={rule ? `${rule.label}: ${rule.modifier > 0 ? "+" : ""}${rule.modifier}. ${rule.note} Снимается: ${describeCure(rule)}.${until ? ` Пройдёт к ${formatClock(until)}.` : ""}` : until ? `Пройдёт к ${formatClock(until)}.` : "Описательное состояние без модификатора"}>{condition}{rule && <small> {rule.modifier > 0 ? "+" : ""}{rule.modifier}</small>}</span>; })}</div></>}
             <div className="gx-side-title"><Flag size={13} />Цели истории</div>
             {quests.map((quest) => <div className="gx-quest" key={quest.id}><div className="gx-quest-head"><span className={`gx-dot ${quest.status === "completed" ? "done" : quest.status === "failed" ? "fail" : ""}`} /><strong>{quest.title}</strong></div><div className="gx-quest-meta"><span>{quest.status === "completed" ? "Завершено" : quest.status === "failed" ? "Провалено" : quest.isMain ? "Главная цель" : "Побочная цель"}</span><span>{quest.progress}%</span></div><div className="gx-bar"><i style={{ width: `${quest.progress}%` }} /></div></div>)}
           </div>}
@@ -318,8 +342,9 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             <div className="gx-side-title">Известные локации</div>
             <div className="gx-locs">{locations.filter((location) => location.discovered).map((location) => <div key={location.id} className={`gx-loc ${location.current ? "current" : ""}`}><Compass size={16} /><span><strong>{location.name}</strong><small>{location.description}</small>{!location.current && <EntityActions kind="location" refId={location.id} name={location.name} state={interactionState} disabled={actionsDisabled} onPick={pickAction} />}</span>{location.current && <Check size={14} />}</div>)}</div>
             {!!sceneObjects.filter((o) => o.locationName === world.currentLocation).length && <><div className="gx-side-title">Окружение</div>{sceneObjects.filter((object) => object.locationName === world.currentLocation).map((object) => <div className="gx-scene" key={object.id}><div className="gx-scene-head"><strong>{object.name}</strong><span>{object.state}</span></div><p>{object.description}</p><EntityActions kind="object" refId={object.key} name={object.name} state={interactionState} disabled={actionsDisabled} onPick={pickAction} /></div>)}</>}
+            <PresenceStrip world={world} npcs={npcs} />
             <div className="gx-side-title">Знакомые лица</div>
-            {npcs.length ? npcs.map((npc) => <div className="gx-npc" key={npc.id}><span className="gx-npc-avatar"><UserRound size={18} /></span><div><strong>{npc.name}</strong><small>{npc.role || "—"} · {npc.status === "dead" ? "Погиб" : npc.relation > 0 ? "Расположен к вам" : npc.relation < 0 ? "Не доверяет" : "Нейтрален"}</small></div><span className={`gx-npc-rel ${npc.relation > 0 ? "pos" : npc.relation < 0 ? "neg" : ""}`}>{npc.relation > 0 ? "+" : ""}{npc.relation}</span>{npc.status !== "dead" && <div className="lx-npc-actions"><EntityActions kind="npc" refId={npc.key} name={npc.name} state={interactionState} disabled={actionsDisabled} onPick={pickAction} /></div>}</div>) : <p className="gx-side-hint">Новые знакомства ещё впереди.</p>}
+            {npcs.length ? npcs.map((npc) => <div className="gx-npc" key={npc.id}><span className="gx-npc-avatar"><UserRound size={18} /></span><div><strong>{npc.name}</strong><small>{npc.role || "—"} · {npc.status === "dead" ? "Погиб" : npc.relation > 0 ? "Расположен к вам" : npc.relation < 0 ? "Не доверяет" : "Нейтрален"}</small></div><span className={`gx-npc-rel ${npc.relation > 0 ? "pos" : npc.relation < 0 ? "neg" : ""}`}>{npc.relation > 0 ? "+" : ""}{npc.relation}</span>{npc.status !== "dead" && <div className="lx-npc-actions"><EntityActions kind="npc" refId={npc.key} name={npc.name} state={interactionState} disabled={actionsDisabled} onPick={pickAction} /></div>}<NpcBondDetails world={world} npcKey={npc.key} /></div>) : <p className="gx-side-hint">Новые знакомства ещё впереди.</p>}
           </div>}
           {sideTab === "life" && <LifePanel sessionId={sessionId} world={world} canEdit={isOwner} disabled={actionsDisabled} interactionState={interactionState} onPick={pickAction} onSaved={() => { void reload().catch(() => {}); }} />}
           {sideTab === "visuals" && <VisualGallery sessionId={sessionId} isOwner={isOwner} npcs={npcs.filter((npc) => npc.status !== "dead").map((npc) => ({ key: npc.key, name: npc.name }))} currentLocationId={locations.find((location) => location.current)?.id ?? null} lastTurn={session.turnCount} />}
