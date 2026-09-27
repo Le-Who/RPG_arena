@@ -98,6 +98,8 @@ async function fixture() {
       typesafe_key text NOT NULL DEFAULT '',
       narrative_guard_provider text NOT NULL DEFAULT 'openrouter',
       narrative_guard_key text NOT NULL DEFAULT '',
+      openrouter_key text NOT NULL DEFAULT '',
+      pollinations_key text NOT NULL DEFAULT '',
       updated_at timestamp NOT NULL DEFAULT now()
     )
   `);
@@ -113,6 +115,19 @@ async function runRotation(pg: PGlite, mode: SecretRotationMode, allowPlaintext 
     query: (text, params) => pg.query(text, params),
   });
 }
+
+test("rotation includes narrator provider keys and preserves their owner binding", async () => {
+  const pg = await fixture();
+  try {
+    await pg.query("INSERT INTO ai_settings(id,openrouter_key,pollinations_key) VALUES ('owner-a','legacy-openrouter','legacy-pollinations')");
+    const report = await runRotation(pg, "apply", true);
+    assert.equal(report.credentials, 2);
+    assert.equal(report.updatedProfiles, 1);
+    const row = (await pg.query<{ openrouter_key: string; pollinations_key: string }>("SELECT openrouter_key,pollinations_key FROM ai_settings WHERE id='owner-a'")).rows[0];
+    assert.equal(openSecret(row.openrouter_key, secretContext("owner-a", "text:openrouter"), { keyring: ring }), "legacy-openrouter");
+    assert.equal(openSecret(row.pollinations_key, secretContext("owner-a", "text:pollinations"), { keyring: ring }), "legacy-pollinations");
+  } finally { await pg.close(); }
+});
 
 test("rotation check and dry-run are read-only while apply reseals bounded fixtures", async () => {
   const pg = await fixture();

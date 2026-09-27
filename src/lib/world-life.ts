@@ -533,7 +533,7 @@ ${interactionDirective}
 // ─────────────────────────────────────────────────────────────
 //  NARR-9b (2.9): явное продолжение после завершённой арки
 // ─────────────────────────────────────────────────────────────
-const MAX_ARCS = 12;
+const MAX_ARCS = 32;
 
 export function readArcHistory(world: WorldState): ArcRecord[] {
   const raw = (world as WorldState & { arcHistory?: unknown }).arcHistory;

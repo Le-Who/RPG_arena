@@ -15,6 +15,19 @@ const applied = (patch: Partial<AppliedChanges> = {}): AppliedChanges => ({
   conditions: { added: [], removed: [] }, rejected: [], ...patch,
 });
 
+test("arc archive retains the latest 32 summaries without mutating prior world", () => {
+  const records = Array.from({ length: 32 }, (_, i) => ({ goal: `Арка ${i}`, stakes: "", conflict: "", endCondition: "", epilogue: "Итог", resolvedTurn: i + 1, closedTurn: i + 1, closedAt: { day: 1, minute: i } }));
+  const previous = { ...resolved, arcHistory: records };
+  const before = structuredClone(previous);
+  const result = continueStory(previous, { continueAs: "open-life" }, 41);
+  assert.ok(result.ok);
+  const archive = readArcHistory(result.world);
+  assert.equal(archive.length, 32);
+  assert.equal(archive[0].goal, "Арка 1");
+  assert.equal(archive.at(-1)?.goal, "Найти брата");
+  assert.deepEqual(previous, before);
+});
+
 test("NARR-9b: continuing after a resolved arc keeps it as canon and starts the chosen shape", () => {
   assert.equal(continueStory(world(), { continueAs: "open-life" }, 41).ok, false, "an ongoing arc cannot be continued");
   assert.equal(continueStory(resolved, { continueAs: "epic" }, 41).ok, false);

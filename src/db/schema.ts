@@ -438,6 +438,11 @@ export const sceneObjects = pgTable(
 export const aiSettings = pgTable("ai_settings", {
   id: text("id").primaryKey(), // authenticated profile identifier; legacy 'global' is quarantined
   keys: jsonb("keys").$type<string[]>().default([]),
+  textProvider: text("text_provider").notNull().default("gemini"),
+  textModel: text("text_model").notNull().default(""),
+  openrouterKey: text("openrouter_key").notNull().default(""),
+  pollinationsKey: text("pollinations_key").notNull().default(""),
+  pollinationsKeyExpiresAt: timestamp("pollinations_key_expires_at", { withTimezone: true }),
   routingProfile: text("routing_profile").notNull().default("balanced"),
   narrationModel: text("narration_model").notNull().default("gemini-3.5-flash-lite"),
   customActionModel: text("custom_action_model").notNull().default("gemini-3.8-flash"),

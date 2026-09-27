@@ -23,7 +23,7 @@ export function CommandPalette({ onClose, suspended = false }: { onClose: () => 
     return [
       ...playCommands.map(command => ({ ...command, detail: "Текущая кампания", icon: BookOpen, run: () => { onClose(); requestAnimationFrame(command.run); } })),
       { id: "new", label: "Новая история", detail: "Выбрать мир и героя", keywords: "создать кампания", icon: Plus, run: () => newStory() },
-      { id: "free", label: "Создать свой мир", detail: "Мир можно сохранить без ключа; для ходов нужен Gemini", icon: Sparkles, run: () => newStory(undefined, "free") },
+      { id: "free", label: "Создать свой мир", detail: "Мир можно сохранить без ключа; для ходов нужен живой рассказчик", icon: Sparkles, run: () => newStory(undefined, "free") },
       ...sessions.filter(s => s.status === "active").map(s => ({ id: `session:${s.id}`, label: s.title, detail: `Кампания · ${s.character.name} · ход ${s.turnCount}`, keywords: s.character.archetype, icon: BookOpen, run: go(`/play/${s.id}`) })),
       ...([{ href: "/", label: "Обзор", icon: LayoutGrid }, { href: "/campaigns", label: "Мои кампании", icon: BookOpen }, { href: "/worlds", label: "Библиотека миров", icon: Globe2 }, { href: "/characters", label: "Персонажи", icon: UsersRound }, { href: "/memory", label: "Память мира", icon: BrainCircuit }, { href: "/journal", label: "Журнал приключений", icon: Feather }, { href: "/system", label: "Пульс движка", icon: Activity }].filter(item => item.href !== "/system" || administration).map(item => ({ id: item.href, label: item.label, detail: "Перейти в раздел", icon: item.icon, run: go(item.href) }))),
       { id: "settings", label: "Настройки", detail: "AI-мастер, ключи и комфорт чтения", icon: Settings2, run: () => { onClose(); openSettings(); } },

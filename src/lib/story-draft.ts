@@ -226,13 +226,13 @@ export type StoryDraftLog = {
   keyIndex: number;
 };
 
-type StoryDraftAIConfig = { keys: string[]; canUseLive: boolean };
+type StoryDraftAIConfig = { keys: string[]; canUseLive: boolean; textProvider?: "gemini" | "openrouter" | "pollinations"; textApiKey?: string };
 
 export type StoryDraftServiceDeps<TConfig extends StoryDraftAIConfig = StoryDraftAIConfig> = {
   loadConfig: () => Promise<TConfig>;
   selectModels: (config: TConfig) => Promise<string[]>;
   beforeAttempt?: (config: TConfig, model: string) => Promise<boolean>;
-  generate: (call: StoryDraftGenerationCall) => Promise<GenerationResult>;
+  generate: (call: StoryDraftGenerationCall, config: TConfig) => Promise<GenerationResult>;
   log: (row: StoryDraftLog) => Promise<void>;
   now?: () => number;
 };
@@ -249,10 +249,10 @@ function parsePatch(text: string, draft: StoryDraft): StoryDraftPatch {
   return filterStoryDraftPatch(draft, objectValue(parsed));
 }
 
-async function logSuccessfulGeneration(deps: Pick<StoryDraftServiceDeps, "log">, response: GenerationResult) {
+async function logSuccessfulGeneration(deps: Pick<StoryDraftServiceDeps, "log">, response: GenerationResult, provider?: StoryDraftAIConfig["textProvider"]) {
   await deps.log({
     sessionId: null,
-    model: response.model,
+    model: provider && provider !== "gemini" ? `${provider}:${response.model}` : response.model,
     taskType: "creation",
     promptTokens: response.promptTokens,
     completionTokens: response.completionTokens,
@@ -273,8 +273,8 @@ export function createStoryDraftAutofillService<TConfig extends StoryDraftAIConf
 
     const config = await deps.loadConfig();
     signal?.throwIfAborted();
-    if (!config.keys.length || !config.canUseLive) {
-      throw new StoryDraftError("AI_REQUIRED", "Для автозаполнения подключите и включите Gemini в настройках.");
+    if (!config.canUseLive || (!(config.textProvider && config.textProvider !== "gemini") && !config.keys.length) || (config.textProvider && config.textProvider !== "gemini" && !config.textApiKey)) {
+      throw new StoryDraftError("AI_REQUIRED", "Для автозаполнения подключите и включите рассказчика в настройках.");
     }
     const basePrompt = promptFor(draft, missing);
     let system = basePrompt.system;
@@ -283,13 +283,13 @@ export function createStoryDraftAutofillService<TConfig extends StoryDraftAIConf
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       signal?.throwIfAborted();
-      if (deadline - now() <= 0) throw new StoryDraftError("AI_FAILED", "Gemini не успел заполнить черновик за 30 секунд.", 504);
+      if (deadline - now() <= 0) throw new StoryDraftError("AI_FAILED", "Рассказчик не успел заполнить черновик за 30 секунд.", 504);
       const selected = await deps.selectModels(config);
       signal?.throwIfAborted();
-      const models = selected.filter((model) => model === "gemini-3.5-flash-lite");
-      if (!models.length) throw new StoryDraftError("AI_FAILED", "Лимит Gemini 3.5 Flash Lite на сегодня исчерпан.", 429);
+      const models = config.textProvider && config.textProvider !== "gemini" ? selected : selected.filter((model) => model === "gemini-3.5-flash-lite");
+      if (!models.length) throw new StoryDraftError("AI_FAILED", "Лимит выбранной модели на сегодня исчерпан.", 429);
       const remaining = deadline - now();
-      if (remaining <= 0) throw new StoryDraftError("AI_FAILED", "Gemini не успел заполнить черновик за 30 секунд.", 504);
+      if (remaining <= 0) throw new StoryDraftError("AI_FAILED", "Рассказчик не успел заполнить черновик за 30 секунд.", 504);
       let response: GenerationResult;
       try {
         response = await deps.generate({
@@ -305,19 +305,19 @@ export function createStoryDraftAutofillService<TConfig extends StoryDraftAIConf
           signal,
           onAttempt: async (info) => {
             if (info.ok) return;
-            await deps.log({ sessionId: null, model: info.model, taskType: "creation", promptTokens: 0, completionTokens: 0, latencyMs: info.latencyMs, success: false, error: info.error, keyIndex: info.keyIndex });
+            await deps.log({ sessionId: null, model: config.textProvider && config.textProvider !== "gemini" ? `${config.textProvider}:${info.model}` : info.model, taskType: "creation", promptTokens: 0, completionTokens: 0, latencyMs: info.latencyMs, success: false, error: info.error, keyIndex: info.keyIndex });
           },
-        });
+        }, config);
       } catch (error) {
         if (error instanceof QuotaAdmissionError) {
-          if (error.code === "QUOTA_EXHAUSTED") throw new StoryDraftError(error.code, "Лимит Gemini 3.5 Flash Lite на сегодня исчерпан.", 429);
+          if (error.code === "QUOTA_EXHAUSTED") throw new StoryDraftError(error.code, "Лимит выбранной модели на сегодня исчерпан.", 429);
           if (error.code === "QUOTA_UNAVAILABLE") throw new StoryDraftError(error.code, "Проверка дневного лимита сейчас недоступна. Попробуйте позже.", 503);
           throw new StoryDraftError(error.code, "Проверка дневного лимита не завершилась вовремя.", 504);
         }
         const timedOut = error instanceof Error && /timeout|deadline|abort/i.test(`${error.name} ${error.message}`);
-        throw new StoryDraftError("AI_FAILED", timedOut ? "Gemini не ответил за 30 секунд." : "Gemini сейчас недоступен. Попробуйте ещё раз.", timedOut ? 504 : 502);
+        throw new StoryDraftError("AI_FAILED", timedOut ? "Рассказчик не ответил за 30 секунд." : "Провайдер рассказчика сейчас недоступен. Попробуйте ещё раз.", timedOut ? 504 : 502);
       }
-      await logSuccessfulGeneration(deps, response);
+      await logSuccessfulGeneration(deps, response, config.textProvider);
       try {
         return { patch: parsePatch(response.text, draft), modelUsed: response.model };
       } catch (error) {
@@ -327,7 +327,7 @@ export function createStoryDraftAutofillService<TConfig extends StoryDraftAIConf
         user = `Черновик пользователя:\n${basePrompt.user}\n\nНевалидный ответ:\n${response.text}\n\nОшибка проверки: ${lastValidationError}`;
       }
     }
-    throw new StoryDraftError("AI_FAILED", `Gemini дважды вернул невалидный ответ: ${lastValidationError.slice(0, 160)}`);
+    throw new StoryDraftError("AI_FAILED", `Рассказчик дважды вернул невалидный ответ: ${lastValidationError.slice(0, 160)}`);
   };
 }
 

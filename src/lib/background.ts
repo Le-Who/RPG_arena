@@ -24,12 +24,15 @@ export async function runMemoryCycle(opts: { sessionId?: string; ownerId?: strin
       const [next] = await db.select({ id: gameSessions.id, ownerId: gameSessions.ownerId }).from(gameSessions)
         .innerJoin(aiSettings, eq(aiSettings.id, gameSessions.ownerId))
         .where(and(ownerId ? eq(gameSessions.ownerId, ownerId) : undefined,
-          sql`jsonb_array_length(coalesce(${aiSettings.keys}, '[]'::jsonb)) > 0`,
           sql`(
-            (${aiSettings.useLiveAI} and ${aiSettings.semanticExtractionEnabled} and exists (
+            (${aiSettings.useLiveAI} and ${aiSettings.semanticExtractionEnabled} and (
+              (${aiSettings.textProvider} = 'gemini' and jsonb_array_length(coalesce(${aiSettings.keys}, '[]'::jsonb)) > 0) or
+              (${aiSettings.textProvider} = 'openrouter' and ${aiSettings.openrouterKey} <> '') or
+              (${aiSettings.textProvider} = 'pollinations' and ${aiSettings.pollinationsKey} <> '' and (${aiSettings.pollinationsKeyExpiresAt} is null or ${aiSettings.pollinationsKeyExpiresAt} > now()))
+            ) and exists (
               select 1 from memory_jobs j where j.session_id = ${gameSessions.id} and
               ((j.status = 'pending' and j.next_attempt_at <= now()) or (j.status = 'processing' and j.lease_expires_at <= now()))
-            )) or (${aiSettings.embeddingsEnabled} and exists (
+            )) or (${aiSettings.embeddingsEnabled} and jsonb_array_length(coalesce(${aiSettings.keys}, '[]'::jsonb)) > 0 and exists (
               select 1 from memory_embeddings e where e.session_id = ${gameSessions.id} and e.model = ${aiSettings.embeddingModel} and e.dims = ${aiSettings.embeddingDims} and
               ((e.status = 'pending' and e.next_attempt_at <= now()) or (e.status = 'processing' and e.lease_expires_at <= now()))
             ))
@@ -52,12 +55,12 @@ export async function runMemoryCycle(opts: { sessionId?: string; ownerId?: strin
     const campaignId = sessionId;
     return await withCampaignOwnerWork(campaignId, ownerId, async () => {
     const cfg = await getAIConfig(ownerId);
-    report.paused = !cfg.keys.length || (!cfg.embeddingsEnabled && (!cfg.canUseLive || !cfg.semanticExtractionEnabled));
+    report.paused = !(cfg.keys.length && cfg.embeddingsEnabled) && !(cfg.canUseLive && cfg.semanticExtractionEnabled);
     await workerHeartbeat(source, report.paused ? "paused" : "running", undefined, ownerId);
     if (!report.paused) {
       const semantic = await processSemanticJob({ sessionId: campaignId, cfg });
       report.extracted = semantic.extracted; report.failed = semantic.failed; report.processed = semantic.processed;
-      if (cfg.embeddingsEnabled) {
+      if (cfg.embeddingsEnabled && cfg.keys.length) {
         const [next] = await db.select({ sessionId: memoryEmbeddings.sessionId }).from(memoryEmbeddings).where(and(
           eq(memoryEmbeddings.sessionId, campaignId),
           eq(memoryEmbeddings.model, cfg.embeddingModel), eq(memoryEmbeddings.dims, cfg.embeddingDims),

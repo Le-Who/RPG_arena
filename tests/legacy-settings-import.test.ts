@@ -15,6 +15,19 @@ const ring: SecretKeyring = {
   keys: { "import-v1": Buffer.alloc(32, 13).toString("base64") },
 };
 
+test("external narrator credentials count as owned secrets and are rebound on profile import", () => {
+  assert.equal(hasStoredSettingsCredentials({ openrouterKey: "stored" }), true);
+  assert.equal(hasStoredSettingsCredentials({ pollinationsKey: "stored" }), true);
+  const source = {
+    id: "global", keys: [], typesafeKey: "", narrativeGuardProvider: "openrouter", narrativeGuardKey: "",
+    openrouterKey: sealSecret("router", secretContext("global", "text:openrouter"), ring),
+    pollinationsKey: sealSecret("pollen", secretContext("global", "text:pollinations"), ring),
+  };
+  const rebound = rebindSettingsSecrets(source, "owner-a", { keyring: ring });
+  assert.equal(openSecret(rebound.openrouterKey!, secretContext("owner-a", "text:openrouter"), { keyring: ring }), "router");
+  assert.equal(openSecret(rebound.pollinationsKey!, secretContext("owner-a", "text:pollinations"), { keyring: ring }), "pollen");
+});
+
 test("legacy settings credentials are decrypted under the source owner and resealed for the target owner", () => {
   const source = {
     id: "global",

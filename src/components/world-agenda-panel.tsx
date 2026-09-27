@@ -56,7 +56,7 @@ export function NarratorSection({ sessionId, world, canEdit, disabled, onSaved }
       {select("initiative", "Инициатива мира")}
       {select("realism", "Реализм")}
       {select("tension", "Накал")}
-      <label>Чего в истории быть не должно (по строке)<textarea rows={3} value={draft.boundaries.join("\n")} onChange={(e) => setDraft({ ...draft, boundaries: e.target.value.split("\n").slice(0, 6) })} placeholder="например: насилие над животными, смерть героя" /></label>
+      <label>Чего в истории быть не должно — каждый пункт с новой строки<textarea rows={3} value={draft.boundaries.join("\n")} onChange={(e) => setDraft({ ...draft, boundaries: e.target.value.split("\n").slice(0, 6) })} placeholder={"Насилие над животными\nСмерть героя"} /></label>
       <label>Заметка рассказчику<input value={draft.note} maxLength={400} onChange={(e) => setDraft({ ...draft, note: e.target.value })} placeholder="стиль, ракурс, акценты" /></label>
       {error && <p className="lx-error" role="alert">{error}</p>}
       <div className="lx-row"><button type="submit" className="button primary" disabled={saving}><Save size={14} />Сохранить</button><button type="button" className="button secondary" onClick={() => setEditing(false)}><X size={14} />Отмена</button></div>

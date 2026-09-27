@@ -113,6 +113,13 @@
       "when": 1790000000011,
       "tag": "0015_visual_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790000000012,
+      "tag": "0016_text_provider_settings",
+      "breakpoints": true
     }
   ]
 }

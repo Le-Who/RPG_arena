@@ -45,7 +45,7 @@ async function handleGET() {
     const [generationAttempts, embeddingAttempts] = await Promise.all([quotaUsage(ownerId), quotaUsage(ownerId, "embedding")]);
     const perFlashModel: Record<string, { used: number; cap: number }> = {};
     for (const id of ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]) perFlashModel[id] = { used: generationAttempts[id] ?? 0, cap: cfg.limits.flash * keyCount };
-    const liteReq = Object.entries(generationAttempts).filter(([k]) => k.includes("lite")).reduce((a, [, v]) => a + v, 0);
+    const liteReq = Object.entries(generationAttempts).filter(([k]) => k.startsWith("gemini-") && k.includes("lite")).reduce((a, [, v]) => a + v, 0);
     const flashReq = Object.values(perFlashModel).reduce((a, v) => a + v.used, 0);
     const embeddingReq = Object.values(embeddingAttempts).reduce((a, v) => a + v, 0);
     return NextResponse.json({
@@ -53,6 +53,8 @@ async function handleGET() {
       quotas: {
         day, timezone, keysSharedProject: cfg.keysSharedProject !== false,
         generationAttempts, embeddingAttempts,
+        textProvider: cfg.textProvider ?? "gemini",
+        externalModelCap: cfg.limits.flash,
         embeddingCap: quotaCap(cfg, "embedding", cfg.embeddingModel),
         dailyEmbeddingLimit: cfg.dailyEmbeddingLimit ?? 5000,
         flashPerModel: cfg.limits.flash,
@@ -62,7 +64,7 @@ async function handleGET() {
         flashModels: ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"],
         note: cfg.enforceLimits
           ? `Локальный бюджет попыток HTTP на модель за день (${timezone}). ${cfg.keysSharedProject === false ? "Независимые проекты заявлены пользователем; бюджет умножен на число ключей." : "Все ключи делят один бюджет."} Один пакет эмбеддингов — одна попытка. Это не лимит расходов, RPM или TPM; квоты провайдера независимы.`
-          : "Лимиты только отображаются (enforceLimits выключен). Фактические квоты определяет Gemini.",
+          : "Лимиты только отображаются (enforceLimits выключен). Фактические квоты и оплату определяет выбранный провайдер.",
       },
       recent,
     });

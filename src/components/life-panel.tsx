@@ -29,6 +29,7 @@ export function LifePanel({ sessionId, world, canEdit, disabled, interactionStat
   };
   const shape = life.story;
   return <div className="gx-side-section lx-life">
+    <NarratorSection sessionId={sessionId} world={world} canEdit={canEdit} disabled={disabled} onSaved={onSaved} />
     <div className="lx-clock"><Clock3 size={20} aria-hidden="true" /><div><small>Время мира</small><strong>{formatClock(life.clock)}</strong></div></div>
     <div className="lx-wait" role="group" aria-label="Подождать">
       <Hourglass size={13} aria-hidden="true" />
@@ -60,7 +61,7 @@ export function LifePanel({ sessionId, world, canEdit, disabled, interactionStat
         <label>Ставки<input value={draft.stakes} maxLength={240} onChange={(e) => setDraft({ ...draft, stakes: e.target.value })} placeholder="Что будет потеряно при неудаче" /></label>
         <label>Конфликт<input value={draft.conflict} maxLength={240} onChange={(e) => setDraft({ ...draft, conflict: e.target.value })} /></label>
         <label>Условие завершения<input value={draft.endCondition} maxLength={240} onChange={(e) => setDraft({ ...draft, endCondition: e.target.value })} placeholder="Когда арка считается законченной" /></label>
-      </> : <label>Текущие дела и намерения (по строке)<textarea rows={3} value={draft.focus.join("\n")} onChange={(e) => setDraft({ ...draft, focus: e.target.value.split("\n").slice(0, 6) })} /></label>}
+      </> : <label>Текущие дела и намерения — каждое с новой строки<textarea rows={3} value={draft.focus.join("\n")} onChange={(e) => setDraft({ ...draft, focus: e.target.value.split("\n").slice(0, 6) })} /></label>}
       {error && <p className="lx-error" role="alert">{error}</p>}
       <div className="lx-row"><button type="submit" className="button primary" disabled={saving}><Save size={14} />Сохранить</button><button type="button" className="button secondary" onClick={() => setEditing(false)}><X size={14} />Отмена</button></div>
     </form>}
@@ -84,6 +85,5 @@ export function LifePanel({ sessionId, world, canEdit, disabled, interactionStat
       {h.holderKind === "location" && <EntityActions kind="holding" refId={`${h.holderKey}:${h.name}`} name={h.name} state={interactionState} disabled={disabled} onPick={onPick} />}
     </div>) : <p className="gx-side-hint">Переданные и оставленные вещи сохраняют владельца и место — их можно будет вернуть по сюжету.</p>}
 
-    <NarratorSection sessionId={sessionId} world={world} canEdit={canEdit} disabled={disabled} onSaved={onSaved} />
   </div>;
 }

@@ -1,6 +1,6 @@
 # Memory worker — эксплуатация v2.7
 
-Сверено с рабочим кодом 26 сентября 2026 (v2.7). Worker появился в v2.2; эта инструкция описывает текущую интеграцию и ledger до миграции `0015`. [README](../README.md) · [Roadmap](superpowers/plans/roadmap.md).
+Сверено с рабочим кодом 26 сентября 2026 (v2.7). Worker появился в v2.2; эта инструкция описывает текущую интеграцию и ledger до миграции `0016`. [README](../README.md) · [Roadmap](superpowers/plans/roadmap.md).
 
 ## Назначение
 
@@ -9,8 +9,8 @@
 ## Подготовка
 
 1. Из корня проекта выполнить версионированные миграции `npm run migrate` (Node.js 24, PostgreSQL, настроенный `.env`).
-2. Передать DATABASE_URL и тот же CHRONICLE_SECRET_ACTIVE_KEY/CHRONICLE_SECRET_KEYS, что у web. Gemini берётся только из настроек владельца выбранной кампании, без fallback к GEMINI_API_KEYS/GEMINI_API_KEY. Не публиковать ключи в логах или NEXT_PUBLIC-переменных.
-3. В настройках включить нужные функции. Для semantic extraction нужны Live + extraction; для embeddings — ключ и embeddingsEnabled.
+2. Передать DATABASE_URL и тот же CHRONICLE_SECRET_ACTIVE_KEY/CHRONICLE_SECRET_KEYS, что у web. Текстовый провайдер (Gemini/OpenRouter/Pollinations) берётся из настроек владельца; для embeddings нужны его прямые Gemini-ключи. Нет fallback к GEMINI_API_KEYS/GEMINI_API_KEY или ключу изображений. См. [подключение рассказчика](text-providers-operations.md). Не публиковать ключи в логах или NEXT_PUBLIC-переменных.
+3. В настройках включить нужные функции. Для semantic extraction нужны Live + extraction и действующее подключение выбранного рассказчика; для embeddings — прямой Gemini-ключ и embeddingsEnabled.
 4. Проверить один проход: `npm run worker -- --once`.
 5. Запустить `npm run worker` под supervisor/systemd/контейнерным оркестратором, с restart policy и отдельным пользователем без избыточных прав. Рабочая директория — корень проекта; `.env` и база должны соответствовать веб-приложению. Шаблоны Docker/systemd находятся в [руководстве развёртывания](deployment-operations.md); сервисы автоматически не устанавливались.
 

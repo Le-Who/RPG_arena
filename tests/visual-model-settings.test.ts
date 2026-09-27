@@ -29,7 +29,7 @@ test("visual model selection has one durable row in the append-only migration le
   const client = { query: async (sql: string, values?: unknown[]) => values ? pg.query(sql, values) : (await pg.exec(sql)).at(-1)! };
   try {
     const migrations = readMigrationFiles({ migrationsFolder: "./drizzle" });
-    assert.equal(migrations.at(-1)?.folderMillis, 1790000000011);
+    assert.equal(migrations[15]?.folderMillis, 1790000000011);
     await applyMigrations(client, migrations);
     await pg.query("INSERT INTO visual_settings(id, model) VALUES (1, 'vendor/fast-image')");
     await assert.rejects(pg.query("INSERT INTO visual_settings(id, model) VALUES (2, 'vendor/other')"), /check constraint/i);

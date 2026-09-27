@@ -107,16 +107,16 @@ const world = object({
   npcBonds: optional(array(object({
     key: nonempty(80), name: text(80), updatedTurn: integer(),
     history: array(object({ turn: integer(), kind: choice("met", "relation", "gift", "promise", "meeting", "missed", "knowledge"), text: text(240), delta: number(-100, 100), at: nullable(worldClock) }), 12),
-    knows: array(object({ text: text(240), turn: integer() }), 12),
+    knows: array(object({ text: text(240), turn: integer(), source: optional(choice("scene", "owner")) }), 12),
   }), 60)),
   npcSchedules: optional(array(object({
     id: nonempty(40), npcKey: nonempty(80), npcName: text(80), place: nonempty(160), from: integer(0, 1439), to: integer(0, 1439),
-    repeat: choice("daily", "once"), day: nullable(integer(1, 1_000_000)), note: text(240), createdTurn: integer(),
+    repeat: choice("daily", "once"), day: nullable(integer(1, 1_000_000)), note: text(240), createdTurn: integer(), source: optional(choice("scene", "owner")),
   }), 60)),
   arcHistory: optional(array(object({
     goal: text(1000), stakes: text(1000), conflict: text(1000), endCondition: text(1000), epilogue: text(3000),
     resolvedTurn: integer(), closedTurn: integer(), closedAt: worldClock,
-  }), 20)),
+  }), 32)),
 });
 const session = object({
   id: uuid, title: nonempty(80), scenarioId: text(200), scenarioTitle: text(500), scenarioPrompt: text(),

@@ -73,6 +73,24 @@ const completeGeneratedDraft = {
   startItems: ["медный секстант", "карта без северного края"],
 };
 
+test("external narrator fills a draft without Gemini credentials or a Gemini-only model filter", async () => {
+  const config = { keys: [] as string[], canUseLive: true, textProvider: "openrouter" as const, textApiKey: "synthetic-key" };
+  let seen = false;
+  const service = createStoryDraftAutofillService({
+    loadConfig: async () => config,
+    selectModels: async () => ["provider/story-model"],
+    generate: async call => {
+      seen = true;
+      assert.deepEqual(call.models, ["provider/story-model"]);
+      return { text: JSON.stringify(completeGeneratedDraft), model: call.models[0], keyIndex: 0, latencyMs: 1, promptTokens: 1, completionTokens: 2 };
+    },
+    log: async () => {},
+  });
+  const result = await service(blankDraft());
+  assert.equal(seen, true);
+  assert.equal(result.patch.title, completeGeneratedDraft.title);
+});
+
 test("draft validation rejects oversized user input instead of truncating it", () => {
   assert.throws(
     () => validateStoryDraft(blankDraft({ title: "я".repeat(81) })),

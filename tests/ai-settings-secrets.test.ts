@@ -1,6 +1,7 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
+import { readFile } from "node:fs/promises";
 import { sealSecret, secretContext, type SecretKeyring } from "../src/lib/secret-vault";
 
 test("getAIConfig decodes Gemini keys without opening unrelated credentials", async () => {
@@ -22,6 +23,7 @@ test("getAIConfig decodes Gemini keys without opening unrelated credentials", as
     typesafe_pilot_enabled boolean NOT NULL DEFAULT false, narrative_guard_enabled boolean NOT NULL DEFAULT true,
     narrative_guard_provider text NOT NULL DEFAULT 'openrouter', narrative_guard_key text NOT NULL DEFAULT '', updated_at timestamp NOT NULL DEFAULT now()
   )`);
+  await pg.exec(await readFile(new URL("../drizzle/0016_text_provider_settings.sql", import.meta.url), "utf8"));
   await pg.query("INSERT INTO ai_settings(id,keys,use_live_ai,typesafe_key,narrative_guard_key) VALUES ($1,$2::jsonb,true,$3,$4)", [
     "owner-a",
     JSON.stringify([sealSecret("gemini-live-key", secretContext("owner-a", "gemini"), ring)]),

@@ -54,3 +54,22 @@ export function ArcFinale({ sessionId, world, turnCount, canEdit, disabled, onSa
     <small className="ax-note"><BookOpen size={12} aria-hidden="true" /> Завершённая арка остаётся каноном: ходы, память и связи сохраняются, рассказчик видит её итог.</small>
   </section>;
 }
+
+/** NARR-13: летопись последних завершённых арок; ссылки ведут к ходу финала, недогруженные ходы подгружаются. */
+export function ArcChronicle({ world }: { world: WorldState }) {
+  const arcs = readArcHistory(world);
+  if (!arcs.length) return null;
+  return <details className="ax-chronicle">
+    <summary><Flag size={13} aria-hidden="true" /> Летопись арок · {arcs.length}</summary>
+    <p className="ax-chronicle-note">Сохраняются последние 32 завершённые арки. Более ранние события остаются в ходах истории.</p>
+    <ol className="ax-chronicle-list">
+      {arcs.map((arc, index) => <li key={`${arc.closedTurn}-${index}`}>
+        <div className="ax-chronicle-head"><strong>{arc.goal || "без названной цели"}</strong>
+          <a href={`#turn-${Math.max(1, arc.resolvedTurn)}`} aria-label={`Перейти к ходу ${Math.max(1, arc.resolvedTurn)}, где завершилась арка`}>финал · ход {Math.max(1, arc.resolvedTurn)}</a></div>
+        {(arc.stakes || arc.conflict) && <small>{[arc.stakes, arc.conflict].filter(Boolean).join(" · ")}</small>}
+        {arc.epilogue && <p className="ax-epilogue">{arc.epilogue}</p>}
+        <small className="ax-chronicle-meta">Закрыта на ходу {arc.closedTurn}, день мира {arc.closedAt.day}</small>
+      </li>)}
+    </ol>
+  </details>;
+}
