@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { agreementEvents } from "@/db/schema";
 import { loadAgreementHistory } from "./narrative-agreements";
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { aiSettings, campaignImports, gameSessions, gameTurns, inventoryItems, memoryEmbeddings, memoryLinks, memoryNodes, npcs, quests, sceneObjects, worldLocations } from "@/db/schema";
 import type { CheckpointSnapshot } from "./checkpoint-types";
@@ -15,6 +15,9 @@ import { parsePortableDocument, portableFingerprint } from "./campaign-portable"
 
 const chunk = <T>(rows: T[], size = 100): T[][] => Array.from({ length: Math.ceil(rows.length / size) }, (_, i) => rows.slice(i * size, (i + 1) * size));
 const plain = <T>(value: unknown): T => JSON.parse(JSON.stringify(value)) as T;
+export const IMPORT_MAX_ACTIVE = 10;
+export const IMPORT_MAX_PER_DAY = 20;
+const IMPORT_TOMBSTONE_DAYS = 30;
 
 /** Caller owns the transaction: a repeatable-read export or a locked copy. */
 export async function readCampaignSnapshot(tx: DbTransaction, source: typeof gameSessions.$inferSelect): Promise<CheckpointSnapshot> {
@@ -51,7 +54,7 @@ async function insertCampaignSnapshot(tx: DbTransaction, copy: CheckpointSnapsho
   for (const rows of chunk(copy.npcs.map(row => ({ ...row, createdAt: new Date(row.createdAt) })))) await tx.insert(npcs).values(rows);
   for (const rows of chunk(copy.sceneObjects.map(row => ({ ...row, createdAt: new Date(row.createdAt) })))) await tx.insert(sceneObjects).values(rows);
   for (const rows of chunk(copy.turns.map(row => ({ ...row, requestId: null, createdAt: new Date(row.createdAt) })))) await tx.insert(gameTurns).values(rows);
-  for (const revision of [...(copy.agreements ?? [])].sort((a, b) => a.turnNumber - b.turnNumber || a.version - b.version)) await tx.insert(agreementEvents).values(revision);
+  for (const rows of chunk([...(copy.agreements ?? [])].sort((a, b) => a.turnNumber - b.turnNumber || a.version - b.version))) await tx.insert(agreementEvents).values(rows);
   for (const rows of chunk(copy.memories.map(row => ({ ...row, parentId: null, contentHash: hashContent(row.layer, row.category, row.title, row.content), createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt) })))) await tx.insert(memoryNodes).values(rows);
   for (const memory of copy.memories) if (memory.parentId) await tx.update(memoryNodes).set({ parentId: memory.parentId }).where(and(eq(memoryNodes.id, memory.id), eq(memoryNodes.sessionId, session.id)));
   for (const rows of chunk(copy.links)) await tx.insert(memoryLinks).values(rows);
@@ -95,7 +98,9 @@ export async function importCampaign(input: { profileId: string; requestId: stri
   const title = input.title === undefined ? document.title : requiredText(input.title, "Название кампании");
   const inputHash = portableFingerprint(document, title);
   return db.transaction(async tx => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.profileId}), hashtext(${input.requestId}))`);
+    // A profile-wide lock makes quota admission and insertion one atomic unit and
+    // bounds each profile to one expensive import transaction at a time.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.profileId}), hashtext('campaign-import'))`);
     const [previous] = await tx.select().from(campaignImports).where(and(eq(campaignImports.ownerId, input.profileId), eq(campaignImports.requestId, input.requestId)));
     if (previous) {
       if (previous.inputHash !== inputHash) throw new HttpError(409, "IDEMPOTENCY_CONFLICT", "Этот requestId уже использован для другого файла или названия.");
@@ -104,6 +109,13 @@ export async function importCampaign(input: { profileId: string; requestId: stri
       if (!session) throw new HttpError(410, "IMPORT_DELETED", "Импортированная кампания больше не доступна. Для нового импорта нужен новый requestId.");
       return { session, replay: true };
     }
+    const tombstoneCutoff = new Date(Date.now() - IMPORT_TOMBSTONE_DAYS * 24 * 60 * 60 * 1000);
+    await tx.delete(campaignImports).where(and(eq(campaignImports.ownerId, input.profileId), isNull(campaignImports.campaignId), lt(campaignImports.createdAt, tombstoneCutoff)));
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [active] = await tx.select({ value: count() }).from(campaignImports).where(and(eq(campaignImports.ownerId, input.profileId), isNotNull(campaignImports.campaignId)));
+    const [recent] = await tx.select({ value: count() }).from(campaignImports).where(and(eq(campaignImports.ownerId, input.profileId), gte(campaignImports.createdAt, dayAgo)));
+    if ((recent?.value ?? 0) >= IMPORT_MAX_PER_DAY) throw new HttpError(429, "IMPORT_RATE_LIMIT", `Можно импортировать не более ${IMPORT_MAX_PER_DAY} кампаний за 24 часа.`, { retryAfter: 3600 });
+    if ((active?.value ?? 0) >= IMPORT_MAX_ACTIVE) throw new HttpError(409, "IMPORT_STORAGE_QUOTA", `Можно хранить не более ${IMPORT_MAX_ACTIVE} импортированных кампаний.`);
     const copy = remapSnapshot(document.snapshot, randomUUID());
     assertSnapshot(copy);
     const session = await insertCampaignSnapshot(tx, copy, input.profileId, title);

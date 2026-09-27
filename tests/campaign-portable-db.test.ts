@@ -92,7 +92,13 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     const { POST } = await import("../src/app/api/sessions/import/route");
     const body = JSON.stringify({ requestId: "portable-retry", document, title: "My Harbor" });
     const request = () => new Request("https://game.test/api/sessions/import", { method: "POST", headers: { "content-type": "application/json" }, body });
-    const imported = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(request()));
+    const guestDenied = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(request()));
+    assert.equal(guestDenied.status, 403);
+    assert.equal((await guestDenied.json()).code, "ACCOUNT_REQUIRED");
+    const { auth } = await import("../src/lib/auth");
+    const registered = await auth.register(otherToken, "portable-user", "correct horse battery staple");
+    const accountCookie = `chronicle_guest=${registered.guestToken}; chronicle_session=${registered.sessionToken}`;
+    const imported = await cookieContext(accountCookie, () => POST(request()));
     assert.equal(imported.status, 201);
     const result = await imported.json();
     assert.equal(result.replay, false);
@@ -101,10 +107,10 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     assert.equal(result.session.visibility, "private");
     assert.equal(result.session.status, "active");
     assert.notEqual(result.session.id, source);
-    const replay = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(request()));
+    const replay = await cookieContext(accountCookie, () => POST(request()));
     assert.equal(replay.status, 200);
     assert.equal((await replay.json()).session.id, result.session.id);
-    const conflict = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(new Request("https://game.test/api/sessions/import", {
+    const conflict = await cookieContext(accountCookie, () => POST(new Request("https://game.test/api/sessions/import", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: "portable-retry", document, title: "Other Harbor" }),
     })));
     assert.equal(conflict.status, 409);
@@ -144,7 +150,7 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     invalidDocument.snapshot.turns.find((turn: { turnNumber: number }) => turn.turnNumber === 2).contextMeta.narrativeVerification.evidence.sources[0].sha256 = "0".repeat(64);
     const { snapshotChecksum } = await import("../src/lib/checkpoint-snapshot");
     invalidDocument.checksum = snapshotChecksum(invalidDocument.snapshot);
-    const invalidResponse = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(new Request("https://game.test/api/sessions/import", {
+    const invalidResponse = await cookieContext(accountCookie, () => POST(new Request("https://game.test/api/sessions/import", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ requestId: "invalid-verification", document: invalidDocument, title: "Invalid verification" }),
     })));
@@ -161,7 +167,7 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     assert.equal((await fixture.pg.query<{ status: string; dims: number }>("SELECT status,dims FROM memory_embeddings WHERE session_id=$1", [result.session.id])).rows[0].status, "pending");
     await fixture.pg.query("DELETE FROM game_sessions WHERE id=$1", [result.session.id]);
     await fixture.pg.query("DELETE FROM game_sessions WHERE id=$1", [invalidCampaign]);
-    const deleted = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(request()));
+    const deleted = await cookieContext(accountCookie, () => POST(request()));
     assert.equal(deleted.status, 410);
     assert.equal((await deleted.json()).code, "IMPORT_DELETED");
     assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM game_sessions WHERE owner_id=$1", [other])).rows[0].n), 0);
@@ -181,5 +187,22 @@ test("portable failed import leaves neither target nor ledger", async () => {
     await assert.rejects(() => importCampaign({ profileId: "owner", requestId: "rollback", document }), error => /duplicate|unique/i.test(String((error as Error & { cause?: Error }).cause)));
     assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM game_sessions")).rows[0].n), 0);
     assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM campaign_imports")).rows[0].n), 0);
+  } finally { await fixture.close(); }
+});
+
+test("portable import enforces the profile admission quota before materializing a campaign", async () => {
+  const fixture = await portableDb();
+  try {
+    const owner = "account-import-quota";
+    for (let i = 0; i < 20; i++) {
+      await fixture.pg.query("INSERT INTO campaign_imports(owner_id,request_id,input_hash) VALUES ($1,$2,$3)", [owner, `prior-${i}`, `hash-${i}`]);
+    }
+    const { createPortableDocument } = await import("../src/lib/campaign-portable");
+    const { importCampaign } = await import("../src/lib/campaign-copy");
+    await assert.rejects(
+      () => importCampaign({ profileId: owner, requestId: "over-daily-limit", document: createPortableDocument(portableFixture()) }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "IMPORT_RATE_LIMIT",
+    );
+    assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM game_sessions WHERE owner_id=$1", [owner])).rows[0].n), 0);
   } finally { await fixture.close(); }
 });
