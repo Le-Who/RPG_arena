@@ -38,13 +38,19 @@ test("real auth handlers require origin, issue private cookies, preserve guest o
   } finally { await f.close(); }
 });
 
-test("auth handler rate limit cannot be bypassed by changed logins or untrusted forwarded IPs", async () => {
+test("default auth rate limits cannot globally lock out other logins", async () => {
   const f = await accountsDb();
   try {
     const { POST } = await import("../src/app/api/auth/[action]/route");
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 10; i++) {
       const response = await POST(new Request("https://game.test/api/auth/register", { method: "POST", headers: { origin: "https://game.test", "content-type": "application/json", "x-forwarded-for": `1.2.3.${i}`, cookie: `${GUEST_COOKIE}=${"2".repeat(64)}` }, body: JSON.stringify({ login: `user${i}`, password: "short" }) }), { params: Promise.resolve({ action: "register" }) });
+      assert.equal(response.status, 400);
+    }
+    for (let i = 0; i < 11; i++) {
+      const response = await POST(new Request("https://game.test/api/auth/register", { method: "POST", headers: { origin: "https://game.test", "content-type": "application/json", "x-forwarded-for": `1.2.3.${i}`, cookie: `${GUEST_COOKIE}=${"2".repeat(64)}` }, body: JSON.stringify({ login: "same-user", password: "short" }) }), { params: Promise.resolve({ action: "register" }) });
       assert.equal(response.status, i < 10 ? 400 : 429);
     }
+    const unrelated = await POST(new Request("https://game.test/api/auth/register", { method: "POST", headers: { origin: "https://game.test", "content-type": "application/json", cookie: `${GUEST_COOKIE}=${"2".repeat(64)}` }, body: JSON.stringify({ login: "unrelated", password: "short" }) }), { params: Promise.resolve({ action: "register" }) });
+    assert.equal(unrelated.status, 400);
   } finally { await f.close(); }
 });

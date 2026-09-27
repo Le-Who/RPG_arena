@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { assertAuthOrigin, authRateLimitClient, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth-policy";
+import { assertAuthOrigin, authRateLimitClient, SESSION_COOKIE, SESSION_MAX_AGE, tokenHash } from "@/lib/auth-policy";
 import { GUEST_COOKIE, GUEST_MAX_AGE, newGuestToken } from "@/lib/guest-identity";
 import { HttpError, httpError, readJsonObject } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ action: string }> };
+const unauthenticatedBucket = (value: unknown) => tokenHash(typeof value === "string" ? value.trim().toLowerCase() : JSON.stringify(value) ?? "missing");
 function tokens(request: Request) {
   const cookies = new NextRequest(request.url, { headers: request.headers }).cookies;
   return { guest: cookies.get(GUEST_COOKIE)?.value ?? "", session: cookies.get(SESSION_COOKIE)?.value ?? "" };
@@ -22,11 +23,21 @@ export async function POST(request: Request, context: Context) {
     assertAuthOrigin(request);
     const { action } = await context.params;
     if (!["register", "login", "logout", "logout-all", "password", "adopt-guest"].includes(action)) throw new HttpError(404, "NOT_FOUND", "Не найдено.");
-    // Logout never needs an expensive password check and remains available under throttling.
-    if (action !== "logout") await auth.rateLimit(action, authRateLimitClient(request));
     const body = await readJsonObject(request, 4096);
     let { guest, session } = tokens(request);
     const originalSession = session;
+    // A trusted ingress identity protects all login names for that client. Without one,
+    // scope unauthenticated limits to the requested login instead of one global bucket.
+    if (action === "register" || action === "login") {
+      await auth.rateLimit(action, authRateLimitClient(request) ?? `login:${unauthenticatedBucket(body.login)}`);
+    } else if (action !== "logout") {
+      // Security operations are charged only to the authenticated account. Invalid
+      // callers cannot consume another account's revocation/password-change budget.
+      const identity = await auth.resolve(guest, session);
+      const accountId = identity.account?.id;
+      if (!accountId) throw new HttpError(401, "IDENTITY_REQUIRED", "IDENTITY_REQUIRED: обновите страницу для нового гостевого профиля.");
+      await auth.rateLimit(action, `account:${accountId}`);
+    }
     if (action === "register") {
       const current = await auth.resolve(guest, session);
       if (current.kind === "account") throw new HttpError(409, "ALREADY_AUTHENTICATED", "Сначала выйдите из аккаунта.");
