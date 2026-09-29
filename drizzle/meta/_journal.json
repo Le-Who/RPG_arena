@@ -120,6 +120,20 @@
       "when": 1790000000012,
       "tag": "0016_text_provider_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790000000013,
+      "tag": "0017_owner_queue_fairness",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790000000014,
+      "tag": "0018_performance_samples",
+      "breakpoints": true
     }
   ]
 }

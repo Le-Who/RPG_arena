@@ -45,6 +45,8 @@ test("applied resource deltas match final counters after caps, recovery and leve
     const result = applyResolution(input);
     for (const resource of ["hp", "xp", "gold"] as const) assert.equal(result.applied[resource], result.character[resource] - input.character[resource], resource);
     assert.equal(result.applied.danger, result.world.danger - input.world.danger);
+    assert.deepEqual(result.applied.resources?.hp, { before: input.character.hp, after: result.character.hp, maxBefore: input.character.maxHp, maxAfter: result.character.maxHp });
+    assert.deepEqual(result.applied.resources?.gold, { before: input.character.gold, after: result.character.gold });
   }
 });
 

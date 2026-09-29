@@ -85,8 +85,9 @@ const world = object({
   commitments: optional(array(object({
     id: text(64), title: text(200), parties: strings(8, 100), place: text(160), due: nullable(worldClock),
     status: choice("proposed", "accepted", "fulfilled", "broken", "cancelled"), createdTurn: integer(), updatedTurn: integer(), note: text(400),
+    revision: optional(integer(0, 1_000_000_000)),
     missEffect: optional(choice("none", "relation")), attendance: optional(choice("present", "absent")),
-    history: optional(array(object({ turn: integer(), kind: choice("rescheduled", "missed", "fulfilled", "broken", "cancelled"), from: nullable(worldClock), to: nullable(worldClock) }), 12)),
+    history: optional(array(object({ turn: integer(), kind: choice("rescheduled", "missed", "fulfilled", "broken", "cancelled", "reopened"), from: nullable(worldClock), to: nullable(worldClock), source: optional(choice("owner", "narration")), note: optional(text(200)) }), 12)),
   }), 40)),
   holdings: optional(array(object({
     id: text(64), name: text(160), description: text(500), quantity: integer(1, 1000),
@@ -132,7 +133,12 @@ const dice = object({
 const stateChanges = object({
   hp: number(), xp: number(), gold: number(), danger: number(), levelUp: bool, dead: bool,
   location: nullable(object({ from: text(500), to: text(500), isNew: bool })),
-  quests: array(object({ title: text(500), status: text(200), progress: number(), isNew: bool })),
+  quests: array(object({ title: text(500), status: text(200), progress: number(), isNew: bool, before: optional(object({ status: text(200), progress: number() })), note: optional(text(240)) })),
+  resources: optional(object({
+    hp: object({ before: number(), after: number(), maxBefore: number(), maxAfter: number() }),
+    gold: object({ before: number(), after: number() }), xp: object({ before: number(), after: number() }),
+    danger: object({ before: number(), after: number() }), level: optional(object({ before: number(), after: number() })),
+  })),
   npcs: array(object({ name: text(500), relation: number(), delta: number(), status: text(200), isNew: bool, note: optional(text(500)) })),
   inventory: array(object({ op: text(200), name: text(500), quantity: number(), ok: bool, reason: optional(text(2000)) })),
   sceneObjects: array(object({ name: text(500), state: text(500), isNew: bool })),
@@ -200,6 +206,15 @@ const contextMeta = object({
   model: text(300), rulesProfile: choice("d20", "rules-light", "narrative"), digestChars: integer(),
   retrievedIds: array(uuid, 1000), retrievalMs: optional(number(0)), skippedModels: optional(strings()),
   timings: optional(timings),
+  promptBudget: optional(object({
+    version: choice(1), systemChars: integer(0, 5_000_000), userChars: integer(0, 5_000_000), schemaChars: integer(0, 5_000_000), estimatedTokens: integer(0, 5_000_000),
+    sections: object({
+      scenario: optional(integer(0, 5_000_000)), entities: optional(integer(0, 5_000_000)), memory: optional(integer(0, 5_000_000)), retrieved: optional(integer(0, 5_000_000)),
+      recent: optional(integer(0, 5_000_000)), life: optional(integer(0, 5_000_000)), agenda: optional(integer(0, 5_000_000)), social: optional(integer(0, 5_000_000)),
+      conditions: optional(integer(0, 5_000_000)), narrator: optional(integer(0, 5_000_000)), verification: optional(integer(0, 5_000_000)), evidence: optional(integer(0, 5_000_000)),
+      action: optional(integer(0, 5_000_000)),
+    }),
+  })),
   narrativeVerification: optional(object({
     version: choice(1), reasons: strings(), repaired: bool, emittedCharacters: integer(),
     textSha256: optional(text(64)), checks: array(verification, 20), checkSelections: optional(array(selection, 20)),

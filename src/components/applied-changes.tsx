@@ -17,10 +17,10 @@ export function AppliedChips({ applied, turnNumber }: { applied: AppliedChanges;
       const Icon = icons[change.icon];
       return <li key={i} className={`gx-applied-chip is-${change.tone}`}><Icon size={13} aria-hidden="true" />{change.label}</li>;
     })}</ul>}
-    {!!changes.length && <details className="gx-change-details"><summary>Что изменилось в мире · {changes.length}</summary><div><p>Подтверждено сервером{turnNumber !== undefined ? ` на ходу ${turnNumber}` : ""}. Здесь только применённые последствия, а не предположения рассказчика.</p><ul>{changes.map((change, index) => { const Icon = icons[change.icon]; return <li key={index}><Icon size={14} aria-hidden="true" /><span>{change.label}</span></li>; })}</ul>
+    {!!changes.length && <details className="gx-change-details"><summary>Что изменилось в мире · {changes.length}</summary><div><p>Итоги{turnNumber !== undefined ? ` хода ${turnNumber}` : " действия"}: изменения предметов, ресурсов и событий.</p><ul>{changes.map((change, index) => { const Icon = icons[change.icon]; return <li key={index}><Icon size={14} aria-hidden="true" /><span>{change.label}</span></li>; })}</ul>
       {!!consequences.length && <dl className="gx-consequences">{consequences.map((row, i) => <div key={i}><dt>{row.group} · {row.subject}</dt><dd>{row.before !== null && <>{row.before} → </>}<strong>{row.after}</strong>{row.reason && <small> — {row.reason}</small>}</dd></div>)}</dl>}
       {turnNumber !== undefined && <a href={`#turn-${turnNumber}`}><Link2 size={12} />Источник: ход {turnNumber}</a>}
     </div></details>}
-    {!!applied.rejected.length && <details className="gx-rejected"><summary>Сервер не применил {applied.rejected.length} изменений</summary>{applied.rejected.map((reason, i) => <p key={i}>{reason}</p>)}</details>}
+    {!!applied.rejected.length && <details className="gx-rejected"><summary>Не удалось применить изменения · {applied.rejected.length}</summary>{applied.rejected.map((reason, i) => <p key={i}>{reason}</p>)}</details>}
   </>;
 }

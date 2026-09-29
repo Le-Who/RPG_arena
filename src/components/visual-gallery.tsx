@@ -37,9 +37,9 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
   const reference = (v: Visual) => data.identities.find((i) => i.subjectKey === v.subjectKey)?.referenceVisualId === v.id;
   return <div className="gx-side-section lx-gallery">
     <div className="gx-side-title"><Camera size={13} />Образы истории</div>
-    <p className="gx-side-hint">Иллюстрации создаются по вашему запросу и не меняют канон. Описания сцены, людей и мест передаются внешнему провайдеру: {data.config.provider} · {data.config.model}. Лимит — до {data.config.dailyLimit} в сутки.</p>
+    <p className="gx-side-hint">Иллюстрации не меняют события истории. При создании описания сцены, людей и мест передаются сервису {data.config.provider}. Лимит — до {data.config.dailyLimit} в сутки.</p>
     {!data.config.enabled && <p className="lx-error">Визуализация отключена администратором.</p>}
-    {data.config.enabled && !data.config.authenticated && <p className="lx-error">Для генерации нужен серверный ключ Pollinations. Уже созданные изображения остаются доступны.</p>}
+    {data.config.enabled && !data.config.authenticated && <p className="lx-error">Создание иллюстраций пока не настроено администратором. Уже созданные изображения остаются доступны.</p>}
     {isOwner && data.config.enabled && data.config.authenticated && <div className="lx-gallery-actions">
       <button type="button" className="button secondary" disabled={!!busy || lastTurn < 1} onClick={() => void create("scene")}>{busy === "scene" ? <LoaderCircle size={14} className="spin" /> : <Camera size={14} />}Сцена хода {lastTurn || "—"}</button>
       <button type="button" className="button secondary" disabled={!!busy || !currentLocationId} onClick={() => void create("location", currentLocationId ?? undefined)}>{busy === "location" ? <LoaderCircle size={14} className="spin" /> : <MapPin size={14} />}Это место</button>
@@ -52,10 +52,10 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
     <div className="lx-visuals">
       {data.visuals.map((v) => <figure key={v.id} className={`lx-visual is-${v.kind}`}>
         {failed[v.id] || v.status === "failed" || (v.status !== "ready" && (!isOwner || !data.config.authenticated))
-          ? <div className="lx-visual-fail"><ImageOff size={22} /><small>{!isOwner && v.status !== "ready" ? "Иллюстрация ещё не готова владельцем" : !data.config.authenticated && v.status !== "ready" ? "Для генерации нужен ключ Pollinations" : v.error ?? "Провайдер не ответил"}</small>{isOwner && data.config.authenticated && <button type="button" className="button secondary" onClick={() => retry(v.id)}><RefreshCw size={13} />Повторить тем же провайдером</button>}</div>
+          ? <div className="lx-visual-fail"><ImageOff size={22} /><small>{!isOwner && v.status !== "ready" ? "Владелец ещё не создал иллюстрацию" : !data.config.authenticated && v.status !== "ready" ? "Создание иллюстраций пока недоступно" : v.error ?? "Сервис иллюстраций не ответил"}</small>{isOwner && data.config.authenticated && <button type="button" className="button secondary" onClick={() => retry(v.id)}><RefreshCw size={13} />Повторить создание</button>}</div>
           // eslint-disable-next-line @next/next/no-img-element
           : <img src={src(v)} alt={v.caption} loading="lazy" width={v.width} height={v.height} onError={() => setFailed((f) => ({ ...f, [v.id]: true }))} />}
-        <figcaption><span>{v.caption}</span><small>seed {v.seed}{reference(v) ? " · эталон" : ""}</small>
+        <figcaption><span>{v.caption}</span>{reference(v) && <small>Эталон внешности</small>}
           {isOwner && <span className="lx-row">
             {v.kind !== "scene" && <button type="button" className="lx-icon-btn" aria-label="Сделать эталоном внешности" title="Сделать эталоном" onClick={() => void patchIdentity(v.subjectKey, { referenceVisualId: reference(v) ? null : v.id })}><Star size={13} fill={reference(v) ? "currentColor" : "none"} /></button>}
             <button type="button" className="lx-icon-btn" aria-label="Удалить изображение" onClick={() => void remove(v.id)}><Trash2 size={13} /></button>
@@ -66,7 +66,7 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
     </div>
     {!!data.identities.length && <>
       <div className="gx-side-title"><UserRound size={13} />Паспорта внешности</div>
-      <p className="gx-side-hint">Описание и постоянный seed сохраняют узнаваемость персонажа и места между иллюстрациями.</p>
+      <p className="gx-side-hint">Описание помогает сохранять узнаваемость персонажа или места. «Новый облик» запрашивает другой вариант для следующих иллюстраций; готовые изображения сохраняются.</p>
       {data.identities.map((identity) => <IdentityEditor key={identity.id + identity.passport} identity={identity} disabled={!isOwner} onSave={(patch) => void patchIdentity(identity.subjectKey, patch)} />)}
     </>}
   </div>;
@@ -75,7 +75,7 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
 function IdentityEditor({ identity, disabled, onSave }: { identity: Identity; disabled: boolean; onSave: (patch: Record<string, unknown>) => void }) {
   const [passport, setPassport] = useState(identity.passport);
   return <form className="lx-identity" onSubmit={(e) => { e.preventDefault(); onSave({ passport }); }}>
-    <label><strong>{identity.subjectName}</strong><small> · seed {identity.seed}{identity.referenceVisualId ? " · эталон выбран" : ""}</small>
+    <label><strong>{identity.subjectName}</strong>{identity.referenceVisualId && <small> · эталон выбран</small>}
       <textarea rows={2} maxLength={600} value={passport} disabled={disabled} onChange={(e) => setPassport(e.target.value)} placeholder="Внешность: возраст, черты, одежда, характерные детали" /></label>
     {!disabled && <div className="lx-row"><button type="submit" className="button secondary" disabled={passport === identity.passport}><Save size={13} />Сохранить</button><button type="button" className="button secondary" onClick={() => onSave({ reseed: true })}><RefreshCw size={13} />Новый облик</button></div>}
   </form>;

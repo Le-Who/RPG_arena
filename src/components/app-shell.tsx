@@ -12,8 +12,11 @@ import type { ReadingPreferences } from "@/db/schema";
 import { Dialog } from "./dialog";
 import { SettingsOverlay } from "./settings-overlay";
 import { CommandPalette } from "./command-palette";
+import { InstallAppButton } from "./pwa";
 import { StoryCreator } from "./story-creator";
-export type PlayCommand = { id: string; label: string; run: () => void };
+import { AppUpdateProvider, useAppUpdateGuard } from "./app-update";
+import { UPDATE_DRAFT_KEY } from "@/lib/update-draft";
+export type PlayCommand = { id: string; label: string; run: () => void; jumpToTurn?: (turn: number) => void; maxTurn?: number };
 type AppContext = { playCommands: PlayCommand[]; setPlayCommands: (commands: PlayCommand[]) => void; identity: IdentityView | null; administration: boolean; hasOpenDraft: boolean; applyIdentityChange: (identity: IdentityView) => Promise<void>; settingsOpen: boolean; openSettings: (section?: string) => void; sessions: Session[]; settings: Settings | null; workspace: Workspace; loading: boolean; loadError: string; refresh: () => Promise<void>; newStory: (id?: string, mode?: "preset" | "free") => void; notify: (message: string, error?: boolean) => void; toggleFavorite: (id: string) => Promise<void>; updateReading: (reading: ReadingPreferences) => Promise<void>; showGuide: () => void };
 const Context = createContext<AppContext | null>(null);
 export function useApp() { const value = useContext(Context); if (!value) throw new Error("App context missing"); return value; }
@@ -22,6 +25,9 @@ const navigation = [
 ];
 const tools = [{ href: "/memory", label: "Память мира", icon: BrainCircuit }, { href: "/journal", label: "Журнал приключений", icon: BookOpenText }, { href: "/system", label: "Пульс движка", icon: Activity }, { href: "/system/visuals", label: "Модель иллюстраций", icon: Sparkles }];
 export function AppShell({ children }: { children: ReactNode }) {
+  return <AppUpdateProvider><AppShellContent>{children}</AppShellContent></AppUpdateProvider>;
+}
+function AppShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [playCommands, setPlayCommands] = useState<PlayCommand[]>([]);
@@ -69,6 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const notify = useCallback((text: string, error = false) => setToast({ text, error }), []);
   const acceptIdentity = useCallback((next: IdentityView) => {
     if (profileChanged(identityRef.current, next)) {
+      if (identityRef.current) { try { sessionStorage.removeItem(UPDATE_DRAFT_KEY); } catch {} }
       clearCachedReading();
       for (const [name, value] of Object.entries(readingAttributes(DEFAULT_READING))) document.documentElement.setAttribute(name, value);
       setWorkspaceLoaded(false);
@@ -99,7 +106,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         return;
       }
     } catch (error) { if (loadGate.current.isCurrent(ticket)) setLoadError(error instanceof Error ? error.message : "Не удалось загрузить пространство"); }
-    finally { if (loadGate.current.isCurrent(ticket)) setLoading(false); }
+    finally { loadGate.current.finish(ticket); if (loadGate.current.isCurrent(ticket)) setLoading(false); }
   }, [acceptIdentity]);
   const applyIdentityChange = useCallback(async (next: IdentityView) => {
     loadGate.current.invalidate();
@@ -160,6 +167,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const live = canUseLiveNarrator(settings);
   const activeCount = sessions.filter((s) => s.status === "active").length;
   const administration = canSeeAdministration(identity);
+  useAppUpdateGuard("shell", { blocked: () => {
+    if (loading || !workspaceLoaded || !identityRef.current || loadGate.current.isPending()) return "Дождитесь проверки профиля и загрузки пространства.";
+    if (settingsOpen || creator || dialog || (pathname !== "/" && !pathname.startsWith("/play/"))) return "Сохраните изменения и закройте открытые формы. Обновление доступно на обзоре или в комнате истории.";
+    return null;
+  } });
   const navItem = (item: (typeof navigation)[number]) => <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} onClick={() => setSidebar(false)}><item.icon size={18} strokeWidth={1.65} /><span>{item.label}</span>{item.href === "/campaigns" && activeCount > 0 && <span className="nav-count">{activeCount}</span>}{item.href === "/worlds" && <span className="nav-count neutral">{WORLDS.length}</span>}</Link>;
   return <Context.Provider value={{ playCommands, setPlayCommands, identity, administration, hasOpenDraft: creator !== null, applyIdentityChange, settingsOpen, openSettings, sessions, settings, workspace, loading, loadError, refresh, newStory, notify, toggleFavorite, updateReading, showGuide: () => setDialog("guide") }}>
     <div className="shell-root" data-sidebar-collapsed={!mobile && desktopCollapsed ? "true" : "false"} onClickCapture={interceptSettings}><div inert={settingsOpen || !!creator || !!dialog}>
@@ -174,17 +186,17 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="sidebar-scroll">
       <div className="workspace-switch"><span className="workspace-icon"><Compass size={18} /></span><div>Личное пространство<small>Здесь живут ваши истории</small></div></div>
       <div className="nav-label">ПРОСТРАНСТВО</div><nav aria-label="Основная навигация">{navigation.map(navItem)}</nav>
-      <div className="nav-label tools-label">ИНСТРУМЕНТЫ</div><nav aria-label="Инструменты">{tools.filter(item => !item.href.startsWith("/system") || administration).map(navItem)}</nav>
+      <div className="nav-label tools-label">ИНСТРУМЕНТЫ</div><nav aria-label="Инструменты">{tools.filter(item => !item.href.startsWith("/system") || administration).map(navItem)}<InstallAppButton className="nav-item" /></nav>
       <div className="sidebar-spacer" />
-      <div className="imagination-card"><span className="imagination-spark"><Sparkles size={22} strokeWidth={1.4} /></span><strong>Не находите свой мир?</strong><p>Там, где заканчиваются шаблоны, начинается ваша история.</p><button onClick={() => newStory(undefined, "free")}>Создать свой мир <ArrowRight size={14} /></button><div className="card-orbit" /></div>
+      {!pathname.startsWith("/play/") && <div className="imagination-card"><span className="imagination-spark"><Sparkles size={22} strokeWidth={1.4} /></span><strong>Не находите свой мир?</strong><p>Там, где заканчиваются шаблоны, начинается ваша история.</p><button onClick={() => newStory(undefined, "free")}>Создать свой мир <ArrowRight size={14} /></button><div className="card-orbit" /></div>}
       </div>
     </aside>
-    <div className="app-body"><header className="topbar"><button className="icon-button menu-toggle" onClick={toggleSidebar} aria-controls="app-navigation" aria-expanded={mobile ? sidebar : !desktopCollapsed} aria-label={(mobile ? sidebar : !desktopCollapsed) ? "Скрыть меню" : "Открыть меню"}><Menu size={21} /></button><div className="breadcrumbs"><Compass size={15} /><span>Пространство</span><ChevronRight size={13} /><strong>{title}</strong></div><div className="topbar-actions"><button className="global-search" onClick={() => setDialog("search")} aria-label="Поиск по пространству"><Search size={16} /><span>Быстрый поиск</span><kbd>⌘ K</kbd></button><Link className={`connection-status ${live ? "live" : ""}`} href="/settings"><i />{live ? "Рассказчик подключён" : "Автономный режим"}</Link><div className="topbar-divider" /><button className="icon-button" onClick={() => setDialog("guide")} aria-label="Как это работает"><HelpCircle size={19} /></button><button className="icon-button notification-button" onClick={() => setDialog("updates")} aria-label="Обновления движка"><Bell size={18} /><i /></button></div></header><main className="main-content" id="main-content"><Fragment key={identity?.profileId ?? "initial"}>{children}</Fragment></main></div>
+    <div className="app-body"><header className="topbar"><button className="icon-button menu-toggle" onClick={toggleSidebar} aria-controls="app-navigation" aria-expanded={mobile ? sidebar : !desktopCollapsed} aria-label={(mobile ? sidebar : !desktopCollapsed) ? "Скрыть меню" : "Открыть меню"}><Menu size={21} /></button><div className="breadcrumbs"><Compass size={15} /><span>Пространство</span><ChevronRight size={13} /><strong>{title}</strong></div><div className="topbar-actions"><button className="global-search" onClick={() => setDialog("search")} aria-label="Поиск по пространству"><Search size={16} /><span>Быстрый поиск</span><kbd>⌘ K</kbd></button><Link className={`connection-status ${live ? "live" : ""}`} href="/settings"><i />{live ? "Рассказчик подключён" : "Базовый режим"}</Link><div className="topbar-divider" /><button className="icon-button" onClick={() => setDialog("guide")} aria-label="Как это работает"><HelpCircle size={19} /></button><button className="icon-button notification-button" onClick={() => setDialog("updates")} aria-label="Обновления движка"><Bell size={18} /><i /></button></div></header><main className="main-content" id="main-content"><Fragment key={identity?.profileId ?? "initial"}>{children}</Fragment></main></div>
     </div>
     {settingsOpen && <SettingsOverlay key={identity?.profileId} section={settingsSection} onClose={closeSettings} returnLabel={creator ? "Вернуться к истории" : "Вернуться в игру"} />}
     {creator && <StoryCreator initialScenario={creator.id} initialMode={creator.mode} onClose={closeCreator} onCreated={refresh} live={live} onSettings={() => openSettings()} suspended={settingsOpen} />}
-    {dialog === "guide" && <Dialog onClose={closeDialog} title="Как это работает" suspended={settingsOpen}><span className="dialog-emblem"><Compass size={27} /></span><div className="eyebrow">ВАША ИСТОРИЯ, ВАШИ ПРАВИЛА</div><h2>Здесь нет неправильного пути</h2><p className="dialog-intro">Chronicle Engine — интерактивная история, в которой вы не зритель, а главный герой.</p><div className="guide-steps">{[{ n: "01", title: "Найдите свой мир", text: "Выберите авторский сценарий или придумайте собственный сеттинг — от уютной драмы до далёких галактик." }, { n: "02", title: "Сделайте первый шаг", text: "Выбирайте предложенные действия или пишите свои. Мир ответит, а сервер проверит последствия." }, { n: "03", title: "Оставьте след в истории", text: "Предметы, отношения и принятые решения сохраняются. Память помогает ИИ не терять нить повествования." }].map((step) => <div key={step.n}><span>{step.n}</span><section><h3>{step.title}</h3><p>{step.text}</p></section></div>)}</div><div className="notice"><Sparkles size={17} /><p>Пресеты работают без AI. Для свободной истории подключите провайдера рассказчика в настройках. Для семантического поиска нужен прямой Gemini.</p></div><button className="button primary full-width" onClick={() => newStory()}>Отправиться в приключение <ArrowRight size={16} /></button></Dialog>}
-    {dialog === "updates" && <Dialog onClose={closeDialog} title="Обновления" suspended={settingsOpen}><span className="pill violet">CHRONICLE · СЕНТЯБРЬ 2026</span><h2>История<br />под вас.</h2><p className="dialog-intro">Необязательный аккаунт, перенос кампаний и удобнее управление историями.</p><div className="update-list">{["Играйте гостем; регистрируйтесь, когда нужен доступ с другого устройства", "Перенос гостевых кампаний при входе — только с подтверждением", "JSON-экспорт и импорт приватной копии истории", "Палитра команд: Ctrl/⌘ K, поиск миров и ваших кампаний", "Модальные окна с постоянной шапкой; последствия хода — с подробностями"].map((text) => <p key={text}><Check size={17} />{text}</p>)}</div><Link href="/blueprint" onClick={closeDialog} className="button secondary full-width">Заглянуть под капот <ArrowRight size={16} /></Link></Dialog>}
+    {dialog === "guide" && <Dialog onClose={closeDialog} title="Как это работает" suspended={settingsOpen}><span className="dialog-emblem"><Compass size={27} /></span><div className="eyebrow">ВАША ИСТОРИЯ, ВАШИ ПРАВИЛА</div><h2>Здесь нет неправильного пути</h2><p className="dialog-intro">Chronicle Engine — интерактивная история, в которой вы не зритель, а главный герой.</p><div className="guide-steps">{[{ n: "01", title: "Найдите свой мир", text: "Выберите авторский сценарий или придумайте собственный сеттинг — от уютной драмы до далёких галактик." }, { n: "02", title: "Сделайте первый шаг", text: "Выбирайте предложенные действия или пишите свои. Продолжение и последствия появятся в истории." }, { n: "03", title: "Оставьте след в истории", text: "Предметы, отношения и принятые решения сохраняются. К важным событиям можно вернуться в журнале и памяти мира." }].map((step) => <div key={step.n}><span>{step.n}</span><section><h3>{step.title}</h3><p>{step.text}</p></section></div>)}</div><div className="notice"><Sparkles size={17} /><p>Готовые сценарии доступны в базовом режиме. Для свободной истории подключите рассказчика в настройках.</p></div><button className="button primary full-width" onClick={() => newStory()}>Отправиться в приключение <ArrowRight size={16} /></button></Dialog>}
+    {dialog === "updates" && <Dialog onClose={closeDialog} title="Обновления" suspended={settingsOpen}><span className="pill violet">CHRONICLE · СЕНТЯБРЬ 2026</span><h2>Ваши истории<br />и новые возможности.</h2><p className="dialog-intro">Обновление 2.10 · сентябрь 2026.</p><div className="update-list">{["В «Жизни» можно отметить исход договорённости, перенести её или открыть заново", "Подробности последствий показывают прежние и новые значения ресурсов", "Введите «ход 12» в палитре Ctrl/⌘ K, чтобы перейти к записи", "Скачайте HTML-книгу, чтобы читать историю без сети", "Новую версию можно применить по кнопке с сохранением черновика; незавершённый ход защищён от перезагрузки"].map((text) => <p key={text}><Check size={17} />{text}</p>)}</div><Link href="/blueprint" onClick={closeDialog} className="button secondary full-width">Заглянуть под капот <ArrowRight size={16} /></Link></Dialog>}
     {dialog === "search" && <CommandPalette key={identity?.profileId} onClose={closeDialog} suspended={settingsOpen} />}
     {toast && <div className={`toast ${toast.error ? "toast-error" : ""}`} role="status" inert={settingsOpen || !!creator || !!dialog}>{toast.error ? <HelpCircle size={18} /> : <Check size={18} />}<span>{toast.text}</span><button className="icon-button" aria-label="Закрыть уведомление" onClick={() => setToast(null)}><X size={15} /></button></div>}
     </div>

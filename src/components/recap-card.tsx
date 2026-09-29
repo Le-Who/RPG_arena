@@ -20,7 +20,7 @@ export function RecapCard({ sessionId, onClose, onNotify }: { sessionId: string;
   return <section className="gx-recap" aria-labelledby="recap-title" aria-live="polite">
     <div className="gx-recap-head">
       <BookOpenText size={18} aria-hidden="true" />
-      <div><h2 id="recap-title">{recap?.headline ?? "Ранее в истории"}</h2>{recap?.awayLabel && <small>Последний ход — {recap.awayLabel}. Сводка собрана из сохранённого состояния и памяти, без AI.</small>}</div>
+      <div><h2 id="recap-title">{recap?.headline ?? "Ранее в истории"}</h2>{recap?.awayLabel && <small>Последний ход — {recap.awayLabel}.</small>}</div>
       <div className="gx-recap-actions">
         {recap && <button type="button" className="gx-tool icon-only" onClick={() => void copy()} aria-label="Скопировать резюме" title="Скопировать"><Copy size={15} /></button>}
         <button type="button" className="gx-tool icon-only" onClick={onClose} aria-label="Скрыть резюме" title="Скрыть"><X size={15} /></button>

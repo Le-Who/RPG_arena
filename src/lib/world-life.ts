@@ -41,8 +41,10 @@ export type Commitment = {
   attendance?: "present" | "absent";
   /** Переносы, неявка и закрытие — исход объясняется событиями. */
   history?: CommitmentHistoryEntry[];
+  /** Monotonic edit counter; absent in legacy worlds means zero. */
+  revision?: number;
 };
-export type CommitmentHistoryEntry = { turn: number; kind: "rescheduled" | "missed" | "fulfilled" | "broken" | "cancelled"; from: WorldClock | null; to: WorldClock | null };
+export type CommitmentHistoryEntry = { turn: number; kind: "rescheduled" | "missed" | "fulfilled" | "broken" | "cancelled" | "reopened"; from: WorldClock | null; to: WorldClock | null; source?: "owner" | "narration"; note?: string };
 /** NARR-9b (2.9): завершённые арки остаются каноном кампании после явного продолжения. */
 export type ArcRecord = { goal: string; stakes: string; conflict: string; endCondition: string; epilogue: string; resolvedTurn: number; closedTurn: number; closedAt: WorldClock };
 export type Holding = {
@@ -85,7 +87,9 @@ export const COMMITMENT_LABELS: Record<CommitmentStatus, string> = {
   proposed: "Предложено", accepted: "Договорились", fulfilled: "Выполнено", broken: "Нарушено", cancelled: "Отменено",
 };
 
-const MAX_ACTIVE_COMMITMENTS = 16;
+export const MAX_ACTIVE_COMMITMENTS = 16;
+export const COMMITMENT_HISTORY_LIMIT = 12;
+export const MAX_COMMITMENT_REVISION = 1_000_000_000;
 const MAX_COMMITMENTS = 40;
 const MAX_HOLDINGS = 60;
 const MAX_ADVANCE = 7 * 24 * 60;
@@ -436,12 +440,15 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
     if (existing) {
       if (["fulfilled", "cancelled", "broken"].includes(existing.status)) { rejected.push(`COMMITMENT: «${existing.title}» уже закрыто`); continue; }
       if (existing.status === "accepted" && downgraded) { continue; }
+      const revision = existing.revision ?? 0;
+      if (!Number.isSafeInteger(revision) || revision < 0 || revision >= MAX_COMMITMENT_REVISION) { rejected.push(`COMMITMENT: «${existing.title}» достигло предела исправлений`); continue; }
       // WORLD-3b: перенос срока принятой встречи — отдельный исход, а не неявка; отметка присутствия сбрасывается.
       const rescheduled = !!due && !!existing.due && existing.status === "accepted" && clockValue(due) !== clockValue(existing.due) && (status === "accepted" || status === "proposed");
-      if (rescheduled) { existing.history = [...(existing.history ?? []), { turn: input.turnNumber, kind: "rescheduled" as const, from: { ...existing.due! }, to: { ...due! } }].slice(-8); delete existing.attendance; }
-      if (status === "fulfilled" || status === "broken" || status === "cancelled") existing.history = [...(existing.history ?? []), { turn: input.turnNumber, kind: status, from: existing.due ? { ...existing.due } : null, to: null }].slice(-8);
+      if (rescheduled) { existing.history = [...(existing.history ?? []), { turn: input.turnNumber, kind: "rescheduled" as const, source: "narration" as const, from: { ...existing.due! }, to: { ...due! } }].slice(-COMMITMENT_HISTORY_LIMIT); delete existing.attendance; }
+      if (status === "fulfilled" || status === "broken" || status === "cancelled") existing.history = [...(existing.history ?? []), { turn: input.turnNumber, kind: status, source: "narration" as const, from: existing.due ? { ...existing.due } : null, to: null }].slice(-COMMITMENT_HISTORY_LIMIT);
       existing.status = status;
       existing.updatedTurn = input.turnNumber;
+      existing.revision = revision + 1;
       if (change.place) existing.place = change.place;
       if (due) existing.due = due;
       if (change.parties.length) existing.parties = change.parties;
@@ -451,7 +458,7 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
     } else {
       if (!change.title) continue;
       if (life.commitments.filter((c) => c.status === "proposed" || c.status === "accepted").length >= MAX_ACTIVE_COMMITMENTS) { rejected.push("COMMITMENT: слишком много открытых договорённостей"); continue; }
-      const created: Commitment = { id: makeId(), title: change.title, parties: change.parties, place: change.place, due, status, createdTurn: input.turnNumber, updatedTurn: input.turnNumber, note: change.note };
+      const created: Commitment = { id: makeId(), title: change.title, parties: change.parties, place: change.place, due, status, createdTurn: input.turnNumber, updatedTurn: input.turnNumber, note: change.note, revision: 1 };
       life.commitments.push(created);
       applied.commitments.push({ title: created.title, status, isNew: true, ...(downgraded ? { downgraded } : {}) });
       events.push({ layer: "semantic", category: "quest", title: `Договорённость: ${created.title}`, content: `${COMMITMENT_LABELS[status]}${created.parties.length ? ` — ${created.parties.join(", ")}` : ""}${created.place ? `, место: ${created.place}` : ""}${created.due ? `, срок: ${formatClock(created.due)}` : ""}.`, importance: status === "accepted" ? 70 : 50, entityKey: `commitment:${created.id}`, mode: "upsert" });

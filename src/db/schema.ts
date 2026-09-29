@@ -5,6 +5,8 @@ import type { CheckpointSnapshot } from "@/lib/checkpoint-types";
 import type { TypeSafeReport } from "@/lib/typesafe-report";
 import {
   pgTable,
+  bigserial,
+  doublePrecision,
   uuid,
   text,
   integer,
@@ -130,7 +132,8 @@ export type AppliedChanges = {
   levelUp: boolean;
   dead: boolean;
   location: { from: string; to: string; isNew: boolean } | null;
-  quests: { title: string; status: string; progress: number; isNew: boolean }[];
+  quests: { title: string; status: string; progress: number; isNew: boolean; before?: { status: string; progress: number }; note?: string }[];
+  resources?: import("../lib/applied-changes").ResourceSnapshot;
   npcs: { name: string; relation: number; delta: number; status: string; isNew: boolean; note?: string }[];
   inventory: { op: string; name: string; quantity: number; ok: boolean; reason?: string }[];
   sceneObjects: { name: string; state: string; isNew: boolean }[];
@@ -158,6 +161,7 @@ export type TurnContextMeta = {
     evidence: import("../lib/narrative-evidence").NarrativeEvidence;
   };
   timings?: import("../lib/turn-contract").TurnTimings;
+  promptBudget?: import("../lib/prompt-budget").PromptBudget;
   model: string;
   rulesProfile: RulesProfile;
   digestChars: number;
@@ -648,3 +652,26 @@ export const visualSettings = pgTable("visual_settings", {
   updatedBy: uuid("updated_by").references(() => accounts.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [check("visual_settings_singleton", sql`${t.id} = 1`)]);
+
+export const performanceSamples = pgTable("performance_samples", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  metric: text("metric").notNull(),
+  route: text("route").notNull(),
+  value: doublePrecision("value").notNull(),
+  rating: text("rating").notNull().default("unknown"),
+  device: text("device").notNull().default("unknown"),
+  navigationType: text("navigation_type").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  index("performance_samples_metric_created_idx").on(t.metric, t.createdAt.desc()),
+  index("performance_samples_created_idx").on(t.createdAt),
+  check("performance_samples_metric_check", sql`char_length(${t.metric}) BETWEEN 2 AND 40`),
+  check("performance_samples_route_check", sql`char_length(${t.route}) BETWEEN 1 AND 80`),
+  check("performance_samples_value_check", sql`${t.value} >= 0 AND ${t.value} <= 600000`),
+]);
+
+export const ownerQueueService = pgTable("owner_queue_service", {
+  ownerId: text("owner_id").primaryKey(),
+  lastServedAt: timestamp("last_served_at", { withTimezone: true }).notNull().defaultNow(),
+  servedCount: integer("served_count").notNull().default(0),
+}, t => [index("owner_queue_service_served_idx").on(t.lastServedAt)]);
