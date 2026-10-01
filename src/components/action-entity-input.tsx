@@ -1,5 +1,5 @@
 "use client";
-import { useState, type RefObject } from "react";
+import { useState, useMemo, type RefObject } from "react";
 import { ACTION_MAX_LENGTH, actionEntitySuggestions, completeActionEntity, type ActionEntitySuggestion } from "@/lib/action-composer";
 import type { InteractionState } from "@/lib/interactions";
 import "./action-entity-input.css";
@@ -14,7 +14,10 @@ export function ActionEntityInput({ value, inputRef, state, disabled, onChange, 
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [active, setActive] = useState(0);
-  const suggestions = focused && !dismissed && !disabled ? actionEntitySuggestions(value, cursor, state) : [];
+  // ⚡ Bolt: Memoize expensive suggestions to prevent recalculation when just changing active selection index
+  const suggestions = useMemo(() =>
+    focused && !dismissed && !disabled ? actionEntitySuggestions(value, cursor, state) : [],
+  [focused, dismissed, disabled, value, cursor, state]);
   const selected = Math.min(active, Math.max(0, suggestions.length - 1));
   const pick = (entity: ActionEntitySuggestion) => {
     const result = completeActionEntity(value, entity);
