@@ -4,7 +4,10 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Sidebar ──────────────────────────────────────────────────────────── */
-.sidebar{position:fixed;left:0;top:0;bottom:0;z-index:45;width:var(--sidebar);display:flex;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;background:var(--sunken);border-right:1px solid var(--line)}
+.sidebar{position:fixed;left:0;top:0;bottom:0;z-index:45;width:var(--sidebar);display:flex;flex-direction:column;overflow:hidden;background:var(--sunken);border-right:1px solid var(--line)}
+.sidebar-account{flex-shrink:0;border-bottom:1px solid var(--line)}
+.sidebar-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;padding-top:var(--sp-3)}
+.sidebar-scroll>nav,.sidebar-scroll>.workspace-switch{flex-shrink:0}
 .brand{display:flex;align-items:center;gap:var(--sp-3);height:84px;padding:0 var(--sp-5);flex-shrink:0}
 .brand-symbol{width:36px;height:38px;color:var(--accent);filter:drop-shadow(0 0 12px oklch(60% .18 296/.3))}
 .brand-symbol svg{width:100%;height:100%}
@@ -101,7 +104,7 @@
 @media(max-width:1180px) and (min-width:781px){
   :root{--sidebar:80px}
   .brand{justify-content:center;padding:0 var(--sp-2);height:76px}
-  .brand-word,.workspace-switch,.nav-label,.imagination-card,.version-tag,.profile-row>div,.profile-row>a{display:none}
+  .brand-word,.workspace-switch,.nav-label,.imagination-card,.version-tag,.profile-row>div,.profile-row>.icon-button{display:none}
   .nav-item{justify-content:center;margin:4px var(--sp-3);padding:0;height:48px}
   .nav-item>span:not(.nav-count){display:none}
   .nav-count{position:absolute;top:5px;right:5px;min-width:20px;height:19px;font-size:var(--t-2xs);padding:0 4px}

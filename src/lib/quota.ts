@@ -3,7 +3,10 @@ import { db } from "@/db";
 import { QuotaAdmissionError } from "./quota-errors";
 
 export type QuotaScope = "generation" | "embedding";
-type BudgetConfig = { ownerId?: string; keys: string[]; limits: { flash: number; lite: number }; enforceLimits?: boolean; keysSharedProject?: boolean; dailyEmbeddingLimit?: number };
+type BudgetConfig = { ownerId?: string; keys: string[]; limits: { flash: number; lite: number }; enforceLimits?: boolean; keysSharedProject?: boolean; dailyEmbeddingLimit?: number; textProvider?: "gemini" | "openrouter" | "pollinations" };
+export function quotaModelId(cfg: Pick<BudgetConfig, "textProvider">, scope: QuotaScope, model: string) {
+  return scope === "generation" && cfg.textProvider && cfg.textProvider !== "gemini" ? `${cfg.textProvider}:${model}` : model;
+}
 export function quotaTimezone(zone = process.env.CHRONICLE_QUOTA_TIMEZONE ?? "America/Los_Angeles") {
   try { new Intl.DateTimeFormat("en", { timeZone: zone }).format(); }
   catch { throw new Error("INVALID_QUOTA_TIMEZONE"); }
@@ -14,6 +17,10 @@ export function quotaDay(now = new Date(), zone = quotaTimezone()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }
 export function quotaCap(cfg: BudgetConfig, scope: QuotaScope, model: string) {
+  if (scope === "generation" && cfg.textProvider && cfg.textProvider !== "gemini") {
+    if (!Number.isSafeInteger(cfg.limits.flash) || cfg.limits.flash < 0) throw new Error("INVALID_QUOTA_CAP");
+    return cfg.limits.flash;
+  }
   const limit = scope === "embedding" ? cfg.dailyEmbeddingLimit ?? 5000 : model.includes("lite") ? cfg.limits.lite : cfg.limits.flash;
   const cap = limit * (cfg.keysSharedProject === false ? Math.max(1, new Set(cfg.keys).size) : 1);
   if (!Number.isSafeInteger(cap) || cap < 0) throw new Error("INVALID_QUOTA_CAP");
@@ -50,7 +57,7 @@ export function quotaAdmission(cfg: BudgetConfig, scope: QuotaScope = "generatio
   return async (model: string) => {
     // Synthetic/operator callers use the transport directly; application callers always supply config ownership.
     if (!cfg.ownerId) throw new Error("QUOTA_OWNER_REQUIRED");
-    return reserveModelCall({ ownerId: cfg.ownerId, scope, model, cap: cfg.enforceLimits === false ? Number.MAX_SAFE_INTEGER : quotaCap(cfg, scope, model) });
+    return reserveModelCall({ ownerId: cfg.ownerId, scope, model: quotaModelId(cfg, scope, model), cap: cfg.enforceLimits === false ? Number.MAX_SAFE_INTEGER : quotaCap(cfg, scope, model) });
   };
 }
 

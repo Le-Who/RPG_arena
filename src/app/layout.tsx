@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { WebVitalsReporter } from "@/components/web-vitals";
+import "./observability.css";
+import { ServiceWorkerRegistrar } from "@/components/pwa";
+import { INSTALL_CAPTURE_SCRIPT } from "@/lib/pwa-policy";
+import "./x3.css";
 import { AppShell } from "@/components/app-shell";
+import { readingBootstrapScript } from "@/lib/reading-preferences";
 import "./globals.css";
 import "./shell.css";
 import "./pages.css";
@@ -8,11 +14,14 @@ import "./theatre.css";
 import "./preferences.css";
 import "./dialogs.css";
 import "./overview.css";
+import "./life.css";
+import "./pwa.css";
+import { APP_BUILD_ID } from "@/lib/build-version";
 export const metadata: Metadata = {
   title: { default: "Chronicle Engine — Твоя история начинается здесь", template: "%s · Chronicle Engine" },
   description: "Живые миры, ИИ-мастер и свобода каждого решения. Создайте собственную историю или отправьтесь в авторское приключение.",
   icons: { icon: "/icon.svg" },
 };
 export default function RootLayout({ children }: { children: ReactNode }) {
-  return <html lang="ru"><body><AppShell>{children}</AppShell></body></html>;
+  return <html lang="ru" suppressHydrationWarning><head><meta name="chronicle-build" content={APP_BUILD_ID} /><script dangerouslySetInnerHTML={{ __html: INSTALL_CAPTURE_SCRIPT }} /><script dangerouslySetInnerHTML={{ __html: readingBootstrapScript() }} /></head><body>{process.env.CHRONICLE_TELEMETRY_ENABLED === "1" && <WebVitalsReporter />}<ServiceWorkerRegistrar /><AppShell>{children}</AppShell></body></html>;
 }

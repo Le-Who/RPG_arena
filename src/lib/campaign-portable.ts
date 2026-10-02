@@ -72,9 +72,52 @@ const character = object({
   gold: number(), stats: record(number(), 100), skills: strings(), traits: strings(), backstory: text(),
   appearance: text(), conditions: optional(strings()),
 });
+const worldClock = object({ day: integer(1, 1_000_000), minute: integer(0, 1439) });
+const storyShape = object({
+  kind: choice("scene", "open-life", "arc"), goal: text(1000), stakes: text(1000), conflict: text(1000),
+  endCondition: text(1000), focus: strings(20, 300), status: choice("ongoing", "resolved"),
+  resolvedTurn: optional(integer()), epilogue: optional(text(3000)),
+});
 const world = object({
   worldName: nonempty(200), tone: text(2000), era: text(2000), mainQuest: text(10_000),
   currentLocation: nonempty(500), factions: strings(), flags: record(flag, 1000), danger: number(0, 100), chapter: integer(),
+  clock: optional(worldClock), story: optional(storyShape),
+  commitments: optional(array(object({
+    id: text(64), title: text(200), parties: strings(8, 100), place: text(160), due: nullable(worldClock),
+    status: choice("proposed", "accepted", "fulfilled", "broken", "cancelled"), createdTurn: integer(), updatedTurn: integer(), note: text(400),
+    revision: optional(integer(0, 1_000_000_000)),
+    missEffect: optional(choice("none", "relation")), attendance: optional(choice("present", "absent")),
+    history: optional(array(object({ turn: integer(), kind: choice("rescheduled", "missed", "fulfilled", "broken", "cancelled", "reopened"), from: nullable(worldClock), to: nullable(worldClock), source: optional(choice("owner", "narration")), note: optional(text(200)) }), 12)),
+  }), 40)),
+  holdings: optional(array(object({
+    id: text(64), name: text(160), description: text(500), quantity: integer(1, 1000),
+    holderKind: choice("npc", "location"), holderKey: text(160), holderName: text(160), turn: integer(),
+  }), 100)),
+  agenda: optional(array(object({
+    id: nonempty(40), title: nonempty(140), kind: choice("npc", "world", "reminder"), npcKey: text(80), npcName: text(80),
+    at: worldClock, note: text(240), status: choice("pending", "due", "fired", "cancelled"),
+    createdTurn: integer(), firedTurn: optional(integer()),
+  }), 60)),
+  npcAgendas: optional(array(object({ key: nonempty(80), name: text(80), goal: text(160), routine: text(160), updatedTurn: integer() }), 30)),
+  narrator: optional(object({
+    pace: choice("slow", "balanced", "brisk"), length: choice("short", "medium", "long"),
+    initiative: choice("reactive", "balanced", "driving"), realism: choice("grounded", "balanced", "heightened"),
+    tension: choice("calm", "balanced", "tense"), boundaries: strings(6, 120), note: text(400),
+  })),
+  conditionTimers: optional(record(object({ expiresAt: worldClock, sinceTurn: integer() }), 100)),
+  npcBonds: optional(array(object({
+    key: nonempty(80), name: text(80), updatedTurn: integer(),
+    history: array(object({ turn: integer(), kind: choice("met", "relation", "gift", "promise", "meeting", "missed", "knowledge"), text: text(240), delta: number(-100, 100), at: nullable(worldClock) }), 12),
+    knows: array(object({ text: text(240), turn: integer(), source: optional(choice("scene", "owner")) }), 12),
+  }), 60)),
+  npcSchedules: optional(array(object({
+    id: nonempty(40), npcKey: nonempty(80), npcName: text(80), place: nonempty(160), from: integer(0, 1439), to: integer(0, 1439),
+    repeat: choice("daily", "once"), day: nullable(integer(1, 1_000_000)), note: text(240), createdTurn: integer(), source: optional(choice("scene", "owner")),
+  }), 60)),
+  arcHistory: optional(array(object({
+    goal: text(1000), stakes: text(1000), conflict: text(1000), endCondition: text(1000), epilogue: text(3000),
+    resolvedTurn: integer(), closedTurn: integer(), closedAt: worldClock,
+  }), 32)),
 });
 const session = object({
   id: uuid, title: nonempty(80), scenarioId: text(200), scenarioTitle: text(500), scenarioPrompt: text(),
@@ -90,11 +133,40 @@ const dice = object({
 const stateChanges = object({
   hp: number(), xp: number(), gold: number(), danger: number(), levelUp: bool, dead: bool,
   location: nullable(object({ from: text(500), to: text(500), isNew: bool })),
-  quests: array(object({ title: text(500), status: text(200), progress: number(), isNew: bool })),
-  npcs: array(object({ name: text(500), relation: number(), delta: number(), status: text(200), isNew: bool })),
+  quests: array(object({ title: text(500), status: text(200), progress: number(), isNew: bool, before: optional(object({ status: text(200), progress: number() })), note: optional(text(240)) })),
+  resources: optional(object({
+    hp: object({ before: number(), after: number(), maxBefore: number(), maxAfter: number() }),
+    gold: object({ before: number(), after: number() }), xp: object({ before: number(), after: number() }),
+    danger: object({ before: number(), after: number() }), level: optional(object({ before: number(), after: number() })),
+  })),
+  npcs: array(object({ name: text(500), relation: number(), delta: number(), status: text(200), isNew: bool, note: optional(text(500)) })),
   inventory: array(object({ op: text(200), name: text(500), quantity: number(), ok: bool, reason: optional(text(2000)) })),
   sceneObjects: array(object({ name: text(500), state: text(500), isNew: bool })),
   conditions: object({ added: strings(), removed: strings() }), rejected: strings(1000, 10_000),
+  life: optional(object({
+    intent: choice("act", "intend", "claim", "ask"),
+    clock: nullable(object({ from: text(100), to: text(100), minutes: integer(0, 1_000_000), newDay: bool })),
+    commitments: array(object({ title: text(200), status: choice("proposed", "accepted", "fulfilled", "broken", "cancelled"), isNew: bool, downgraded: optional(bool), rescheduled: optional(bool) }), 40),
+    transfers: array(object({ name: text(160), to: text(160), quantity: integer(), ok: bool, reason: optional(text(2000)) }), 100),
+    story: nullable(object({ kind: choice("scene", "open-life", "arc"), resolved: bool })),
+  })),
+  interaction: optional(nullable(object({ verb: text(60), label: text(160), target: text(160), valid: bool, reasons: strings(20, 2000) }))),
+  agenda: optional(object({
+    scheduled: array(object({ title: text(140), at: text(100), kind: choice("npc", "world", "reminder") }), 24),
+    fired: array(object({ title: text(140), kind: choice("npc", "world", "reminder") }), 24),
+    cancelled: strings(24, 140),
+    npcGoals: array(object({ name: text(80), goal: text(160), routine: text(160) }), 30),
+  })),
+  conditionTimers: optional(object({
+    expired: strings(100, 100), scheduled: array(object({ condition: text(100), expiresAt: worldClock }), 100),
+  })),
+  social: optional(object({
+    bonds: array(object({ name: text(160), kind: choice("met", "relation", "gift", "promise", "meeting", "missed", "knowledge"), text: text(240), delta: number(-100, 100) }), 100),
+    schedules: array(object({ name: text(160), place: text(200), window: text(100), removed: optional(bool) }), 20),
+    knowledge: array(object({ name: text(160), fact: text(240) }), 20),
+    missed: array(object({ title: text(200), parties: strings(8, 160), penalty: integer(0, 100) }), 40),
+    overdue: array(object({ title: text(200), reason: text(300) }), 40),
+  })),
 });
 const verdict = choice("consistent", "contradicts", "insufficient");
 const question = object({ type: choice("choice"), instructions: text(10_000), criteria: object({ consistent: text(5000), contradicts: text(5000), insufficient: text(5000) }) });
@@ -134,6 +206,15 @@ const contextMeta = object({
   model: text(300), rulesProfile: choice("d20", "rules-light", "narrative"), digestChars: integer(),
   retrievedIds: array(uuid, 1000), retrievalMs: optional(number(0)), skippedModels: optional(strings()),
   timings: optional(timings),
+  promptBudget: optional(object({
+    version: choice(1), systemChars: integer(0, 5_000_000), userChars: integer(0, 5_000_000), schemaChars: integer(0, 5_000_000), estimatedTokens: integer(0, 5_000_000),
+    sections: object({
+      scenario: optional(integer(0, 5_000_000)), entities: optional(integer(0, 5_000_000)), memory: optional(integer(0, 5_000_000)), retrieved: optional(integer(0, 5_000_000)),
+      recent: optional(integer(0, 5_000_000)), life: optional(integer(0, 5_000_000)), agenda: optional(integer(0, 5_000_000)), social: optional(integer(0, 5_000_000)),
+      conditions: optional(integer(0, 5_000_000)), narrator: optional(integer(0, 5_000_000)), verification: optional(integer(0, 5_000_000)), evidence: optional(integer(0, 5_000_000)),
+      action: optional(integer(0, 5_000_000)),
+    }),
+  })),
   narrativeVerification: optional(object({
     version: choice(1), reasons: strings(), repaired: bool, emittedCharacters: integer(),
     textSha256: optional(text(64)), checks: array(verification, 20), checkSelections: optional(array(selection, 20)),
@@ -199,6 +280,12 @@ export function parsePortableDocument(input: unknown): PortableDocument {
     document.snapshot.quests, document.snapshot.npcs, document.snapshot.sceneObjects, document.snapshot.memories,
     document.snapshot.links, document.snapshot.agreements ?? []].flatMap(rows => rows.map(row => row.id))];
   if (new Set(allIds).size !== allIds.length) invalid("document.snapshot.ids");
+  const agenda = document.snapshot.session.worldState.agenda ?? [];
+  if (new Set(agenda.map(event => event.id)).size !== agenda.length
+    || agenda.filter(event => event.status === "pending" || event.status === "due").length > 24
+    || new Set((document.snapshot.session.worldState.npcAgendas ?? []).map(npc => npc.key)).size !== (document.snapshot.session.worldState.npcAgendas ?? []).length) {
+    invalid("document.snapshot.session.worldState.agenda");
+  }
   if (document.snapshot.memories.some(row => row.parentId && !ids.has(row.parentId))
     || document.snapshot.locations.some(row => row.connectedTo?.some(id => !locations.has(id)))
     || document.snapshot.turns.some(row => row.contextMeta?.retrievedIds.some(id => !ids.has(id)))

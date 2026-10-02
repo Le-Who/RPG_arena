@@ -5,8 +5,9 @@ import { assertAuthOrigin } from "./lib/auth-policy";
 import { httpError } from "./lib/http";
 import { CHECKPOINT_MAX_BYTES } from "./lib/checkpoint-types";
 export async function proxy(req: NextRequest) {
+  if (["/sw.js", "/offline.html", "/manifest.webmanifest"].includes(req.nextUrl.pathname)) return NextResponse.next();
   // Readiness must not depend on guest identity or an already migrated auth schema.
-  if (req.nextUrl.pathname === "/api/health") return NextResponse.next();
+  if (["/api/health", "/api/version"].includes(req.nextUrl.pathname)) return NextResponse.next();
   const id = req.nextUrl.pathname.match(/^\/api\/sessions\/([^/]+)/)?.[1];
   const importPath = req.nextUrl.pathname === "/api/sessions/import";
   if (id && !importPath && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return NextResponse.json({ error: "Некорректный идентификатор кампании" }, { status: 400 });
@@ -20,6 +21,10 @@ export async function proxy(req: NextRequest) {
     if (req.headers.get("sec-fetch-site") === "cross-site") return NextResponse.json({ error: "Cross-site request rejected" }, { status: 403 });
     const length = Number(req.headers.get("content-length") || 0);
     if (length > (importPath && req.method === "POST" ? CHECKPOINT_MAX_BYTES + 4096 : 65536)) return NextResponse.json({ error: "Слишком большой запрос" }, { status: 413 });
+  }
+  // Anonymous, bounded telemetry uses no guest identity; same-origin checks above still apply.
+  if (req.nextUrl.pathname === "/api/telemetry/vitals") {
+    const response = NextResponse.next(); response.headers.set("Cache-Control", "no-store"); return response;
   }
   const existing = req.cookies.get(GUEST_COOKIE)?.value;
   const token = profileIdFromToken(existing) && await auth.guestProfile(existing) ? existing! : newGuestToken();

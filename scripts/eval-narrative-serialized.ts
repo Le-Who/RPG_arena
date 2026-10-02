@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { verifyNarrative } from "../src/lib/narrative-verifier";
 import type { NarrativeCheckSelection, NarrativeVerdict } from "../src/lib/narrative-policy";
+import { selectiveMetrics } from "./jev-evaluation";
 
 // Generate these using CAPTURE_NARRATIVE_FIXTURES=1 and the PGlite integration test.
 // This runner never connects to a campaign database or generates story text.
@@ -34,7 +35,7 @@ async function run() {
     if (result.status === "unavailable") break;
   }
   const output = `output/narrative-evaluation/serialized-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-  await writeFile(output, JSON.stringify({ syntheticOnly: true, scope: "actual performTurn input; fixed synthetic generation", rows }, null, 2));
+  await writeFile(output, JSON.stringify({ syntheticOnly: true, variant: process.argv.includes("--focused-instructions") ? "focused" : "runtime", scope: "actual performTurn input; fixed synthetic generation", selective: selectiveMetrics(rows), rows }, null, 2));
   console.log(JSON.stringify({ output, calls: rows.length }));
 }
-run().catch(error => { console.error(error instanceof Error ? error.message : "evaluation_failed"); process.exitCode = 1; });
+run().catch(() => { console.error("Serialized evaluation failed; raw errors suppressed."); process.exitCode = 1; });
