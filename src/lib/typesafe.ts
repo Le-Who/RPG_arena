@@ -1,5 +1,6 @@
 import type { ExtractedFact } from "./memory";
 import type { TypeSafeEvaluation, TypeSafeReport, TypeSafeVerdict } from "./typesafe-report";
+import { runJevTask, type JevTask, type JevTransport } from "./jev-tasks";
 
 export const TYPE_SAFE_MODEL = "jev-1.13.0" as const;
 export const TYPE_SAFE_PROMPT_VERSION = "fact-verification-v1" as const;
@@ -96,6 +97,16 @@ export function parseTypeSafeResponse(raw: unknown, facts: Pick<ExtractedFact, "
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+/** JEV-3a: то же задание в общем контракте (метки и вопросы совпадают с buildTypeSafeRequest). */
+export function factVerificationJevTask(input: { facts: ExtractedFact[]; narration: string; playerAction: string }): JevTask<TypeSafeVerdict> {
+  const request = buildTypeSafeRequest(input);
+  return {
+    taskId: "memory-fact-verification", taskVersion: TYPE_SAFE_PROMPT_VERSION, labels: VERDICTS,
+    uncertainty: { insufficientLabel: "unsupported", minConfidence: 0.8, minProbability: 0.8 },
+    state: request.state, questions: request.questions, strictProbabilities: false, limits: { maxQuestions: 6, maxBodyBytes: 200_000 },
+  };
+}
+
 export async function verifyTypeSafeFacts(input: {
   enabled: boolean;
   apiKey: string;
@@ -103,33 +114,32 @@ export async function verifyTypeSafeFacts(input: {
   narration: string;
   playerAction: string;
   fetchImpl?: FetchLike;
+  transport?: JevTransport;
   timeoutMs?: number;
 }): Promise<TypeSafeReport> {
   const base: Omit<TypeSafeReport, "status"> = { model: TYPE_SAFE_MODEL, promptVersion: TYPE_SAFE_PROMPT_VERSION, evaluations: [], usage: null, latencyMs: 0 };
   if (!input.enabled) return { ...base, status: "disabled" };
   if (!input.apiKey.trim()) return { ...base, status: "no_key" };
   if (!input.facts.length) return { ...base, status: "empty" };
-
-  const started = performance.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 5000);
-  try {
-    const response = await (input.fetchImpl ?? fetch)(TYPE_SAFE_ENDPOINT, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${input.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify(buildTypeSafeRequest(input)),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
-      throw new Error(`TypeSafe вернул HTTP ${response.status}.`);
-    }
-    const parsed = parseTypeSafeResponse(await response.json(), input.facts.slice(0, 6));
-    return { status: "ok", model: parsed.model, promptVersion: TYPE_SAFE_PROMPT_VERSION, evaluations: parsed.evaluations, usage: parsed.usage, latencyMs: Math.round(performance.now() - started) };
-  } catch (error) {
-    const timedOut = controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError");
-    return { ...base, status: "error", latencyMs: Math.round(performance.now() - started), error: timedOut ? "TypeSafe не ответил за 5 секунд." : error instanceof Error && /^TypeSafe вернул HTTP \d+\.$/.test(error.message) ? error.message : "Не удалось проверить факты через TypeSafe." };
-  } finally {
-    clearTimeout(timer);
+  const facts = input.facts.slice(0, 6);
+  const timeoutMs = input.timeoutMs ?? 5000;
+  let httpStatus: number | null = null;
+  // Транспорт пилота сохраняет прежний контракт ошибок (HTTP-код в сообщении, единый таймаут 5 с).
+  const transport: JevTransport = input.transport ?? (async ({ endpoint, body, apiKey, signal }) => {
+    const response = await (input.fetchImpl ?? fetch)(endpoint, { method: "POST", redirect: "error", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body, signal });
+    if (!response.ok) { await response.body?.cancel().catch(() => undefined); httpStatus = response.status; throw new Error("provider_error"); }
+    return response.json();
+  });
+  const outcome = await runJevTask(factVerificationJevTask({ ...input, facts }), { apiKey: input.apiKey, provider: "typesafe", timeoutMs, maxTimeoutMs: Math.max(timeoutMs, 5000), transport });
+  if (outcome.status !== "answered") {
+    const error = outcome.reason === "timeout" ? "TypeSafe не ответил за 5 секунд."
+      : outcome.reason === "provider_error" && httpStatus !== null ? `TypeSafe вернул HTTP ${httpStatus}.`
+      : "Не удалось проверить факты через TypeSafe.";
+    return { ...base, status: "error", latencyMs: outcome.latencyMs, error };
   }
+  const evaluations: TypeSafeEvaluation[] = facts.map((fact, index) => {
+    const answer = outcome.answers[`fact${index}`];
+    return { factIndex: index, fact: fact.content, evidence: fact.evidence, choice: answer.choice, probabilities: answer.probabilities, confidence: answer.confidence };
+  });
+  return { status: "ok", model: TYPE_SAFE_MODEL, promptVersion: TYPE_SAFE_PROMPT_VERSION, evaluations, usage: outcome.usage ? { inputTokens: outcome.usage.inputTokens, outputTokens: outcome.usage.outputTokens } : null, latencyMs: outcome.latencyMs };
 }

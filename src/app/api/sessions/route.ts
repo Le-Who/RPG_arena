@@ -1,3 +1,5 @@
+import { normalizeStoryShape } from "@/lib/world-life";
+import type { WorldState } from "@/db/schema";
 import { readJsonObject, httpError } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { after } from "next/server";
@@ -31,6 +33,7 @@ type CreateBody = {
   scenarioId?: string;
   characterIndex?: number;
   rulesProfile?: RulesProfile;
+  storyShape?: Record<string, unknown>;
   customScenario?: { title?: string; worldName?: string; pitch?: string; mainQuest?: string; tone?: string; era?: string; startLocation?: string; factions?: string[] };
   customCharacter?: { name?: string; archetype?: string; backstory?: string; stats?: Record<string, number>; skills?: string[]; traits?: string[]; startItems?: string[] };
 };
@@ -145,7 +148,10 @@ async function handlePOST(req: Request) {
     appearance: "Определяется по ходу истории",
     conditions: [] as string[],
   };
-  const worldState = { worldName, tone, era, mainQuest, currentLocation: startLocation, factions, flags: {}, danger, chapter: 1 };
+  // NARR-7: форма истории задаётся при создании; по умолчанию пресет — арка, свободная история — открытая жизнь.
+  const storyShape = normalizeStoryShape(body.storyShape && typeof body.storyShape === "object" ? body.storyShape : { kind: mode === "preset" ? "arc" : "open-life" }, { mainQuest });
+  if (storyShape.kind === "arc" && !storyShape.goal) storyShape.goal = mainQuest.slice(0, 240);
+  const worldState: WorldState = { worldName, tone, era, mainQuest, currentLocation: startLocation, factions, flags: {}, danger, chapter: 1, clock: { day: 1, minute: 9 * 60 }, story: storyShape, commitments: [], holdings: [] };
 
   const { session, seedIds } = await db.transaction(async (tx) => {
   const inserted = await tx

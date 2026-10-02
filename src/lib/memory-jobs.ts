@@ -1,9 +1,10 @@
+import { callTextWithConfig } from "./text-provider";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, gt, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { memoryJobs, type MemoryJobPayload } from "@/db/schema";
 import { type DbTransaction, lockSession } from "./turn-admission";
-import { buildExtractionSystemPrompt, callGeminiWithRotation, EXTRACTION_RESPONSE_SCHEMA } from "./gemini";
+import { buildExtractionSystemPrompt, EXTRACTION_RESPONSE_SCHEMA } from "./gemini";
 import { quotaAdmission } from "./quota";
 import { quotaDeferredWithoutFetch } from "./quota-errors";
 import { getAIConfig, logToken, pickModels, type AIConfig } from "./ai-settings";
@@ -39,11 +40,11 @@ export async function processSemanticJob(opts: { sessionId?: string; cfg?: AICon
       await db.update(memoryJobs).set({ status: "pending", attempts: job.attempts - 1, leaseToken: null, leaseExpiresAt: null, error: "DAILY_LIMIT", nextAttemptAt: new Date(Date.now() + 60000), updatedAt: new Date() }).where(fenced);
       return { processed: 0, extracted: 0, failed: 0, delayed: true };
     }
-    const response = await callGeminiWithRotation({ keys: cfg.keys, models, system: buildExtractionSystemPrompt(job.payload.profileCanon, job.payload.knownDigest), user: `Действие игрока (намерение, не доказательство): ${job.payload.playerAction}\n\nПодтверждённый ответ рассказчика:\n${job.payload.narration}`, maxTokens: 1000, temperature: 0.2, responseSchema: EXTRACTION_RESPONSE_SCHEMA, timeoutMs: 15000,
+    const response = await callTextWithConfig(cfg, { keys: cfg.keys, models, system: buildExtractionSystemPrompt(job.payload.profileCanon, job.payload.knownDigest), user: `Действие игрока (намерение, не доказательство): ${job.payload.playerAction}\n\nПодтверждённый ответ рассказчика:\n${job.payload.narration}`, maxTokens: 1000, temperature: 0.2, responseSchema: EXTRACTION_RESPONSE_SCHEMA, timeoutMs: 15000,
       beforeAttempt: quotaAdmission(cfg),
-      onAttempt: async (attempt) => { if (!attempt.ok) await logToken({ sessionId: job.sessionId, model: attempt.model, taskType: "fast", promptTokens: 0, completionTokens: 0, latencyMs: attempt.latencyMs, success: false, error: attempt.error, keyIndex: attempt.keyIndex }); },
+      onAttempt: async (attempt) => { if (!attempt.ok) await logToken({ provider: cfg.textProvider, sessionId: job.sessionId, model: attempt.model, taskType: "fast", promptTokens: 0, completionTokens: 0, latencyMs: attempt.latencyMs, success: false, error: attempt.error, keyIndex: attempt.keyIndex }); },
     });
-    await logToken({ sessionId: job.sessionId, model: response.model, taskType: "fast", promptTokens: response.promptTokens, completionTokens: response.completionTokens, latencyMs: response.latencyMs, success: true, keyIndex: response.keyIndex });
+    await logToken({ provider: cfg.textProvider, sessionId: job.sessionId, model: response.model, taskType: "fast", promptTokens: response.promptTokens, completionTokens: response.completionTokens, latencyMs: response.latencyMs, success: true, keyIndex: response.keyIndex });
     const parsed = extractJsonObject(response.text);
     if (!parsed || !Array.isArray((parsed as { facts?: unknown }).facts)) throw new Error("INVALID_EXTRACTION_JSON");
     const facts = normalizeExtractedFacts(parsed, job.payload.narration, job.payload.playerAction);

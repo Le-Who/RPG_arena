@@ -3,6 +3,7 @@
 // они получают состояние «нужен AI» вместо псевдоадекватного шаблонного ответа.
 
 import { rollD20, roll2d6, dcFor, statModifier } from "./dice";
+import { conditionModifier } from "./conditions";
 import type { DiceResult } from "@/db/schema";
 import { assessRisk, isTrivialAction, profileFor } from "./profiles";
 import { seededRandom } from "./rng";
@@ -13,7 +14,7 @@ export type EngineInput = {
   /** Reuse the authoritative check; never roll twice for a single action. */
   resolvedDice?: DiceResult | null;
   rulesProfile: string;
-  character: { name: string; archetype: string; stats: Record<string, number>; hp: number; maxHp: number };
+  character: { name: string; archetype: string; stats: Record<string, number>; hp: number; maxHp: number; conditions?: string[] };
   world: { worldName: string; currentLocation: string; mainQuest: string; danger: number; chapter: number; tone: string };
   turnCount: number;
   scenarioTitle: string;
@@ -58,7 +59,7 @@ export function detectSkill(action: string): { skill: string; stat: string } {
   const a = action.toLowerCase();
   if (/атак|удар|сраж|выстрел|клинок|меч|кинжал|в бой|напада|драк/.test(a)) return { skill: "Ближний бой", stat: "СИЛ" };
   if (/скрыт|крад|незаметно|тихо|украдк|прослед|засад/.test(a)) return { skill: "Скрытность", stat: "ЛОВ" };
-  if (/убед|переговор|дипломат|уговори|обая|торг/.test(a)) return { skill: "Убеждение", stat: "ХАР" };
+  if (/убед|переговор|дипломат|уговори|обая|торг|подкуп|флирт|соблазн|допрос|допраш|обвин/.test(a)) return { skill: "Убеждение", stat: "ХАР" };
   if (/обман|солг|притвор|афер|блеф/.test(a)) return { skill: "Обман", stat: "ХАР" };
   if (/осмотр|найт|ищи|след|замет|обыск/.test(a)) return { skill: "Восприятие", stat: "МУД" };
   if (/маги|заклин|колд|ритуал/.test(a)) return { skill: "Магия", stat: "ИНТ" };
@@ -72,24 +73,25 @@ export function detectSkill(action: string): { skill: string; stat: string } {
 }
 
 /** Серверная проверка по профилю — общая для live и offline путей (ARCH-1f). */
-export function serverCheck(input: { rulesProfile: string; playerAction: string; stats: Record<string, number>; danger: number; turnCount: number }): DiceResult | null {
+export function serverCheck(input: { rulesProfile: string; playerAction: string; stats: Record<string, number>; danger: number; turnCount: number; conditions?: string[] }): DiceResult | null {
   const spec = profileFor(input.rulesProfile);
   if (spec.check === "none") return null;
   if (isTrivialAction(input.playerAction)) return null;
   if (spec.check === "2d6") {
     const risk = assessRisk(input.playerAction, input.danger);
     if (risk === "safe") return null;
-    return { ...roll2d6(risk === "desperate" ? "Отчаянный риск" : "Риск", risk === "desperate" ? -1 : 0), goal: input.playerAction };
+    // MECH-4: состояния героя дают детерминированный модификатор к риск-проверке.
+    return { ...roll2d6(risk === "desperate" ? "Отчаянный риск" : "Риск", (risk === "desperate" ? -1 : 0) + conditionModifier(input.conditions, detectSkill(input.playerAction).skill)), goal: input.playerAction };
   }
   const { skill, stat } = detectSkill(input.playerAction);
-  const mod = statModifier(input.stats[stat] ?? 11);
+  const mod = statModifier(input.stats[stat] ?? 11) + conditionModifier(input.conditions, skill);
   return { ...rollD20(skill, mod, dcFor(input.danger, input.turnCount)), goal: input.playerAction };
 }
 
 export function runOfflineEngine(input: EngineInput): EngineOutput {
   const spec = profileFor(input.rulesProfile);
   const dice = input.resolvedDice !== undefined ? input.resolvedDice : input.isFreeAction
-    ? serverCheck({ rulesProfile: input.rulesProfile, playerAction: input.playerAction, stats: input.character.stats, danger: input.world.danger, turnCount: input.turnCount })
+    ? serverCheck({ rulesProfile: input.rulesProfile, playerAction: input.playerAction, stats: input.character.stats, danger: input.world.danger, turnCount: input.turnCount, conditions: input.character.conditions })
     : null;
 
   const random = seededRandom(`${input.scenarioTitle}|${input.world.worldName}|${input.turnCount}|${input.playerAction}|${JSON.stringify(dice)}`);

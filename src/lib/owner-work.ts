@@ -44,10 +44,22 @@ export async function withCurrentIdentityWork<T>(run: () => Promise<T>): Promise
     return withAdmittedIdentity(current, run);
   });
 }
+/** Admission, handler and owner cleanup until Response is ready; excludes stream completion. */
+export function withServerTiming(response: Response, started: number): Response {
+  try {
+    const duration = Math.max(0, performance.now() - started).toFixed(1);
+    const previous = response.headers.get("Server-Timing");
+    response.headers.set("Server-Timing", `${previous ? `${previous}, ` : ""}app;desc="response-ready";dur=${duration}`);
+  } catch { /* Immutable headers: optional timing never changes request semantics. */ }
+  return response;
+}
 export function withIdentityWork<A extends unknown[]>(handler: (...args: A) => Promise<Response>) {
   return async (...args: A): Promise<Response> => {
-    try { return await withCurrentIdentityWork(() => handler(...args)); }
-    catch (error) { return httpError(error); }
+    const started = performance.now();
+    let response: Response;
+    try { response = await withCurrentIdentityWork(() => handler(...args)); }
+    catch (error) { response = httpError(error); }
+    return withServerTiming(response, started);
   };
 }
 export async function withCampaignOwnerWork<T>(sessionId: string, expectedOwner: string | undefined, run: () => Promise<T>): Promise<T> {

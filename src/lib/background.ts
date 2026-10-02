@@ -1,6 +1,8 @@
-import { and, asc, eq, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, lte, or } from "drizzle-orm";
 import { db } from "@/db";
-import { aiSettings, gameSessions, memoryEmbeddings, workerHeartbeats } from "@/db/schema";
+import { authDatabase } from "./auth";
+import { selectNextMemoryCampaign } from "./owner-queue";
+import { memoryEmbeddings, workerHeartbeats } from "@/db/schema";
 import { sessionOwnerId } from "./campaign-access";
 import { getAIConfig } from "./ai-settings";
 import { processSemanticJob } from "./memory-jobs";
@@ -20,24 +22,7 @@ export async function runMemoryCycle(opts: { sessionId?: string; ownerId?: strin
   let ownerId = opts.ownerId;
   try {
     if (!sessionId) {
-      // Pick a ready campaign first, then load only its owner's credentials.
-      const [next] = await db.select({ id: gameSessions.id, ownerId: gameSessions.ownerId }).from(gameSessions)
-        .innerJoin(aiSettings, eq(aiSettings.id, gameSessions.ownerId))
-        .where(and(ownerId ? eq(gameSessions.ownerId, ownerId) : undefined,
-          sql`jsonb_array_length(coalesce(${aiSettings.keys}, '[]'::jsonb)) > 0`,
-          sql`(
-            (${aiSettings.useLiveAI} and ${aiSettings.semanticExtractionEnabled} and exists (
-              select 1 from memory_jobs j where j.session_id = ${gameSessions.id} and
-              ((j.status = 'pending' and j.next_attempt_at <= now()) or (j.status = 'processing' and j.lease_expires_at <= now()))
-            )) or (${aiSettings.embeddingsEnabled} and exists (
-              select 1 from memory_embeddings e where e.session_id = ${gameSessions.id} and e.model = ${aiSettings.embeddingModel} and e.dims = ${aiSettings.embeddingDims} and
-              ((e.status = 'pending' and e.next_attempt_at <= now()) or (e.status = 'processing' and e.lease_expires_at <= now()))
-            ))
-          )`))
-        .orderBy(sql`least(
-          (select min(j.next_attempt_at) from memory_jobs j where j.session_id = ${gameSessions.id} and j.status in ('pending', 'processing')),
-          (select min(e.next_attempt_at) from memory_embeddings e where e.session_id = ${gameSessions.id} and e.status in ('pending', 'processing'))
-        )`).limit(1);
+      const next = await selectNextMemoryCampaign(authDatabase, ownerId);
       sessionId = next?.id;
       ownerId = next?.ownerId ?? ownerId;
     }
@@ -52,12 +37,12 @@ export async function runMemoryCycle(opts: { sessionId?: string; ownerId?: strin
     const campaignId = sessionId;
     return await withCampaignOwnerWork(campaignId, ownerId, async () => {
     const cfg = await getAIConfig(ownerId);
-    report.paused = !cfg.keys.length || (!cfg.embeddingsEnabled && (!cfg.canUseLive || !cfg.semanticExtractionEnabled));
+    report.paused = !(cfg.keys.length && cfg.embeddingsEnabled) && !(cfg.canUseLive && cfg.semanticExtractionEnabled);
     await workerHeartbeat(source, report.paused ? "paused" : "running", undefined, ownerId);
     if (!report.paused) {
       const semantic = await processSemanticJob({ sessionId: campaignId, cfg });
       report.extracted = semantic.extracted; report.failed = semantic.failed; report.processed = semantic.processed;
-      if (cfg.embeddingsEnabled) {
+      if (cfg.embeddingsEnabled && cfg.keys.length) {
         const [next] = await db.select({ sessionId: memoryEmbeddings.sessionId }).from(memoryEmbeddings).where(and(
           eq(memoryEmbeddings.sessionId, campaignId),
           eq(memoryEmbeddings.model, cfg.embeddingModel), eq(memoryEmbeddings.dims, cfg.embeddingDims),

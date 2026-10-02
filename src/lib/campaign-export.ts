@@ -4,6 +4,7 @@ import { agreementEvents, gameSessions, gameTurns } from "@/db/schema";
 import { readCampaignSnapshot } from "./campaign-copy";
 import { createPortableDocument } from "./campaign-portable";
 import { requireUuid } from "./http";
+import { formatClock, readArcHistory, readLife, STORY_SHAPE_LABELS } from "./world-life";
 
 /** A repeatable-read view covers every table even while a turn commits. */
 export async function exportPortableCampaign(sessionId: string, ownerId: string) {
@@ -26,9 +27,16 @@ export async function exportCampaignMarkdown(sessionId: string): Promise<string 
       .orderBy(asc(agreementEvents.turnNumber), asc(agreementEvents.version));
     const story = `# ${session.title}\n\n${session.worldState.worldName} · ${session.rulesProfile}\n\nГерой: ${session.character.name} — ${session.character.archetype}\n\n`
       + turns.map(turn => `## Ход ${turn.turnNumber} · ${turn.role === "player" ? session.character.name : "Рассказчик"}\n\n${turn.content}${turn.dice ? `\n\nПроверка: ${turn.dice.label} · ${turn.dice.total} / ${turn.dice.dc}` : ""}`).join("\n\n---\n\n");
-    if (!agreements.length) return story;
+    // NARR-9: завершённая история остаётся читаемой — эпилог и итог формы истории входят в экспорт.
+    const life = readLife(session.worldState);
+    const archive = readArcHistory(session.worldState).map((arc, index) =>
+      `\n\n---\n\n## Завершённая арка ${index + 1} · ${arc.goal}\n\nЗавершена на ходу ${arc.resolvedTurn}.\n\n${arc.epilogue}`).join("");
+    const finale = life.story.status === "resolved"
+      ? `\n\n---\n\n## Эпилог\n\n${STORY_SHAPE_LABELS[life.story.kind].title} завершена на ходу ${life.story.resolvedTurn ?? session.turnCount} (${formatClock(life.clock)}).${life.story.goal ? ` Цель: ${life.story.goal}.` : ""}${life.story.epilogue ? `\n\n${life.story.epilogue}` : ""}`
+      : "";
+    if (!agreements.length) return story + archive + finale;
     // Indented JSON preserves exact terms and provenance without allowing quoted fences to escape the block.
-    return `${story}\n\n---\n\n## Журнал договорённостей\n\nКаждая запись — неизменяемая версия. proposed означает предложение, accepted — принятую договорённость, fulfilled — исполнение, cancelled — отмену.\n\n`
+    return `${story}${archive}${finale}\n\n---\n\n## Журнал договорённостей\n\nКаждая запись — неизменяемая версия. proposed означает предложение, accepted — принятую договорённость, fulfilled — исполнение, cancelled — отмену.\n\n`
       + JSON.stringify(agreements, null, 2).split("\n").map(line => `    ${line}`).join("\n") + "\n";
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }

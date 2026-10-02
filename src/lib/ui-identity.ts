@@ -52,8 +52,11 @@ export function profileStorageKey(identity: Pick<IdentityView, "profileId">, pur
 
 export function createWorkspaceLoadGate() {
   let generation = 0;
+  let pending = false;
   return {
-    begin: () => ++generation,
+    begin: () => { pending = true; return ++generation; },
+    finish: (ticket: number) => { if (ticket === generation) pending = false; },
+    isPending: () => pending,
     isCurrent: (ticket: number) => ticket === generation,
     invalidate: () => { generation++; },
   };

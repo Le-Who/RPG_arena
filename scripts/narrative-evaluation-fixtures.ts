@@ -1,4 +1,5 @@
-import { selectNarrativeChecks, type NarrativeVerdict } from "../src/lib/narrative-policy";
+import { selectNarrativeChecks, scopeNarrativeChecks, type NarrativeVerdict } from "../src/lib/narrative-policy";
+import { selectiveMetrics } from "./jev-evaluation";
 import type { NarrativeVerification } from "../src/lib/narrative-verifier";
 
 export type Scenario = {
@@ -37,12 +38,15 @@ export const scenarios: Scenario[] = [
   scenario("description_weather", "consistent", "Над площадью серое небо. В воздухе пахнет дождём.", {}, { shouldGuard: false, declaration: { mode: "description", referencesPast: false } }),
   scenario("description_stone", "consistent", "Камни стены шершавые и холодные.", {}, { shouldGuard: false, declaration: { mode: "description", referencesPast: false } }),
 ];
-export function selectionFor(s: Scenario) { return selectNarrativeChecks(s); }
+export function selectionFor(s: Scenario) {
+  const choices = Array.isArray(s.state.draft_choices) ? s.state.draft_choices.filter((v): v is string => typeof v === "string") : [];
+  return scopeNarrativeChecks(selectNarrativeChecks({ ...s, choices }), s.state);
+}
 export type EvalOutcome = { expected: NarrativeVerdict; status: NarrativeVerification["status"]; latencyMs: number };
 export function scoreNarrativeEvaluation(rows: EvalOutcome[]) {
   const completed = rows.filter(r => r.status !== "unavailable" && r.status !== "skipped").map(r => r.latencyMs).sort((a, b) => a - b);
   const percentile = (p: number) => completed.length ? completed[Math.ceil(p * completed.length) - 1] : null;
-  return { total: rows.length, falseAccepts: rows.filter(r => r.expected !== "consistent" && (r.status === "verified" || r.status === "skipped")).length,
+  return { selective: selectiveMetrics(rows), total: rows.length, falseAccepts: rows.filter(r => r.expected !== "consistent" && (r.status === "verified" || r.status === "skipped")).length,
     falseRejects: rows.filter(r => r.expected === "consistent" && r.status === "rejected").length,
     abstentions: rows.filter(r => r.status === "uncertain").length, unavailable: rows.filter(r => r.status === "unavailable").length,
     safeBypasses: rows.filter(r => r.expected === "consistent" && r.status === "skipped").length,

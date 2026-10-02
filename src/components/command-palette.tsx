@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, BookOpen, BrainCircuit, Compass, Feather, Globe2, LayoutGrid, Plus, Search, Settings2, Sparkles, UsersRound, type LucideIcon } from "lucide-react";
+import { Activity, BookOpen, Palette, BrainCircuit, Compass, Feather, Globe2, LayoutGrid, Plus, Search, Settings2, Sparkles, UsersRound, type LucideIcon } from "lucide-react";
 import { useApp } from "./app-shell";
 import { Dialog } from "./dialog";
 import { profileStorageKey } from "@/lib/ui-identity";
 import { WORLDS } from "@/lib/ui-data";
+import { parseTurnQuery } from "@/lib/command-query";
 
 type Command = { id: string; label: string; detail: string; keywords?: string; icon: LucideIcon; run: () => void };
 export function CommandPalette({ onClose, suspended = false }: { onClose: () => void; suspended?: boolean }) {
@@ -21,17 +22,28 @@ export function CommandPalette({ onClose, suspended = false }: { onClose: () => 
   const commands = useMemo<Command[]>(() => {
     const go = (path: string) => () => { onClose(); router.push(path); };
     return [
-      ...playCommands.map(command => ({ ...command, detail: "Текущая кампания", icon: BookOpen, run: () => { onClose(); requestAnimationFrame(command.run); } })),
+      ...playCommands.map(command => command.jumpToTurn
+        ? { id: command.id, label: command.label, detail: `Номер от 1 до ${command.maxTurn ?? 1}`, icon: BookOpen, run: () => { setQuery("ход "); setSelected(0); input.current?.focus(); } }
+        : { ...command, detail: "Текущая кампания", icon: BookOpen, run: () => { onClose(); requestAnimationFrame(command.run); } }),
       { id: "new", label: "Новая история", detail: "Выбрать мир и героя", keywords: "создать кампания", icon: Plus, run: () => newStory() },
-      { id: "free", label: "Создать свой мир", detail: "Мир можно сохранить без ключа; для ходов нужен Gemini", icon: Sparkles, run: () => newStory(undefined, "free") },
+      { id: "free", label: "Создать свой мир", detail: "Мир можно сохранить без ключа; для ходов нужен живой рассказчик", icon: Sparkles, run: () => newStory(undefined, "free") },
       ...sessions.filter(s => s.status === "active").map(s => ({ id: `session:${s.id}`, label: s.title, detail: `Кампания · ${s.character.name} · ход ${s.turnCount}`, keywords: s.character.archetype, icon: BookOpen, run: go(`/play/${s.id}`) })),
-      ...([{ href: "/", label: "Обзор", icon: LayoutGrid }, { href: "/campaigns", label: "Мои кампании", icon: BookOpen }, { href: "/worlds", label: "Библиотека миров", icon: Globe2 }, { href: "/characters", label: "Персонажи", icon: UsersRound }, { href: "/memory", label: "Память мира", icon: BrainCircuit }, { href: "/journal", label: "Журнал приключений", icon: Feather }, { href: "/system", label: "Пульс движка", icon: Activity }].filter(item => item.href !== "/system" || administration).map(item => ({ id: item.href, label: item.label, detail: "Перейти в раздел", icon: item.icon, run: go(item.href) }))),
-      { id: "settings", label: "Настройки", detail: "AI-мастер, ключи и комфорт чтения", icon: Settings2, run: () => { onClose(); openSettings(); } },
+      ...([{ href: "/", label: "Обзор", icon: LayoutGrid }, { href: "/campaigns", label: "Мои кампании", icon: BookOpen }, { href: "/worlds", label: "Библиотека миров", icon: Globe2 }, { href: "/characters", label: "Персонажи", icon: UsersRound }, { href: "/memory", label: "Память мира", icon: BrainCircuit }, { href: "/journal", label: "Журнал приключений", icon: Feather }, { href: "/design", label: "Дизайн-система", icon: Palette }, { href: "/system", label: "Пульс движка", icon: Activity }].filter(item => item.href !== "/system" || administration).map(item => ({ id: item.href, label: item.label, detail: "Перейти в раздел", icon: item.icon, run: go(item.href) }))),
+      { id: "settings", label: "Настройки", detail: "Рассказчик, аккаунт и комфорт чтения", icon: Settings2, run: () => { onClose(); openSettings(); } },
       { id: "motion", label: workspace.reading.motion === "reduced" ? "Включить анимации" : "Уменьшить движение", detail: "Настройка сохраняется в вашем профиле", icon: Feather, run: () => { onClose(); void updateReading({ ...workspace.reading, motion: workspace.reading.motion === "reduced" ? "full" : "reduced" }); } },
       ...WORLDS.map(world => ({ id: `world:${world.id}`, label: world.title, detail: `Авторский мир · ${world.genre}`, keywords: world.worldName, icon: Compass, run: () => newStory(world.id) })),
     ];
   }, [sessions, administration, workspace.reading, newStory, onClose, router, openSettings, updateReading, playCommands]);
+  const turnJump = useMemo<Command | null>(() => {
+    const target = parseTurnQuery(query);
+    const host = playCommands.find(command => command.jumpToTurn);
+    if (target === null || !host?.jumpToTurn) return null;
+    const turn = Math.min(target, host.maxTurn ?? target);
+    const jump = host.jumpToTurn;
+    return { id: "jump-turn", label: `Перейти к ходу ${turn}`, detail: turn < target ? `В кампании пока ${turn} ход(ов)` : "Текущая кампания", icon: BookOpen, run: () => { onClose(); requestAnimationFrame(() => jump(turn)); } };
+  }, [query, playCommands, onClose]);
   const filtered = useMemo(() => {
+    if (turnJump) return [turnJump];
     const words = query.toLocaleLowerCase("ru").trim().split(/\s+/).filter(Boolean);
     const found = commands.filter(command => words.every(word => `${command.label} ${command.detail} ${command.keywords ?? ""}`.toLocaleLowerCase("ru").includes(word)));
     if (!words.length && recentIds.length) found.sort((a, b) => {
@@ -39,7 +51,7 @@ export function CommandPalette({ onClose, suspended = false }: { onClose: () => 
       return rank(a.id) - rank(b.id);
     });
     return found.slice(0, words.length ? 16 : 10);
-  }, [commands, query, recentIds]);
+  }, [commands, query, recentIds, turnJump]);
   const active = Math.min(selected, Math.max(0, filtered.length - 1));
   const execute = (command: Command) => {
     try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify([command.id, ...recentIds.filter(id => id !== command.id)].slice(0, 5))); } catch {}
