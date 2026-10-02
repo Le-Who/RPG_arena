@@ -8,7 +8,7 @@ type PendingFeedTurn = { sessionId: string; expectedTurn: number; action: string
 export function buildNarrativeFeed(turns: FeedTurn[], pending: PendingFeedTurn | null, preview: string): NarrativeFeedRow[] {
   const rows = new Map<string, NarrativeFeedRow>();
   const add = (turn: FeedTurn, isPending: boolean) => {
-    const key = JSON.stringify([turn.sessionId, turn.turnNumber, turn.role]);
+    const key = `${turn.sessionId.length}:${turn.sessionId}:${turn.turnNumber}:${turn.role}`;
     if (!rows.has(key)) rows.set(key, { ...turn, key, pending: isPending });
   };
   for (const turn of turns) add(turn, false);

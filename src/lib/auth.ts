@@ -124,6 +124,8 @@ export function createAuthService(database: AuthDatabase) {
     async adopt(guestToken: string, token: string) {
       await database.transaction(async tx => {
         const account = await requireAccount(token, tx);
+        // Serialize the new quota ancestry with target-account visual admission.
+        await tx.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`owner:${account.profile_id}`]);
         const profile = await claim(tx, guestToken, account.id);
         // Campaign data follows its session. Personal settings/keys remain untouched (owner-bound AAD).
         await tx.query("UPDATE game_sessions SET owner_id=$1 WHERE owner_id=$2", [account.profile_id, profile]);

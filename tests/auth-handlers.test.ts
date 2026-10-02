@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { accountsDb } from "./helpers/accounts-db";
 import { GUEST_COOKIE, profileIdFromToken } from "../src/lib/guest-identity";
+import { randomUUID } from "node:crypto";
 
 test("real auth handlers require origin, issue private cookies, preserve guest on login and clear sessions on logout", async () => {
   const f = await accountsDb();
@@ -47,4 +48,48 @@ test("auth handler rate limit cannot be bypassed by changed logins or untrusted 
       assert.equal(response.status, i < 10 ? 400 : 429);
     }
   } finally { await f.close(); }
+});
+
+test("guest and invalid session requests cannot spend authenticated security budgets", async () => {
+  const fixture = await accountsDb();
+  try {
+    const { POST } = await import("../src/app/api/auth/[action]/route");
+    for (const action of ["password", "logout-all", "adopt-guest"]) {
+      for (const cookie of [`${GUEST_COOKIE}=${"6".repeat(64)}`, `chronicle_session=${"7".repeat(64)}`]) {
+        const response = await POST(new Request(`https://game.test/api/auth/${action}`, {
+          method: "POST", headers: { origin: "https://game.test", "content-type": "application/json", cookie },
+          body: JSON.stringify({ oldPassword: "invalid", newPassword: "long-enough-fixture-password" }),
+        }), { params: Promise.resolve({ action }) });
+        assert.equal(response.status, 401);
+      }
+    }
+    assert.equal((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM auth_rate_limits")).rows[0].n, 0);
+  } finally { await fixture.close(); }
+});
+
+test("account security budgets are independent and ordinary logout bypasses throttling", async () => {
+  const fixture = await accountsDb();
+  try {
+    const { POST } = await import("../src/app/api/auth/[action]/route");
+    const { auth } = await import("../src/lib/auth");
+    const { tokenHash } = await import("../src/lib/auth-policy");
+    const accountA = randomUUID(), accountB = randomUUID();
+    const tokenA = "a".repeat(64), tokenB = "b".repeat(64);
+    for (const [account, login, token] of [[accountA, "budget-a", tokenA], [accountB, "budget-b", tokenB]]) {
+      await fixture.pg.query("INSERT INTO accounts(id,login,profile_id,password_hash) VALUES ($1,$2,$3,'fixture-only')", [account, login, `owner:${login}`]);
+      await fixture.pg.query("INSERT INTO account_sessions(token_hash,account_id,expires_at) VALUES ($1,$2,now()+interval '1 hour')", [tokenHash(token), account]);
+    }
+    for (let index = 0; index < 30; index++) {
+      await auth.rateLimit("logout-all", `account:${accountA}`);
+      await auth.rateLimit("logout-all", "untrusted-global");
+      await auth.rateLimit("logout", "untrusted-global");
+    }
+    const call = (action: string, token: string) => POST(new Request(`https://game.test/api/auth/${action}`, {
+      method: "POST", headers: { origin: "https://game.test", "content-type": "application/json", cookie: `${GUEST_COOKIE}=${"8".repeat(64)}; chronicle_session=${token}` }, body: "{}",
+    }), { params: Promise.resolve({ action }) });
+    assert.equal((await call("logout-all", tokenA)).status, 429);
+    assert.equal((await call("logout-all", tokenB)).status, 200);
+    assert.equal((await call("logout", tokenA)).status, 200);
+    assert.equal((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM account_sessions")).rows[0].n, 0);
+  } finally { await fixture.close(); }
 });

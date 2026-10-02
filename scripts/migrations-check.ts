@@ -6,7 +6,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { sql } from "drizzle-orm";
 import { db, pool } from "../src/db";
-import { gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats, visualSettings } from "../src/db/schema";
+import { gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats, visualQuotaReservations, visualSettings } from "../src/db/schema";
 async function run() {
   // Only use in a disposable development sandbox: requires CREATE DATABASE permission.
   const name = `chronicle_migration_test_${Date.now()}`;
@@ -17,7 +17,7 @@ async function run() {
     targetPool = new Pool({ connectionString: url.toString(), max: 2 });
     const target = drizzle(targetPool);
     await migrate(target, { migrationsFolder: "./drizzle" });
-    for (const table of [gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats, visualSettings]) await target.select().from(table).limit(1);
+    for (const table of [gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats, visualQuotaReservations, visualSettings]) await target.select().from(table).limit(1);
     const compatibility = await target.execute(sql`
       SELECT table_name, column_name
       FROM information_schema.columns

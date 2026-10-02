@@ -31,6 +31,16 @@ test("overlapping history pages deduplicate logical turns without collapsing dif
   assert.equal(new Set(rows.map(row => row.key)).size, 4);
 });
 
+test("composite identity keeps delimiter-containing session and role strings distinct", () => {
+  const base = withCommittedTurn([], result, "session")[0];
+  const rows = feed.buildNarrativeFeed([
+    { ...base, sessionId: "a:1", turnNumber: 2, role: "player", content: "Первый фрагмент" },
+    { ...base, sessionId: "a", turnNumber: 1, role: "2:player", content: "Второй фрагмент" },
+  ], null, "");
+  assert.deepEqual(rows.map(row => row.content), ["Второй фрагмент", "Первый фрагмент"]);
+  assert.equal(new Set(rows.map(row => row.key)).size, 2);
+});
+
 test("polling cannot move streamed progress backward or reopen a completed request", async () => {
   const { advanceTurnStage } = await import("../src/components/use-turn-request");
   assert.equal(advanceTurnStage("generation", "context"), "generation");

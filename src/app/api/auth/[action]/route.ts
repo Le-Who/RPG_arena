@@ -22,11 +22,20 @@ export async function POST(request: Request, context: Context) {
     assertAuthOrigin(request);
     const { action } = await context.params;
     if (!["register", "login", "logout", "logout-all", "password", "adopt-guest"].includes(action)) throw new HttpError(404, "NOT_FOUND", "Не найдено.");
-    // Logout never needs an expensive password check and remains available under throttling.
-    if (action !== "logout") await auth.rateLimit(action, authRateLimitClient(request));
     const body = await readJsonObject(request, 4096);
     let { guest, session } = tokens(request);
     const originalSession = session;
+    // Anonymous password work keeps the bounded shared fallback unless ingress is trusted.
+    if (action === "register" || action === "login") {
+      await auth.rateLimit(action, authRateLimitClient(request));
+    } else if (action !== "logout") {
+      // Security operations are charged only to the authenticated account. Invalid
+      // callers cannot consume another account's revocation/password-change budget.
+      const identity = await auth.resolve(guest, session);
+      const accountId = identity.account?.id;
+      if (!accountId) throw new HttpError(401, "IDENTITY_REQUIRED", "IDENTITY_REQUIRED: обновите страницу для нового гостевого профиля.");
+      await auth.rateLimit(action, `account:${accountId}`);
+    }
     if (action === "register") {
       const current = await auth.resolve(guest, session);
       if (current.kind === "account") throw new HttpError(409, "ALREADY_AUTHENTICATED", "Сначала выйдите из аккаунта.");
