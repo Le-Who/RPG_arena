@@ -13,8 +13,18 @@ export function hasNarrativeStateChanges(
     if (v && typeof v === "object") return Object.values(v).some(material);
     return typeof v === "number" ? v !== 0 : v !== null && v !== undefined && v !== "" && v !== false;
   };
+  const { resources, ...changes } = derived;
+  // Absolute snapshots describe state even on a descriptive turn. Only differences
+  // are consequences; a nonzero HP balance alone must not escalate streamed prose.
+  const resourceChanges = resources && typeof resources === "object" && !Array.isArray(resources)
+    ? Object.values(resources).some(point => {
+      if (!point || typeof point !== "object" || Array.isArray(point)) return material(point);
+      const values = point as Record<string, unknown>;
+      if (typeof values.before !== "number" || typeof values.after !== "number") return material(point);
+      return values.before !== values.after || values.maxBefore !== values.maxAfter;
+    }) : material(resources);
   return Object.keys(payload.stateChanges.flags).length > 0
-    || material(payload.effects) || material(payload.stateChanges) || material(derived);
+    || material(payload.effects) || material(payload.stateChanges) || material(changes) || !!resourceChanges;
 }
 
 type Draft = { narration: string; choices: string[] };

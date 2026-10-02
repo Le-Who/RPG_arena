@@ -302,6 +302,11 @@ test("performTurn narrative guard persists only canonical, verified narration", 
           }
         } else {
           assert.ok(result.ok, JSON.stringify(result)); assert.equal(saved.rows[0].turn_count, 2);
+          const committed = (await pg.query<{ character: typeof character; world_state: typeof world }>("SELECT character,world_state FROM game_sessions WHERE id=$1", [sessionId])).rows[0];
+          assert.deepEqual(result.applied.resources?.hp, { before: character.hp, after: committed.character.hp, maxBefore: character.maxHp, maxAfter: committed.character.maxHp });
+          assert.deepEqual(result.applied.resources?.danger, { before: world.danger, after: committed.world_state.danger });
+          const persistedChanges = (await pg.query<{ state_changes: typeof result.applied }>("SELECT state_changes FROM game_turns WHERE session_id=$1 AND role='narrator'", [sessionId])).rows[0].state_changes;
+          assert.deepEqual(persistedChanges.resources, result.applied.resources);
           if (mode === "pants") {
             assert.equal(result.dice?.success, false); assert.equal(result.dice?.d20, 1);
             assert.equal(result.narration, repaired.narration); assert.deepEqual(result.choices, repaired.choices);

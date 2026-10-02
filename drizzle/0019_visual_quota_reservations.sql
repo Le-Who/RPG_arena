@@ -9,7 +9,8 @@ CREATE INDEX "idx_visual_quota_scope_created" ON "visual_quota_reservations" ("q
 --> statement-breakpoint
 -- Preserve quota consumed by visuals that existed before this durable ledger was introduced.
 INSERT INTO "visual_quota_reservations" ("quota_scope", "visual_id", "created_at")
-SELECT CASE WHEN "owner_id" IS NOT NULL THEN 'owner:' || "owner_id" ELSE 'session:' || "session_id"::text END,
-       "id",
-       "created_at"
-FROM "scene_visuals";
+SELECT CASE WHEN sessions."owner_id" IS NOT NULL THEN 'owner:' || sessions."owner_id" ELSE 'session:' || visuals."session_id"::text END,
+       visuals."id",
+       visuals."created_at"
+FROM "scene_visuals" visuals
+JOIN "game_sessions" sessions ON sessions."id" = visuals."session_id";

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createTurnHistory, mergeHistoryTurns } from "@/lib/turn-history";
 import { memo, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent } from "react";
 import type React from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, Backpack, BookOpen, BookOpenText, Camera, Clock3, BrainCircuit, Check, ChevronUp, Compass, CornerDownLeft, Dices, Download, Feather, Flag, GitBranch, Globe2, Heart, LoaderCircle, MapPin, Minimize2, Plus, RefreshCw, Send, ShieldCheck, Sparkles, UserRound, WifiOff } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, Backpack, BookOpen, BookOpenText, Camera, Clock3, BrainCircuit, Check, ChevronUp, Compass, CornerDownLeft, Dices, Download, Feather, Flag, GitBranch, Globe2, Heart, LoaderCircle, MapPin, Minimize2, Plus, RefreshCw, Send, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { useApp } from "./app-shell";
 import { api, jsonBody } from "@/lib/api-client";
 import { canUseLiveNarrator, coverFor, PROFILE_LABELS, SOURCE_LABELS, type Snapshot } from "@/lib/ui-data";
@@ -31,6 +31,8 @@ import { retainedItemBindings, type ItemBinding } from "@/lib/item-bindings";
 import { appendActionPhrase } from "@/lib/action-composer";
 import { ActionEntityInput } from "./action-entity-input";
 import { withCommittedTurn, applyCommittedSnapshot } from "@/lib/committed-turns";
+import { useAppUpdateGuard } from "./app-update";
+import { saveUpdateDraft, takeUpdateDraftWhenSafe, UPDATE_DRAFT_KEY } from "@/lib/update-draft";
 
 const SIDE_TABS = [
   { id: "hero", icon: UserRound, title: "Герой" },
@@ -64,12 +66,12 @@ const FeedTurns = memo(function FeedTurns({ turns, heroName }: { turns: FeedTurn
               <span className="gx-turn-avatar">{turn.role === "player" ? <UserRound size={15} /> : <Feather size={15} />}</span>
               <strong>{turn.role === "player" ? heroName : "Рассказчик"}</strong>
               <span className="gx-turn-no">Ход {turn.turnNumber}</span>
-              {turn.role !== "player" && <span className="gx-turn-tag">{turn.pending ? "Продолжение формируется" : turn.modelUsed?.startsWith("gemini") ? "AI" : turn.modelUsed?.includes("intro") ? "Пролог" : "Офлайн"}</span>}
+              {turn.role !== "player" && (turn.pending || turn.modelUsed?.includes("intro")) && <span className="gx-turn-tag">{turn.pending ? "Продолжение формируется" : "Пролог"}</span>}
             </div>
             <div className="gx-prose">{turn.content}</div>
             {turn.dice && <div className={`gx-dice ${turn.dice.success ? "is-success" : "is-failure"} ${turn.dice.band === "cost" ? "is-cost" : ""}`}>
               <span className="gx-dice-value"><Dices size={18} /><strong>{turn.dice.total}</strong></span>
-              <div className="gx-dice-body"><strong>{turn.dice.skill || turn.dice.label}</strong><small>{turn.dice.kind === "2d6" ? "Проверка риска · 2d6" : `Серверный d20 · сложность ${turn.dice.dc}`}</small></div>
+              <div className="gx-dice-body"><strong>{turn.dice.skill || turn.dice.label}</strong><small>{turn.dice.kind === "2d6" ? "Проверка риска · 2d6" : `d20 · сложность ${turn.dice.dc}`}</small></div>
               <span className="gx-dice-verdict">{turn.dice.band === "cost" ? "Успех с ценой" : turn.dice.success ? "Успех" : "Неудача"}</span>
             </div>}
             {turn.stateChanges && <AppliedChips applied={turn.stateChanges} turnNumber={turn.turnNumber} />}
@@ -78,7 +80,7 @@ const FeedTurns = memo(function FeedTurns({ turns, heroName }: { turns: FeedTurn
 });
 
 export function PlayRoom({ sessionId }: { sessionId: string }) {
-  const { settings, sessions, refresh, notify, setPlayCommands, workspace } = useApp();
+  const { settings, sessions, refresh, notify, setPlayCommands, workspace, identity } = useApp();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loadError, setLoadError] = useState("");
   const [action, setAction] = useState("");
@@ -93,6 +95,8 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   // NARR-9: резюме показывается автоматически после долгого перерыва и по команде.
   const [recapState, setRecapState] = useState<"auto" | "open" | "closed" | "idle">("idle");
   const [compacting, setCompacting] = useState(false);
+  const compactingRef = useRef(false);
+  const [restoredDraft, setRestoredDraft] = useState<string | null>(null);
   const [older, setOlder] = useState<Snapshot["turns"]>([]);
   const [historyRequests, setHistoryRequests] = useState(0);
   const loadingOlder = historyRequests > 0;
@@ -142,7 +146,35 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     if (!suppressScroll) setTimeout(() => { if (!document.querySelector('[role="dialog"]')) document.getElementById(`turn-${result.turnNumber}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
   }, [reload, refresh]);
   const turnRequest = useTurnRequest(sessionId, onCommitted);
+  const isUpdateSafe = turnRequest.isUpdateSafe;
+  const draftReady = !!identity && restoredDraft === `${identity.profileId}:${sessionId}`;
   const busy = turnRequest.busy || (!!committedTurn && (!committedTurn.state || !snapshot || snapshot.session.turnCount < committedTurn.turnNumber));
+  const updateContext = useAppUpdateGuard("play", {
+    blocked: () => !snapshot || snapshot.session.id !== sessionId || !draftReady || busy || compacting || compactingRef.current || !turnRequest.isUpdateSafe() ? "Дождитесь завершения или восстановления хода и сохранения памяти перед обновлением." : null,
+    prepare: () => {
+      if (!action && itemBindings.length === 0) { try { sessionStorage.removeItem(UPDATE_DRAFT_KEY); } catch {} return; }
+      if (!identity || snapshot?.isOwner !== true || snapshot.session.ownerId !== identity.profileId) throw new Error("Не удалось подтвердить владельца черновика. Скопируйте текст перед обновлением.");
+      try { saveUpdateDraft(sessionStorage, { profileId: identity.profileId, campaignId: sessionId, action, itemBindings }); }
+      catch { throw new Error("Хранилище вкладки недоступно. Скопируйте и очистите черновик перед обновлением."); }
+    },
+  });
+  useEffect(() => {
+    if (!identity || !snapshot || snapshot.session.id !== sessionId || !turnRequest.recoveryReady || turnRequest.pending || busy) return;
+    const key = `${identity.profileId}:${sessionId}`;
+    if (restoredDraft === key) return;
+    // The pending request owns the composer until recovery finishes.
+    const timer = setTimeout(() => {
+      if (!isUpdateSafe()) return;
+      if (snapshot.isOwner === true && snapshot.session.ownerId === identity.profileId) {
+        try {
+          const draft = takeUpdateDraftWhenSafe(sessionStorage, identity.profileId, sessionId, isUpdateSafe());
+          if (draft) { setAction(draft.action); setItemBindings(draft.itemBindings); }
+        } catch { /* No reload draft is available when storage is disabled. */ }
+      }
+      setRestoredDraft(key);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [identity, snapshot, sessionId, isUpdateSafe, restoredDraft, turnRequest.recoveryReady, turnRequest.pending, busy]);
   const currentCommit = committedTurn && (!turnRequest.pending || turnRequest.pending.id === committedTurn.requestId);
   const actionError = turnRequest.error;
   useEffect(() => {
@@ -167,6 +199,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     return () => io.disconnect();
   }, [snapshot]);
   const act = useCallback(async (text: string) => {
+    if (updateContext?.isReloading() || !draftReady) return;
     if (busy || !text.trim() || !snapshot || snapshot.isOwner === false) return;
     const pending = turnRequest.pending;
     const fresh = classifyAction(text, lastNarratorChoices(snapshot));
@@ -174,7 +207,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     setSelectedChoice(choice);
     try { const ok = await sendTurn(submitted, custom, snapshot.session.turnCount, custom ? retainedItemBindings(submitted, itemBindings).map(i => i.id) : []); if (!ok) await reload().catch(() => {}); }
     finally { setSelectedChoice(-1); }
-  }, [busy, reload, sendTurn, snapshot, turnRequest.pending, itemBindings]);
+  }, [busy, reload, sendTurn, snapshot, turnRequest.pending, itemBindings, updateContext, draftReady]);
   const submit = (e: FormEvent) => { e.preventDefault(); void act(action); };
   const choices = lastNarratorChoices(snapshot);
   const shortcutRef = useRef<(event: KeyboardEvent) => void>(() => {});
@@ -195,6 +228,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     return () => window.removeEventListener("keydown", listener);
   }, []);
   const appendPhrase = (phrase: string, bindings: ItemBinding[] = []) => {
+    if (!draftReady) return;
     const next = appendActionPhrase(action, phrase);
     if (next === null) { notify("В действии уже много текста. Освободите место перед добавлением фразы (лимит — 2000 символов).", true); return; }
     setAction(next);
@@ -255,7 +289,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     }).catch((e) => { if (active) setLoadError(e.message); });
     return () => { active = false; };
   }, [sessionId, history]);
-  const compact = useCallback(async () => { setCompacting(true); try { await api(`/api/sessions/${sessionId}/compact`, jsonBody({})); await reload(); setCompactNeeded(false); notify("Новые главы сохранены в долгосрочной памяти"); } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить память", true); } finally { setCompacting(false); } }, [sessionId, reload, notify]);
+  const compact = useCallback(async () => { if (updateContext?.isReloading()) return; compactingRef.current = true; setCompacting(true); try { await api(`/api/sessions/${sessionId}/compact`, jsonBody({})); await reload(); setCompactNeeded(false); notify("Новые главы сохранены в долгосрочной памяти"); } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить память", true); } finally { compactingRef.current = false; setCompacting(false); } }, [sessionId, reload, notify, updateContext]);
   const commandOwner = snapshot?.isOwner !== false;
   const commandReady = !!snapshot && !loadError;
   const commandActive = snapshot?.session.status === "active";
@@ -269,6 +303,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
       { id: "life", label: "Жизнь мира: время, события, договорённости", run: () => { setReading(false); setSideTab("life"); } },
       { id: "people", label: "Люди: распорядок, связи и знания", run: () => { setReading(false); setSideTab("world"); } },
       { id: "book", label: "Скачать книгу для чтения офлайн (HTML)", run: () => { const link = document.createElement("a"); link.href = `/api/sessions/${sessionId}/export?format=html`; link.rel = "noopener"; link.click(); } },
+      { id: "jump-turn", label: "Перейти к ходу… (введите «ход 12»)", run: () => { void jumpToTurn(1); }, jumpToTurn: (turn: number) => { void jumpToTurn(turn); }, maxTurn: commandTurn ?? 1 },
       { id: "latest", label: "К последнему ходу", run: () => document.getElementById(`turn-${commandTurn}`)?.scrollIntoView({ block: "start", behavior: workspace.reading.motion === "reduced" ? "instant" : "smooth" }) },
       ...(commandOwner && !busy && !compacting ? [{ id: "checkpoints", label: "Контрольные точки и ветки", run: () => setShowCheckpoints(true) }] : []),
       ...(commandOwner && commandActive && !busy && !compacting ? [{ id: "compact", label: "Сохранить главы в память", run: () => { void compact(); } }] : []),
@@ -297,8 +332,8 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     if (!active || busy) return;
     appendPhrase(text, itemIds.flatMap((id) => { const item = inventory.find((i) => i.id === id); return item ? [{ id, name: item.name }] : []; }));
   };
-  const actionsDisabled = busy || !!committedTurn || !active;
-  const canAct = active && !busy;
+  const actionsDisabled = busy || !!committedTurn || !active || !draftReady;
+  const canAct = active && !busy && draftReady;
 
   return <div className={`gx-room ${reading ? "gx-reading" : ""}`}>
     <div className="gx-topbar">
@@ -321,7 +356,6 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
         <div className="gx-banner-meta">
           <span className="gx-chip"><MapPin size={13} />{world.currentLocation}</span>
           <span className="gx-chip accent"><Dices size={13} />{PROFILE_LABELS[session.rulesProfile]}</span>
-          <span className={`gx-chip ${live ? "live" : "muted"}`}>{live ? <Sparkles size={12} /> : <WifiOff size={12} />}{live ? "Живой рассказчик" : "Автономный режим"}</span>
         </div>
       </div>
     </div>
@@ -332,12 +366,11 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
       <section className="gx-narrative">
         <header className="gx-narrative-head">
           <span className="gx-narrative-title"><BookOpen size={16} />Нить повествования</span>
-          <span className={`gx-live ${live ? "on" : ""}`}><i />{live ? "Живой рассказчик" : "Офлайн-движок"}</span>
         </header>
 
-        {!live && <div className="gx-offline"><Sparkles size={15} /><span>{session.campaignMode === "free" ? "Для продолжения свободной истории нужен ИИ-мастер." : "Сейчас историю ведёт упрощённый движок пресета."} <Link href="/settings">Подключить рассказчика <ArrowRight size={12} /></Link></span></div>}
+        {!live && <div className="gx-offline"><Sparkles size={15} /><span>{session.campaignMode === "free" ? "Чтобы продолжить эту историю, подключите рассказчика в настройках." : "В базовом режиме продолжения ограничены готовыми правилами сценария."} <Link href="/settings">Подключить рассказчика <ArrowRight size={12} /></Link></span></div>}
 
-        {active && session.turnCount === 1 && <div className="gx-onboarding"><div className="gx-onboarding-head"><Sparkles size={16} /><strong>{readLife(world).story.kind === "open-life" ? "Начните свою историю" : "Начните своё приключение"}</strong></div><p>Опишите первое действие своими словами или выберите один из предложенных вариантов. Каждое решение меняет мир — сервер сохранит все последствия.</p><div className="gx-onboarding-examples">{FIRST_ACTIONS[readLife(world).story.kind].map((example) => <button key={example} onClick={() => { appendPhrase(example); }} disabled={busy}>{example}</button>)}</div><div className="gx-onboarding-foot">Совет: используйте клавишу «/» для быстрого перехода к полю ввода</div></div>}
+        {active && session.turnCount === 1 && <div className="gx-onboarding"><div className="gx-onboarding-head"><Sparkles size={16} /><strong>{readLife(world).story.kind === "open-life" ? "Начните свою историю" : "Начните своё приключение"}</strong></div><p>Опишите первое действие своими словами или выберите один из предложенных вариантов.</p><div className="gx-onboarding-examples">{FIRST_ACTIONS[readLife(world).story.kind].map((example) => <button key={example} onClick={() => { appendPhrase(example); }} disabled={busy}>{example}</button>)}</div><div className="gx-onboarding-foot">Совет: используйте клавишу «/» для быстрого перехода к полю ввода</div></div>}
 
         <div className="gx-feed">
           {(recapState === "open" || recapState === "auto") && <RecapCard sessionId={sessionId} onClose={() => setRecapState("closed")} onNotify={notify} />}
@@ -350,7 +383,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
         </div>
 
         <div className="gx-composer-wrap" ref={actionZoneRef}>
-          {turnRequest.pending && !busy && <div className="gx-recovery"><ShieldCheck size={19} /><div><strong>Ваше действие не потерялось</strong><p>«{turnRequest.pending.action}»</p><small>Повтор использует тот же requestId и сохранённый сервером бросок.</small><div className="gx-recovery-actions"><button className="button secondary" onClick={() => void turnRequest.retry()}><RefreshCw size={13} />Повторить безопасно</button><button className="text-button" onClick={turnRequest.dismiss}>Отложить действие</button></div></div></div>}
+          {turnRequest.pending && !busy && <div className="gx-recovery"><ShieldCheck size={19} /><div><strong>Ваше действие не потерялось</strong><p>«{turnRequest.pending.action}»</p><small>Безопасный повтор проверит результат предыдущей попытки и не создаст второй ход.</small><div className="gx-recovery-actions"><button className="button secondary" onClick={() => void turnRequest.retry()}><RefreshCw size={13} />Повторить безопасно</button><button className="text-button" onClick={turnRequest.dismiss}>Отложить действие</button></div></div></div>}
 
           {!isOwner ? <div className="notice"><BookOpen size={18} /><div><p>Вы читаете общую кампанию. Создайте свою приватную копию, чтобы играть со своим прогрессом и своим API-ключом.</p><CampaignCopyButton sessionId={sessionId} /></div></div> : !active ? <div className="gx-archived"><span className="gx-archived-icon"><BookOpen size={22} /></span><div><strong>Эта история ждёт в архиве</strong><p>Прочитайте предыдущие главы или вернитесь к приключению.</p></div><button className="button primary" onClick={() => void restore()}>Продолжить историю <ArrowRight size={15} /></button></div> : <div className={`gx-composer ${canAct ? "is-ready" : ""}`}>
             <div className="gx-composer-head"><Sparkles size={16} /><h3>Что вы сделаете дальше?</h3></div>
@@ -358,13 +391,12 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             {lastNarrator?.choices?.length ? <div className="gx-choices">{lastNarrator.choices.map((choice, i) => <button className="gx-choice" key={`${i}-${choice}`} onClick={() => void act(choice)} disabled={busy} style={{ animationDelay: `${i * 55}ms` }}><span className="gx-choice-no">{selectedChoice === i ? <LoaderCircle size={14} className="spin" /> : i + 1}</span><p>{choice}</p><ArrowRight className="gx-choice-arrow" size={16} /></button>)}</div> : <p className="gx-free-note">Первое слово — за вами. Опишите действие, с которого начнётся история.</p>}
             <div className="gx-or"><span />или напишите своё<span /></div>
             <form onSubmit={submit} className="gx-input">
-              <ActionEntityInput inputRef={composerRef} value={action} state={interactionState} disabled={busy} onChange={text => { setAction(text); setItemBindings(old => retainedItemBindings(text, old)); }} onItemPick={(id, name) => setItemBindings(old => [...new Map([...old, { id, name }].map(item => [item.id, item])).values()].slice(0, 4))} onSubmit={() => { void act(action); }} onLimit={() => notify("Подсказка не помещается в действие. Лимит — 2000 символов.", true)} />
+              <ActionEntityInput inputRef={composerRef} value={action} state={interactionState} disabled={busy || !draftReady} onChange={text => { setAction(text); setItemBindings(old => retainedItemBindings(text, old)); }} onItemPick={(id, name) => setItemBindings(old => [...new Map([...old, { id, name }].map(item => [item.id, item])).values()].slice(0, 4))} onSubmit={() => { void act(action); }} onLimit={() => notify("Подсказка не помещается в действие. Лимит — 2000 символов.", true)} />
               <div className="gx-input-foot">
                 <span className="gx-action-kind">{((turnRequest.pending?.action === action.trim() ? turnRequest.pending.custom : classifyAction(action, choices).custom)) ? "Свободное действие" : "Предложенное действие"}</span><span className="gx-counter">{action.length ? `${action.length} / 2000` : "Любое действие имеет значение"}</span>
-                <div className="gx-input-cta"><span className="gx-hint"><CornerDownLeft size={12} />Ctrl + Enter</span><button className="button primary" disabled={busy || !action.trim()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />}Сделать ход</button></div>
+                <div className="gx-input-cta"><span className="gx-hint"><CornerDownLeft size={12} />Ctrl + Enter</span><button className="button primary" disabled={busy || !draftReady || !action.trim()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />}Сделать ход</button></div>
               </div>
             </form>
-            <div className="gx-composer-foot"><ShieldCheck size={13} />Модель предлагает — сервер проверяет каждое изменение мира.</div>
           </div>}
 
           {actionError && <div className="notice error-notice gx-error" role="alert"><ShieldCheck size={17} /><p>{actionError}{!live && session.campaignMode === "free" && <> <Link href="/settings">Открыть настройки</Link></>}</p></div>}
@@ -394,7 +426,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             <div className="gx-side-title">С собой · {inventory.length}</div>
             <p className="gx-side-hint">Вещи — часть мира. Укажите предмет в своём действии, и рассказчик его учтёт.</p>
             {!!committedTurn && <p className="gx-side-hint" role="status">Список вещей обновляется. Продолжить историю можно в поле действия.</p>}
-            <div className="gx-inv">{inventory.map((item) => <div className="gx-inv-item" key={item.id}><span className="gx-inv-icon">{item.icon}</span><div className="gx-inv-body"><h3>{item.name}{item.quantity > 1 && <span className="gx-inv-qty">×{item.quantity}</span>}</h3><p>{item.description}</p>{item.equipped && <small className="gx-inv-eq"><Check size={11} />Экипировано</small>}<button onClick={() => addItemToAction(item.name, item.id)} className="gx-inv-use" disabled={busy || !!committedTurn || !active}>Добавить в действие <Plus size={12} /></button><EntityActions kind="item" refId={item.id} name={item.name} state={interactionState} disabled={actionsDisabled} onPick={pickAction} /></div></div>)}</div>
+            <div className="gx-inv">{inventory.map((item) => <div className="gx-inv-item" key={item.id}><span className="gx-inv-icon">{item.icon}</span><div className="gx-inv-body"><h3>{item.name}{item.quantity > 1 && <span className="gx-inv-qty">×{item.quantity}</span>}</h3><p>{item.description}</p>{item.equipped && <small className="gx-inv-eq"><Check size={11} />Экипировано</small>}<button onClick={() => addItemToAction(item.name, item.id)} className="gx-inv-use" disabled={actionsDisabled}>Добавить в действие <Plus size={12} /></button><EntityActions kind="item" refId={item.id} name={item.name} state={interactionState} disabled={actionsDisabled} onPick={pickAction} /></div></div>)}</div>
             {!inventory.length && <p className="gx-empty-hint">С собой пока ничего нет.</p>}
           </div>}
           {sideTab === "world" && <div className="gx-side-section">
@@ -411,16 +443,14 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
           {sideTab === "visuals" && <VisualGallery sessionId={sessionId} isOwner={isOwner} npcs={npcs.filter((npc) => npc.status !== "dead").map((npc) => ({ key: npc.key, name: npc.name }))} currentLocationId={locations.find((location) => location.current)?.id ?? null} lastTurn={session.turnCount} />}
           {sideTab === "memory" && <div className="gx-side-section">
             <div className="gx-side-title"><BrainCircuit size={14} />Мир помнит</div>
-            <p className="gx-side-hint">Факты с подтверждённым источником помогают истории оставаться последовательной.</p>
             {memories.slice(0, 7).map((memory) => <div className="gx-mem" key={memory.id}><span className="gx-mem-src">{SOURCE_LABELS[memory.source]}</span><h3>{memory.title}</h3><p>{memory.content}</p></div>)}
             <Link href={`/memory?session=${sessionId}`} className="button secondary full-width gx-mem-all">Вся память мира <ArrowRight size={14} /></Link>
           </div>}
         </div>
-        <div className="gx-side-foot"><ShieldCheck size={13} />Состояние подтверждено сервером</div>
       </aside>}
     </div>
 
-    <footer className="gx-footer"><span><Compass size={14} />Это ваша история. Делайте её своей.</span><Link href="/blueprint">Chronicle Engine <ArrowRight size={13} /></Link></footer>
+    <footer className="gx-footer"><Link href="/blueprint">Chronicle Engine <ArrowRight size={13} /></Link></footer>
     <p className="sr-only" role="status" aria-live="polite">{busy ? "Ход обрабатывается" : `Ход ${session.turnCount}. ${lastNarrator?.content.slice(0, 160) ?? ""}`}</p>
     {canAct && !actionVisible && <button className="gx-jump" onClick={() => { actionZoneRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); composerRef.current?.focus(); }}><ArrowDown size={17} />Ваш ход</button>}
     {isOwner && showCheckpoints && <CheckpointDialog session={session} onClose={closeCheckpoints} />}

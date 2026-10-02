@@ -8,7 +8,7 @@ export function canUseLiveNarrator(settings: Pick<Settings, "canUseLive" | "useL
 }
 export type Workspace = { id?: string; displayName: string; favorites: string[]; reading: ReadingPreferences };
 export const PROFILE_LABELS: Record<string, string> = { d20: "D20", "rules-light": "Лёгкие правила", narrative: "Нарратив" };
-export const PROFILE_DESCRIPTIONS: Record<string, string> = { d20: "Характеристики, ресурсы и серверные броски кубика.", "rules-light": "Минимум чисел. Проверка риска на 2d6 и успех с ценой.", narrative: "История без кубиков. Только выбор, канон и последствия." };
+export const PROFILE_DESCRIPTIONS: Record<string, string> = { d20: "Характеристики, ресурсы и броски кубика.", "rules-light": "Минимум чисел. Проверка риска на 2d6 и успех с ценой.", narrative: "История без кубиков. Только выбор, канон и последствия." };
 export const ART: Record<string, { image: string; category: string; color: string }> = {
   "ashen-crown": { image: "/chronicle-hero.webp", category: "Фэнтези", color: "violet" },
   "neon-pact": { image: "/neon-city.webp", category: "Киберпанк", color: "pink" },
@@ -21,4 +21,4 @@ export const ART: Record<string, { image: string; category: string; color: strin
 };
 export const WORLDS = Object.keys(ART).map((id) => SCENARIOS.find((s) => s.id === id)!).filter(Boolean);
 export const coverFor = (id: string) => ART[id]?.image ?? "/space-odyssey.webp";
-export const SOURCE_LABELS: Record<string, string> = { seed: "Канон мира", state: "Подтверждено сервером", "ai-semantic": "Извлечено AI", compaction: "Хроника", heuristic: "Архивный факт" };
+export const SOURCE_LABELS: Record<string, string> = { seed: "Канон мира", state: "Итог действия", "ai-semantic": "Из рассказа", compaction: "Хроника", heuristic: "Архивный факт" };

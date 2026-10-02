@@ -23,5 +23,5 @@ export function CampaignCopyButton({ sessionId }: { sessionId: string }) {
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось создать личную копию"); }
     finally { locked.current = false; setBusy(false); }
   };
-  return <div className="campaign-copy"><button className="button secondary" disabled={busy} onClick={() => void copy()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Copy size={15} />}{busy ? "Создаём вашу копию…" : "Продолжить в своей копии"}</button><small>Личный прогресс с текущего хода. Для ИИ нужен ваш API-ключ.</small>{error && <p className="form-error" role="alert">{error}</p>}</div>;
+  return <div className="campaign-copy"><button className="button secondary" disabled={busy} onClick={() => void copy()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Copy size={15} />}{busy ? "Создаём вашу копию…" : "Продолжить в своей копии"}</button><small>Отдельная история с текущего хода. Для продолжений используются ваши настройки рассказчика.</small>{error && <p className="form-error" role="alert">{error}</p>}</div>;
 }

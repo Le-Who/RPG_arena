@@ -1,3 +1,5 @@
+import { resourceSnapshot } from "./applied-changes";
+import { measurePromptBudget, type PromptBudget } from "./prompt-budget";
 // ── Оркестратор хода (RES-1f): контекст → проверка → AI/offline → reducers → транзакция → фон ──
 import { after } from "next/server";
 import { and, asc, count, desc, eq, gt, sql } from "drizzle-orm";
@@ -305,6 +307,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   const worldLine = `Мир ${world.worldName}, тон: ${world.tone}, эпоха: ${world.era}, главная цель: ${world.mainQuest}, глава ${world.chapter}, накал ${world.danger}/100${world.factions?.length ? `, фракции: ${world.factions.join(", ")}` : ""}`;
 
   let payload: ResolutionPayload | null = null;
+  let promptBudget: PromptBudget | undefined;
   let modelUsed = "offline-engine";
   let promptTokens = 0;
   let completionTokens = 0;
@@ -330,6 +333,17 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     };
     const system = buildTurnSystemPrompt(ctx) + lifeBlock + AGENDA_PROPOSAL_INSTRUCTION + agendaBlock + SOCIAL_PROPOSAL_INSTRUCTION + socialBlock + (spec.resources.conditions ? describeConditionCures(character.conditions) : "") + narratorBlock + (narrativeConfig.enabled ? NARRATIVE_GENERATION_INSTRUCTION : "");
     const user = buildTurnUserPrompt(ctx) + (narrativeConfig.enabled ? `\nORIGINAL_EVIDENCE:\n${JSON.stringify(evidence)}\nAGREEMENT_HISTORY (версии в порядке записи; поздняя версия заменяет предыдущую, proposed не означает accepted):\n${JSON.stringify(agreementContext)}` : "");
+    // NARR-12: numbers only — which prompt components dominate the live request (no text is stored).
+    promptBudget = measurePromptBudget({
+      system, user, schema: narrativeConfig.enabled ? GUARDED_RESOLUTION_SCHEMA : RESOLUTION_RESPONSE_SCHEMA,
+      sections: {
+        scenario: ctx.scenarioPrompt, entities: Object.values(digests), memory: memoryDigest, retrieved: ctx.retrievedDigest,
+        recent: recentTurns, life: lifeBlock, agenda: AGENDA_PROPOSAL_INSTRUCTION + agendaBlock, social: SOCIAL_PROPOSAL_INSTRUCTION + socialBlock,
+        conditions: spec.resources.conditions ? describeConditionCures(character.conditions) : "", narrator: narratorBlock,
+        verification: narrativeConfig.enabled ? NARRATIVE_GENERATION_INSTRUCTION : "", evidence: narrativeConfig.enabled ? [evidence, agreementContext] : "",
+        action: actionForModel,
+      },
+    });
     const generationStarted = performance.now();
     let streamedJson = "", preview = "";
     try {
@@ -630,7 +644,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     : null;
   // Процедурная граница каждые 12 ходов сохраняется только как совместимое значение для арок без события.
   const isChapterBoundary = lifeResult.chapterBoundary ?? nextTurn % 12 === 0;
-  const contextMeta: TurnContextMeta = { timings, model: modelUsed, rulesProfile: spec.id, digestChars: memoryDigest.length, retrievedIds: [...retrievedIds], retrievalMs, skippedModels: skipped, ...(narrativeAudit ? { narrativeVerification: narrativeAudit } : {}) };
+  const contextMeta: TurnContextMeta = { ...(promptBudget ? { promptBudget } : {}), timings, model: modelUsed, rulesProfile: spec.id, digestChars: memoryDigest.length, retrievedIds: [...retrievedIds], retrievalMs, skippedModels: skipped, ...(narrativeAudit ? { narrativeVerification: narrativeAudit } : {}) };
   const narrationOut = result.applied.dead
     ? `${payload.narration}\n\n💀 ${character.name} на грани гибели. История не обрывается — но цена уплачена${spec.resources.gold ? " (−10 средств)" : ""}.`
     : payload.narration;
@@ -638,6 +652,8 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
 
   const needsCompaction = shouldCompact((playerCount[0]?.c ?? 0) + 1, 0, estimateTokens(recentTurns), tier === "flash" ? 8000 : LAYER_INFO.working.budget);
   const committedWorld = { ...result.world, chapter: isChapterBoundary ? world.chapter + 1 : world.chapter };
+  result.applied.resources = resourceSnapshot(character, result.character, { before: world.danger, after: committedWorld.danger });
+  for (const key of ["hp", "gold", "xp", "danger"] as const) result.applied[key] = result.applied.resources[key].after - result.applied.resources[key].before;
   const response: TurnResponse = { ok: true, playerAction, timings, state: { character: result.character, worldState: committedWorld }, requestId, turnNumber: nextTurn, narration: narrationOut, choices: payload.choices, dice, outcome: result.outcome, applied: result.applied, modelUsed, taskType, needsCompaction, dead: result.applied.dead, retrieved: retrieved.map((r) => ({ id: r.id, title: r.title, why: r.why })), skippedModels: skipped, warnings };
   timings.validationMs = Math.round(performance.now() - validationStarted);
   await setTurnStage(lease, "applying");
