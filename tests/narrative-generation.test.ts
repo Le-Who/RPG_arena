@@ -13,6 +13,8 @@ test("only descriptive sentences stream; dice, automatic XP, consequences and in
   const json = JSON.stringify(draft());
   const base = { action: "Посмотреть вокруг", hasDice: false, automaticEffects: false };
   assert.equal(guardedPreview(json, base), "Туман.");
+  assert.equal(guardedPreview(JSON.stringify({ ...draft(), stateChanges: { ...emptyChanges(), events: [], npcGoals: [] } }), base), "Туман.", "empty optional agenda fields do not force a verification call");
+  assert.equal(guardedPreview(JSON.stringify({ ...draft(), stateChanges: { ...emptyChanges(), events: [{ title: "Встреча" }] } }), base), "", "an actual agenda proposal suppresses preview");
   assert.equal(guardedPreview(json, { ...base, hasDice: true }), "");
   assert.equal(guardedPreview(json, { ...base, automaticEffects: true }), "");
   assert.equal(guardedPreview(JSON.stringify({ ...draft(), narration: "Ты получил ключ." }), base), "");

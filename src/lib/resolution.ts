@@ -1,3 +1,4 @@
+import { resourceSnapshot } from "./applied-changes";
 import { resolveInventoryReference } from "./entity-identity";
 import { randomUUID } from "node:crypto";
 // ── RES-1: контракт resolution, runtime-валидация и серверные reducers ──
@@ -16,6 +17,9 @@ import type {
   WorldState,
 } from "@/db/schema";
 import { profileFor, type ProfileSpec } from "./profiles";
+import { LIFE_SCHEMA_PROPERTIES, parseLifeChanges, type LifeChanges } from "./world-life";
+import { AGENDA_SCHEMA_PROPERTIES, parseAgendaChanges, type AgendaChanges } from "./world-agenda";
+import { SOCIAL_SCHEMA_PROPERTIES, parseSocialChanges, type SocialChanges } from "./world-social";
 
 // ─────────────────────────────────────────────────────────────
 //  Типы контракта
@@ -54,6 +58,12 @@ export type ResolutionPayload = {
     conditions: { add: string[]; remove: string[] };
     flags: Record<string, string | number | boolean>;
   };
+  /** INTERACT-2/3, NARR-7: предложенные время, договорённости, передачи и статус истории. */
+  life?: LifeChanges;
+  /** WORLD-2: предложенные отложенные события и цели NPC. */
+  agenda?: AgendaChanges;
+  /** WORLD-2b/3b (2.9): структурированный распорядок и знания NPC. */
+  social?: SocialChanges;
 };
 
 /** JSON Schema (подмножество OpenAPI, поддерживаемое Gemini responseSchema). */
@@ -172,6 +182,9 @@ export const RESOLUTION_RESPONSE_SCHEMA: Record<string, unknown> = {
             required: ["key", "value"],
           },
         },
+        ...LIFE_SCHEMA_PROPERTIES,
+        ...AGENDA_SCHEMA_PROPERTIES,
+        ...SOCIAL_SCHEMA_PROPERTIES,
       },
       required: ["location", "quests", "npcs", "inventory", "sceneObjects", "conditions", "flags"],
     },
@@ -361,6 +374,9 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
         danger: clampInt(eff.danger, -30, 30),
       },
       stateChanges: { location, locations, routes, quests, npcs, inventory, sceneObjects, conditions, flags },
+      life: parseLifeChanges(sc),
+      agenda: parseAgendaChanges(sc),
+      social: parseSocialChanges(sc),
     },
   };
 }
@@ -374,7 +390,7 @@ export function emptyChanges(): ResolutionPayload["stateChanges"] {
 // ─────────────────────────────────────────────────────────────
 export type InvRow = { id: string; name: string; kind: string; quantity: number; equipped: boolean; description: string; icon: string; power: number };
 export type QuestRow = { id: string; key: string; title: string; status: QuestStatus; progress: number; isMain: boolean; description: string };
-export type NpcRow = { id: string; key: string; name: string; role: string; relation: number; status: NpcStatus; description: string };
+export type NpcRow = { id: string; key: string; name: string; role: string; relation: number; status: NpcStatus; description: string; lastLocation?: string | null };
 export type SceneRow = { id: string; key: string; name: string; state: string; locationName: string; description: string };
 export type LocRow = { id: string; name: string; x: number; y: number; current: boolean; discovered: boolean; danger: number; connectedTo?: string[] | null };
 
@@ -646,7 +662,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         ops.push({ t: "quest.update", id: existing.id, patch });
         const status = patch.status ?? existing.status;
         const progress = patch.progress ?? existing.progress;
-        questsApplied.push({ title: existing.title, status, progress, isNew: false });
+        questsApplied.push({ title: existing.title, status, progress, isNew: false, before: { status: existing.status, progress: existing.progress }, ...(q.note ? { note: String(q.note).slice(0, 240) } : {}) });
         events.push({
           layer: "episodic",
           category: "quest",
@@ -696,7 +712,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         id: existing.id,
         patch: { relation, status, role: n.role || undefined, description: n.note ? `${existing.description ? existing.description + " " : ""}[ход ${turnNumber}] ${n.note}`.slice(0, 1200) : undefined, lastLocation: world.currentLocation },
       });
-      npcsApplied.push({ name: existing.name, relation, delta: relation - existing.relation, status, isNew: false });
+      npcsApplied.push({ name: existing.name, relation, delta: relation - existing.relation, status, isNew: false, ...(n.note ? { note: n.note.slice(0, 200) } : {}) });
       if (Math.abs(delta) >= 10 || status !== existing.status || n.note) {
         events.push({
           layer: "semantic",
@@ -715,7 +731,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
       const relation = Math.max(-100, Math.min(100, delta));
       const status = n.status ?? "alive";
       ops.push({ t: "npc.insert", row: { key, name: n.name, role: n.role, description: n.note, relation, status, lastLocation: world.currentLocation } });
-      npcsApplied.push({ name: n.name, relation, delta, status, isNew: true });
+      npcsApplied.push({ name: n.name, relation, delta, status, isNew: true, ...(n.note ? { note: n.note.slice(0, 200) } : {}) });
       events.push({
         layer: "semantic",
         category: "npc",
@@ -910,6 +926,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
       sceneObjects: sceneApplied,
       conditions: { added: addedConds, removed: removedConds },
       rejected,
+      resources: resourceSnapshot(input.character, character, { before: input.world.danger, after: world.danger }),
     },
   };
 }

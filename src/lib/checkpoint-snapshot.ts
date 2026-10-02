@@ -61,6 +61,13 @@ export function remapSnapshot(snapshot: CheckpointSnapshot, newSessionId = rando
     return value;
   };
   const copy = rewrite(snapshot) as CheckpointSnapshot;
+  // Owner correction notes are historical prose, not structured identity references.
+  snapshot.session.worldState.commitments?.forEach((commitment, index) => {
+    commitment.history?.forEach((entry, historyIndex) => {
+      const copied = copy.session.worldState.commitments?.[index]?.history?.[historyIndex];
+      if (copied && entry.note !== undefined) copied.note = entry.note;
+    });
+  });
   copy.session.status = "active";
   copy.turns = copy.turns.map((turn) => ({ ...turn, requestId: null }));
   // Historical source prose is immutable: remapping UUIDs inside it would invalidate its attestation.

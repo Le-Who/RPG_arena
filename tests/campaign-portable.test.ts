@@ -26,6 +26,10 @@ test("portable document retains d20 dice, applied changes, and verification evid
     hp: 0, xp: 5, gold: 0, danger: 0, levelUp: false, dead: false,
     location: null, quests: [], npcs: [], inventory: [], sceneObjects: [],
     conditions: { added: [], removed: [] }, rejected: [],
+    life: { intent: "act", clock: { from: "День 1", to: "День 2", minutes: 60, newDay: true }, commitments: [], transfers: [], story: null },
+    interaction: { verb: "move", label: "Идти", target: "Дом", valid: true, reasons: [] },
+    agenda: { scheduled: [{ title: "Встреча", at: "День 2", kind: "world" }], fired: [], cancelled: [], npcGoals: [] },
+    conditionTimers: { expired: ["устал"], scheduled: [] },
   };
   state.turns[0].contextMeta = {
     model: "narrator", rulesProfile: "d20", digestChars: 15, retrievedIds: [state.memories[0].id],
@@ -49,6 +53,28 @@ test("portable document accepts an archived source", async () => {
   state.session.status = "archived";
   const document = createPortableDocument(state, now);
   assert.equal(parsePortableDocument(document).snapshot.session.status, "archived");
+});
+
+test("portable JSON preserves bounded 2.7 life and 2.8 agenda, narrator and condition state", async () => {
+  const { createPortableDocument, parsePortableDocument } = await import("../src/lib/campaign-portable");
+  const state = snapshot();
+  const world = state.session.worldState;
+  world.clock = { day: 3, minute: 600 };
+  world.story = { kind: "arc", goal: "Вернуться", stakes: "Доверие", conflict: "Разлука", endCondition: "Встреча", focus: [], status: "ongoing" };
+  world.commitments = [{ id: "c1", title: "Встреча", parties: ["Анна"], place: "Дом", due: { day: 3, minute: 900 }, status: "accepted", createdTurn: 1, updatedTurn: 1, note: "" }];
+  world.holdings = [{ id: "h1", name: "Ключ", description: "", quantity: 1, holderKind: "npc", holderKey: "anna", holderName: "Анна", turn: 1 }];
+  world.agenda = [{ id: "e1", title: "Анна придёт", kind: "npc", npcKey: "anna", npcName: "Анна", at: { day: 3, minute: 900 }, note: "", status: "pending", createdTurn: 1 }];
+  world.npcAgendas = [{ key: "anna", name: "Анна", goal: "Вернуться", routine: "дома вечером", updatedTurn: 1 }];
+  world.narrator = { pace: "slow", length: "short", initiative: "reactive", realism: "grounded", tension: "calm", boundaries: ["насилие"], note: "тихий тон" };
+  world.conditionTimers = { устал: { expiresAt: { day: 3, minute: 900 }, sinceTurn: 1 } };
+  const document = createPortableDocument(state, now);
+  assert.deepEqual(parsePortableDocument(document).snapshot.session.worldState, world);
+  const unsafe = structuredClone(document);
+  unsafe.snapshot.session.worldState.conditionTimers!.устал.expiresAt.minute = 5000;
+  assert.throws(() => parsePortableDocument(unsafe), /conditionTimers/);
+  const duplicate = structuredClone(document);
+  duplicate.snapshot.session.worldState.agenda!.push(structuredClone(duplicate.snapshot.session.worldState.agenda![0]));
+  assert.throws(() => parsePortableDocument(duplicate), /agenda/);
 });
 
 test("portable import rejects malformed nested fields and unsafe controls before checksum traversal", async () => {

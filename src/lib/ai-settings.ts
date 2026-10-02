@@ -6,12 +6,17 @@ import { filterByDailyLimits, routeModelsFor, type RoutingConfig, type TaskType 
 import { currentProfileId } from "./identity";
 import { sessionOwnerId } from "./campaign-access";
 import { DEFAULT_EMBEDDING_DIMS } from "./embeddings";
-import { decodeGeminiSecrets, decodeSettingsSecrets, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
+import { decodeGeminiSecrets, decodeSettingsSecrets, openSecret, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
+import type { TextProvider } from "./text-provider-settings";
 import { quotaUsage, quotaTimezone } from "./quota";
 
 export type AIConfig = {
   ownerId?: string;
   keys: string[];
+  textProvider?: TextProvider;
+  textModel?: string;
+  textApiKey?: string;
+  textKeyExpiresAt?: string;
   dbKeyCount: number;
   envKeyCount: number;
   useLiveAI: boolean;
@@ -60,13 +65,23 @@ export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
   const s = decodeGeminiSecrets(await getRawSettingsRow(ownerId));
   const dbKeys = ((s.keys as string[]) ?? []).filter(Boolean);
   const keys = [...new Set(dbKeys)];
+  const textProvider = (s.textProvider ?? "gemini") as TextProvider;
+  const textApiKey = textProvider === "gemini" ? "" : openSecret(
+    textProvider === "openrouter" ? s.openrouterKey : s.pollinationsKey,
+    secretContext(s.id, `text:${textProvider}`),
+  );
+  const textKeyExpired = textProvider === "pollinations" && Boolean(s.pollinationsKeyExpiresAt && s.pollinationsKeyExpiresAt.getTime() <= Date.now());
   return {
     ownerId: s.id,
     keys,
+    textProvider,
+    textModel: s.textModel ?? "",
+    textApiKey,
+    ...(textProvider === "pollinations" && s.pollinationsKeyExpiresAt ? { textKeyExpiresAt: s.pollinationsKeyExpiresAt.toISOString() } : {}),
     dbKeyCount: dbKeys.length,
     envKeyCount: 0,
     useLiveAI: s.useLiveAI,
-    canUseLive: s.useLiveAI && keys.length > 0,
+    canUseLive: s.useLiveAI && (textProvider === "gemini" ? keys.length > 0 : Boolean(textApiKey && s.textModel && !textKeyExpired)),
     routingConfig: {
       profile: (s.routingProfile as RoutingConfig["profile"]) ?? "balanced",
       narrationModel: s.narrationModel ?? DEFAULT_ROW.narrationModel,
@@ -92,16 +107,19 @@ export async function todayUsageByModel(ownerId?: string): Promise<Record<string
 
 /** Модели для задачи с учётом роутинга и (если включено) дневных лимитов. */
 export async function pickModels(task: TaskType, cfg: AIConfig): Promise<{ models: string[]; skipped: string[] }> {
-  const routed = routeModelsFor(task, cfg.routingConfig);
+  const external = cfg.textProvider !== undefined && cfg.textProvider !== "gemini";
+  const routed = external ? (cfg.textModel ? [cfg.textModel] : []) : routeModelsFor(task, cfg.routingConfig);
   if (!cfg.enforceLimits) return { models: routed, skipped: [] };
   const usage = await todayUsageByModel(cfg.ownerId);
-  const { allowed, skipped } = filterByDailyLimits(routed, usage, cfg.limits, cfg.keysSharedProject === false ? cfg.keys.length : 1);
+  const providerUsage = external ? Object.fromEntries(routed.map(model => [model, usage[`${cfg.textProvider}:${model}`] ?? 0])) : usage;
+  const { allowed, skipped } = filterByDailyLimits(routed, providerUsage, external ? { flash: cfg.limits.flash, lite: cfg.limits.flash } : cfg.limits, !external && cfg.keysSharedProject === false ? cfg.keys.length : 1);
   return { models: allowed, skipped };
 }
 
 export async function logToken(row: {
   sessionId: string | null;
   model: string;
+  provider?: TextProvider;
   taskType: string;
   promptTokens: number;
   completionTokens: number;
@@ -111,11 +129,12 @@ export async function logToken(row: {
   keyIndex?: number;
 }) {
   try {
+    const model = row.provider && row.provider !== "gemini" ? `${row.provider}:${row.model}` : row.model;
     await db.insert(tokenLogs).values({
       ownerId: row.sessionId ? await sessionOwnerId(row.sessionId) : await currentProfileId(),
       sessionId: row.sessionId,
-      model: row.model,
-      quotaReserved: row.model.startsWith("gemini-"),
+      model,
+      quotaReserved: model.startsWith("gemini-") || model.startsWith("openrouter:") || model.startsWith("pollinations:"),
       taskType: row.taskType,
       promptTokens: row.promptTokens,
       completionTokens: row.completionTokens,

@@ -20,11 +20,19 @@ function mask(keys: string[]) {
 
 function view(s: ReturnType<typeof decodeGeminiSecrets<Awaited<ReturnType<typeof getRawSettingsRow>>>>) {
   const keys = ((s.keys as string[]) ?? []).filter(Boolean);
+  const textProvider = s.textProvider ?? "gemini";
+  const pollinationsKeyExpired = Boolean(s.pollinationsKeyExpiresAt && s.pollinationsKeyExpiresAt.getTime() <= Date.now());
+  const canUseLive = s.useLiveAI && (textProvider === "gemini" ? keys.length > 0
+    : Boolean(s.textModel && (textProvider === "openrouter" ? s.openrouterKey : textProvider === "pollinations" && s.pollinationsKey && !pollinationsKeyExpired)));
   return {
     secretStorageAvailable: secretStorageAvailable(),
     keysMasked: mask(keys),
     keysCount: keys.length,
     envKeysCount: 0,
+    textProvider,
+    textModel: s.textModel ?? "",
+    canUseLive,
+    ...(textProvider === "pollinations" && s.pollinationsKeyExpiresAt ? { textKeyExpiresAt: s.pollinationsKeyExpiresAt.toISOString() } : {}),
     routingProfile: s.routingProfile ?? "balanced",
     narrationModel: s.narrationModel,
     customActionModel: s.customActionModel,
@@ -99,7 +107,7 @@ async function handlePOST(req: Request) {
         customActionModel,
         compactionModel,
         fastTaskModel,
-        useLiveAI: boolInAuto(body.useLiveAI, s.useLiveAI, keys.length),
+        useLiveAI: boolInAuto(body.useLiveAI, s.useLiveAI, s.textProvider === "openrouter" ? Number(Boolean(s.openrouterKey)) : s.textProvider === "pollinations" ? Number(Boolean(s.pollinationsKey)) : keys.length),
         dailyFlashLimit: intIn(body.dailyFlashLimit, 1, 100000, s.dailyFlashLimit),
         dailyLiteLimit: intIn(body.dailyLiteLimit, 1, 1000000, s.dailyLiteLimit),
         dailyEmbeddingLimit: intIn(body.dailyEmbeddingLimit, 1, 1000000, s.dailyEmbeddingLimit),

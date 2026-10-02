@@ -1,0 +1,55 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { accountsDb, cookieContext } from "./helpers/accounts-db";
+import { newGuestToken, profileIdFromToken } from "../src/lib/guest-identity";
+import { auth } from "../src/lib/auth";
+import { portableFixture } from "./helpers/portable-fixture";
+import type { WorldState } from "../src/db/schema";
+import { scheduleVersion } from "../src/lib/world-social";
+
+test("owner social API enforces ownership, active lease, stale snapshots and atomic semantic memory", async () => {
+  const f = await accountsDb();
+  try {
+    const token = newGuestToken(), stranger = newGuestToken(), id = randomUUID();
+    const world: WorldState = { ...portableFixture().session.worldState, clock: { day: 2, minute: 60 } };
+    await f.pg.query("INSERT INTO game_sessions(id,owner_id,visibility,title,character,world_state,turn_count) VALUES ($1,$2,'public','Social',$3,$4,3)", [id, profileIdFromToken(token), JSON.stringify(portableFixture().session.character), JSON.stringify(world)]);
+    await f.pg.query("INSERT INTO npcs(session_id,key,name,status) VALUES ($1,'anna','Анна','alive')", [id]);
+    await f.pg.query("INSERT INTO world_locations(session_id,name) VALUES ($1,'Дом')", [id]);
+    const { PATCH } = await import("../src/app/api/sessions/[id]/social/route");
+    const jobs: (() => Promise<void>)[] = [];
+    const patch = (cookie: string, body: unknown) => cookieContext(cookie, () => PATCH(new Request(`http://localhost/api/sessions/${id}/social`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }), { params: Promise.resolve({ id }) }), jobs);
+    const owner = `chronicle_guest=${token}`, add = { op: "knowledge.add", npcKey: "anna", text: "Ключ у героя" };
+    assert.equal((await patch(`chronicle_guest=${stranger}`, add)).status, 404);
+    const admin = await auth.register(newGuestToken(), "socialadmin", "correct horse battery staple");
+    process.env.CHRONICLE_ADMIN_ACCOUNT_IDS = admin.identity.account!.id;
+    assert.equal((await patch(`chronicle_guest=${admin.guestToken}; chronicle_session=${admin.sessionToken}`, add)).status, 404);
+    await f.pg.query("INSERT INTO turn_requests(session_id,request_id,input_hash,action,is_free,base_turn,status,lease_expires_at) VALUES ($1,'busy','hash','act',true,3,'running',now()+interval '1 hour')", [id]);
+    assert.equal((await patch(owner, add)).status, 429);
+    await f.pg.query("UPDATE turn_requests SET status='failed' WHERE session_id=$1", [id]);
+    const response = await patch(owner, add);
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+    assert.equal((await response.json()).social.bonds[0].knows[0].source, "owner");
+    const remove = { op: "knowledge.remove", npcKey: "anna", index: 0, expected: { text: add.text, turn: 3, source: "owner" } };
+    assert.equal((await patch(owner, remove)).status, 200);
+    assert.equal((await patch(owner, remove)).status, 409);
+    const memory = (await f.pg.query<{ content: string }>("SELECT content FROM memory_nodes WHERE session_id=$1 AND entity_key LIKE '%:knows:%'", [id])).rows;
+    assert.equal(memory.length, 1);
+    assert.match(memory[0].content, /снята владельцем/);
+    assert.doesNotMatch(memory[0].content, /не знает/);
+    const schedule = { op: "schedule.upsert", npcKey: "anna", place: "Дом", from: "07:00", to: "09:00", repeat: "daily" };
+    const scheduled = await patch(owner, schedule);
+    assert.equal(scheduled.status, 200, await scheduled.clone().text());
+    const slot = (await scheduled.json()).social.schedules[0];
+    assert.equal((await patch(owner, { ...schedule, id: slot.id, expected: scheduleVersion(slot), note: "Новое" })).status, 200);
+    assert.equal((await patch(owner, { op: "schedule.remove", id: slot.id, expected: scheduleVersion(slot) })).status, 409);
+    const before = (await f.pg.query("SELECT world_state FROM game_sessions WHERE id=$1", [id])).rows;
+    const beforeMemory = (await f.pg.query("SELECT id,content FROM memory_nodes WHERE session_id=$1 ORDER BY id", [id])).rows;
+    await f.pg.exec("CREATE FUNCTION reject_social_memory() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic memory failure'; END $$; CREATE TRIGGER reject_social_memory BEFORE INSERT OR UPDATE ON memory_nodes FOR EACH ROW EXECUTE FUNCTION reject_social_memory();");
+    assert.equal((await patch(owner, { ...add, text: "Новый факт" })).status, 500);
+    assert.deepEqual((await f.pg.query("SELECT world_state FROM game_sessions WHERE id=$1", [id])).rows, before);
+    assert.deepEqual((await f.pg.query("SELECT id,content FROM memory_nodes WHERE session_id=$1 ORDER BY id", [id])).rows, beforeMemory);
+    assert.ok(jobs.length > 0, "after jobs are captured and never invoke real providers");
+  } finally { delete process.env.CHRONICLE_ADMIN_ACCOUNT_IDS; await f.close(); }
+});
