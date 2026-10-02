@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { assertAuthOrigin, authRateLimitClient, SESSION_COOKIE, SESSION_MAX_AGE, tokenHash } from "@/lib/auth-policy";
+import { assertAuthOrigin, authRateLimitClient, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth-policy";
 import { GUEST_COOKIE, GUEST_MAX_AGE, newGuestToken } from "@/lib/guest-identity";
 import { HttpError, httpError, readJsonObject } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ action: string }> };
-const unauthenticatedBucket = (value: unknown) => tokenHash(typeof value === "string" ? value.trim().toLowerCase() : JSON.stringify(value) ?? "missing");
 function tokens(request: Request) {
   const cookies = new NextRequest(request.url, { headers: request.headers }).cookies;
   return { guest: cookies.get(GUEST_COOKIE)?.value ?? "", session: cookies.get(SESSION_COOKIE)?.value ?? "" };
@@ -26,10 +25,9 @@ export async function POST(request: Request, context: Context) {
     const body = await readJsonObject(request, 4096);
     let { guest, session } = tokens(request);
     const originalSession = session;
-    // A trusted ingress identity protects all login names for that client. Without one,
-    // scope unauthenticated limits to the requested login instead of one global bucket.
+    // Anonymous password work keeps the bounded shared fallback unless ingress is trusted.
     if (action === "register" || action === "login") {
-      await auth.rateLimit(action, authRateLimitClient(request) ?? `login:${unauthenticatedBucket(body.login)}`);
+      await auth.rateLimit(action, authRateLimitClient(request));
     } else if (action !== "logout") {
       // Security operations are charged only to the authenticated account. Invalid
       // callers cannot consume another account's revocation/password-change budget.

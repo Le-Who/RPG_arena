@@ -40,8 +40,8 @@ export function assertAuthOrigin(request: Request): void {
   if (request.headers.get("origin") !== allowed || request.headers.get("sec-fetch-site") === "cross-site") throw new HttpError(403, "ORIGIN_REJECTED", "ORIGIN_REJECTED");
 }
 /** Proxy headers are ignored unless the operator names one sanitized, overwritten ingress header. */
-export function authRateLimitClient(request: Request): string | null {
+export function authRateLimitClient(request: Request): string {
   const header = process.env.CHRONICLE_AUTH_TRUSTED_CLIENT_HEADER;
   const value = header ? request.headers.get(header)?.trim() : undefined;
-  return value && value.length <= 128 ? tokenHash(value) : null;
+  return value && value.length <= 128 ? tokenHash(value) : "untrusted-global";
 }
