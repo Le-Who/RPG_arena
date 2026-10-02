@@ -1,3 +1,4 @@
+import { resourceSnapshot } from "./applied-changes";
 import { resolveInventoryReference } from "./entity-identity";
 import { randomUUID } from "node:crypto";
 // ── RES-1: контракт resolution, runtime-валидация и серверные reducers ──
@@ -661,7 +662,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         ops.push({ t: "quest.update", id: existing.id, patch });
         const status = patch.status ?? existing.status;
         const progress = patch.progress ?? existing.progress;
-        questsApplied.push({ title: existing.title, status, progress, isNew: false });
+        questsApplied.push({ title: existing.title, status, progress, isNew: false, before: { status: existing.status, progress: existing.progress }, ...(q.note ? { note: String(q.note).slice(0, 240) } : {}) });
         events.push({
           layer: "episodic",
           category: "quest",
@@ -925,6 +926,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
       sceneObjects: sceneApplied,
       conditions: { added: addedConds, removed: removedConds },
       rejected,
+      resources: resourceSnapshot(input.character, character, { before: input.world.danger, after: world.danger }),
     },
   };
 }

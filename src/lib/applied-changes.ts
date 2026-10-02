@@ -3,6 +3,17 @@ import type { AppliedChanges } from "@/db/schema";
 
 export type ChangeIcon = "plus" | "consume" | "minus" | "equip" | "unequip" | "health" | "xp" | "gold" | "danger" | "level" | "warning" | "location" | "quest" | "check" | "failed" | "hidden" | "condition-add" | "condition-remove" | "person" | "object";
 export type ChangeChip = { label: string; icon: ChangeIcon; tone: "positive" | "negative" | "neutral" };
+export type ResourcePoint = { before: number; after: number };
+export type ResourceSnapshot = { hp: ResourcePoint & { maxBefore: number; maxAfter: number }; gold: ResourcePoint; xp: ResourcePoint; danger: ResourcePoint; level?: ResourcePoint };
+type ResourceCharacter = { hp: number; maxHp: number; gold: number; xp: number; level: number };
+/** Capture accepted state; refresh after all turn repairs and downstream reducers. */
+export function resourceSnapshot(before: ResourceCharacter, after: ResourceCharacter, danger: ResourcePoint): ResourceSnapshot {
+  return {
+    hp: { before: before.hp, after: after.hp, maxBefore: before.maxHp, maxAfter: after.maxHp },
+    gold: { before: before.gold, after: after.gold }, xp: { before: before.xp, after: after.xp },
+    danger: { ...danger }, ...(before.level !== after.level ? { level: { before: before.level, after: after.level } } : {}),
+  };
+}
 const signed = (value: number) => `${value > 0 ? "+" : "−"}${Math.abs(value)}`;
 
 /** Describe committed facts. Color is supplementary; the wording carries the meaning. */
@@ -80,6 +91,7 @@ export function describeAppliedChanges(applied: AppliedChanges): ChangeChip[] {
 export type ConsequenceGroup = "Отношения" | "Ресурсы" | "Цели" | "Состояния" | "Люди и договорённости";
 export type ConsequenceRow = { group: ConsequenceGroup; subject: string; before: string | null; after: string; reason: string };
 const fmt = (value: number) => `${value > 0 ? "+" : ""}${value}`;
+const questLabel = (status: string, progress: number) => status === "completed" ? "выполнена" : status === "failed" ? "провалена" : status === "hidden" ? "скрыта" : `${progress}%`;
 
 export function describeConsequences(applied: AppliedChanges): ConsequenceRow[] {
   const rows: ConsequenceRow[] = [];
@@ -88,9 +100,19 @@ export function describeConsequences(applied: AppliedChanges): ConsequenceRow[] 
     else if (npc.delta) rows.push({ group: "Отношения", subject: npc.name, before: fmt(npc.relation - npc.delta), after: fmt(npc.relation), reason: npc.note ?? "" });
   }
   for (const [key, label] of [["hp", "Здоровье"], ["gold", "Средства"], ["xp", "Опыт"], ["danger", "Опасность"]] as const) {
-    if (applied[key]) rows.push({ group: "Ресурсы", subject: label, before: null, after: signed(applied[key]), reason: "" });
+    const point = applied.resources?.[key];
+    if (point) {
+      const delta = point.after - point.before;
+      const hp = key === "hp" ? applied.resources?.hp : undefined;
+      if (!delta && (!hp || hp.maxBefore === hp.maxAfter)) continue;
+      rows.push({ group: "Ресурсы", subject: label,
+        before: hp ? `${point.before}/${hp.maxBefore}` : String(point.before),
+        after: hp ? `${point.after}/${hp.maxAfter}` : String(point.after),
+        reason: `${delta ? signed(delta) : "0"} за ход${key === "hp" && applied.dead ? " · на грани гибели" : ""}` });
+    } else if (applied[key]) rows.push({ group: "Ресурсы", subject: label, before: null, after: signed(applied[key]), reason: "" });
   }
-  for (const quest of applied.quests) rows.push({ group: "Цели", subject: quest.title, before: null, after: quest.status === "completed" ? "выполнена" : quest.status === "failed" ? "провалена" : `${quest.progress}%`, reason: quest.isNew ? "новая цель" : "" });
+  if (applied.resources?.level) rows.push({ group: "Ресурсы", subject: "Уровень", before: String(applied.resources.level.before), after: String(applied.resources.level.after), reason: "набран опыт" });
+  for (const quest of applied.quests) rows.push({ group: "Цели", subject: quest.title, before: quest.before ? questLabel(quest.before.status, quest.before.progress) : null, after: questLabel(quest.status, quest.progress), reason: [quest.isNew ? "новая цель" : "", quest.note ?? ""].filter(Boolean).join(" · ") });
   for (const condition of applied.conditions.added) rows.push({ group: "Состояния", subject: condition, before: "нет", after: "есть", reason: "" });
   for (const condition of applied.conditions.removed) rows.push({ group: "Состояния", subject: condition, before: "есть", after: "снято", reason: (applied.conditionTimers?.expired ?? []).includes(condition) ? "прошло со временем" : "" });
   for (const c of applied.life?.commitments ?? []) rows.push({ group: "Люди и договорённости", subject: c.title, before: null, after: c.rescheduled ? "перенесено" : COMMITMENT_LABELS[c.status].toLowerCase(), reason: c.downgraded ? "нужно подтверждение сценой" : "" });

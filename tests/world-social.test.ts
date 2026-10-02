@@ -111,7 +111,7 @@ test("rescheduling is a distinct outcome: history keeps the old time and attenda
   });
   const commitment = readLife(moved.world).commitments[0];
   assert.deepEqual(commitment.due, { day: 2, minute: 19 * 60 });
-  assert.deepEqual(commitment.history?.[0], { turn: 6, kind: "rescheduled", from: { day: 1, minute: 19 * 60 }, to: { day: 2, minute: 19 * 60 } });
+  assert.deepEqual(commitment.history?.[0], { turn: 6, kind: "rescheduled", source: "narration", from: { day: 1, minute: 19 * 60 }, to: { day: 2, minute: 19 * 60 } });
   assert.equal(commitment.attendance, undefined);
   assert.equal(moved.applied.commitments[0].rescheduled, true);
   const evening = run({ world: { ...moved.world, clock: { day: 1, minute: 21 * 60 } }, startClock: { day: 1, minute: 18 * 60 + 10 }, startLocation: "Дом", turnNumber: 7 });

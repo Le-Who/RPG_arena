@@ -5,6 +5,7 @@ import type { WorldState } from "@/db/schema";
 import { api } from "@/lib/api-client";
 import { COMMITMENT_LABELS, STORY_SHAPE_LABELS, commitmentAlerts, formatClock, readLife, type StoryShape, type StoryShapeKind } from "@/lib/world-life";
 import { WAIT_OPTIONS, formatMinutes, interactionText, type InteractionState } from "@/lib/interactions";
+import { CommitmentControls, CommitmentHistory } from "./commitment-controls";
 import { EntityActions } from "./entity-actions";
 import { NarratorSection, WorldAgendaSection } from "./world-agenda-panel";
 
@@ -73,9 +74,11 @@ export function LifePanel({ sessionId, world, canEdit, disabled, interactionStat
         <div className="lx-commit-head"><strong>{c.title}</strong><span className="gx-tag">{COMMITMENT_LABELS[c.status]}</span></div>
         <small>{[c.parties.join(", "), c.place, c.due ? formatClock(c.due) : ""].filter(Boolean).join(" · ") || "Без срока"}</small>
         {(overdue || soon) && <small className="lx-alert"><CalendarClock size={12} />{overdue ? "Срок прошёл — мир может отреагировать" : "Скоро срок"}</small>}
+        <CommitmentHistory commitment={c} />
+        {canEdit && <CommitmentControls key={JSON.stringify(c)} sessionId={sessionId} commitment={c} currentDay={life.clock.day} disabled={disabled} onSaved={onSaved} />}
       </div>;
     }) : <p className="gx-side-hint">Встречи, обещания и сделки появятся, когда вы договоритесь с кем-то в истории. Предложение не равно согласию: статус меняется только после ответа другой стороны.</p>}
-    {!!closed.length && <details className="lx-closed"><summary>Закрытые · {closed.length}</summary>{closed.map((c) => <p key={c.id}>{c.title} — {COMMITMENT_LABELS[c.status].toLowerCase()}</p>)}</details>}
+    {!!closed.length && <details className="lx-closed"><summary>Закрытые · {closed.length}</summary>{closed.map((c) => <div key={c.id} className="cx-closed"><p>{c.title} — {COMMITMENT_LABELS[c.status].toLowerCase()}</p><CommitmentHistory commitment={c} />{canEdit && <CommitmentControls key={JSON.stringify(c)} sessionId={sessionId} commitment={c} currentDay={life.clock.day} disabled={disabled} onSaved={onSaved} />}</div>)}</details>}
 
     <WorldAgendaSection world={world} />
 

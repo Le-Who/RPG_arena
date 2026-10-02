@@ -31,6 +31,8 @@ export function useTurnRequest(sessionId: string, onCommitted: (result: TurnResp
   const [stage, setStage] = useState<TurnStage>("context");
   const pendingRef = useRef<PendingTurn | null>(null);
   const sendingRef = useRef(false);
+  const recoveryReady = useRef(false);
+  const [recoveredSession, setRecoveredSession] = useState<string | null>(null);
   const activeSend = useRef<{id: string; controller: AbortController} | null>(null);
   const committed = useRef(onCommitted);
   useEffect(() => { committed.current = onCommitted; }, [onCommitted]);
@@ -52,10 +54,13 @@ export function useTurnRequest(sessionId: string, onCommitted: (result: TurnResp
     finally { sendingRef.current = false; setSending(false); setRemoteRunning(false); }
   }, [remember]);
   useEffect(() => {
+    recoveryReady.current = false;
     const timer = window.setTimeout(() => {
       let value: string | null = null; try { value = sessionStorage.getItem(storageKey); } catch {}
       const restored = readPendingTurn(value, sessionId);
       if (restored) { pendingRef.current = restored; setPending(restored); setError("Найден незавершённый запрос. Проверяем, сохранил ли сервер ваш ход."); }
+      recoveryReady.current = true;
+      setRecoveredSession(sessionId);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [sessionId, storageKey]);
@@ -73,7 +78,7 @@ export function useTurnRequest(sessionId: string, onCommitted: (result: TurnResp
         if (view.status === "completed" && view.result) await finish(pending.id, view.result);
         if (view.status === "failed" && !sendingRef.current) { setPreview(""); setError((old) => old.startsWith("Найден") ? "Предыдущая попытка не завершилась. Можно безопасно повторить тот же запрос." : old); }
       } catch (e) {
-        if (alive && e instanceof ApiError && e.status === 404 && !sendingRef.current) { setRemoteRunning(false); setError((old) => old.startsWith("Найден") ? "Сервер ещё не принял это действие. Повтор сохранит тот же requestId." : old); }
+        if (alive && e instanceof ApiError && e.status === 404 && !sendingRef.current) { setRemoteRunning(false); setError((old) => old.startsWith("Найден") ? "Сервер ещё не принял это действие. Можно безопасно повторить попытку — второй ход не появится." : old); }
       } finally { checking = false; }
     };
     void check(); const timer = setInterval(() => void check(), 1800);
@@ -115,5 +120,6 @@ export function useTurnRequest(sessionId: string, onCommitted: (result: TurnResp
   }, [sessionId, remember, finish, remoteRunning]);
   const retry = useCallback(async () => { const p = pendingRef.current; return p ? send(p.action, p.custom, p.expectedTurn, p.itemIds) : false; }, [send]);
   const dismiss = useCallback(() => { if (sendingRef.current || remoteRunning) return; remember(null); setPreview(""); setError(""); }, [remember, remoteRunning]);
-  return { pending, preview, startedAt, busy: sending || remoteRunning, stage, error, send, retry, dismiss };
+  const isUpdateSafe = useCallback(() => recoveryReady.current && !pendingRef.current && !sendingRef.current, []);
+  return { pending, preview, startedAt, busy: sending || remoteRunning, stage, error, send, retry, dismiss, isUpdateSafe, recoveryReady: recoveredSession === sessionId };
 }
