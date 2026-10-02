@@ -120,6 +120,13 @@
       "when": 1790000000012,
       "tag": "0016_text_provider_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790000000013,
+      "tag": "0017_visual_quota_reservations",
+      "breakpoints": true
     }
   ]
 }

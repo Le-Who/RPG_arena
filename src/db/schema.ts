@@ -641,6 +641,14 @@ export const sceneVisuals = pgTable("scene_visuals", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("idx_scene_visuals_session").on(t.sessionId, t.createdAt), index("idx_scene_visuals_owner_day").on(t.ownerId, t.createdAt)]);
 
+/** Durable quota reservations survive visual and campaign deletion. */
+export const visualQuotaReservations = pgTable("visual_quota_reservations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  quotaScope: text("quota_scope").notNull(),
+  visualId: uuid("visual_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [index("idx_visual_quota_scope_created").on(t.quotaScope, t.createdAt)]);
+
 /** Global image model chosen by an administrator; existing visuals retain their saved model. */
 export const visualSettings = pgTable("visual_settings", {
   id: integer("id").primaryKey().default(1),
