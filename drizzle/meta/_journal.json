@@ -134,6 +134,13 @@
       "when": 1790000000014,
       "tag": "0018_performance_samples",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790000000015,
+      "tag": "0019_visual_quota_reservations",
+      "breakpoints": true
     }
   ]
 }

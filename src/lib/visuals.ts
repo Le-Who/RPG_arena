@@ -2,9 +2,9 @@
 // Общий контракт media provider + первый адаптер (Pollinations). Изображение — иллюстрация,
 // а не источник канона: оно никогда не меняет состояние мира. Провайдер не меняется
 // незаметно после ошибки: запись хранит provider/model/seed, повтор идёт тем же адаптером.
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { gameSessions, gameTurns, npcs, sceneObjects, sceneVisuals, visualIdentities, worldLocations, type CharacterState, type VisualKind, type WorldState } from "@/db/schema";
+import { gameSessions, gameTurns, npcs, sceneObjects, sceneVisuals, visualIdentities, visualQuotaReservations, worldLocations, type CharacterState, type VisualKind, type WorldState } from "@/db/schema";
 import { HttpError } from "./http";
 import { normName } from "./world-life";
 import { PROVIDERS, buildVisualPrompt, clip, fetchFromProvider, seedFor, visualConfig } from "./visual-provider";
@@ -124,11 +124,16 @@ export async function createVisual(sessionId: string, input: { kind: VisualKind;
   return await db.transaction(async (tx) => {
     // Serialize the count-and-reserve pair across web instances. Failed and pending rows still consume a reservation.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${quotaScope}))`);
-    const [{ used }] = await tx.select({ used: sql<number>`count(*)::int` }).from(sceneVisuals)
-      .innerJoin(gameSessions, eq(sceneVisuals.sessionId, gameSessions.id))
-      .where(and(session.ownerId ? eq(gameSessions.ownerId, session.ownerId) : eq(sceneVisuals.sessionId, sessionId), gte(sceneVisuals.createdAt, since)));
+    // Guest adoption retains reservation provenance while charging the account's ancestry.
+    const scope = session.ownerId ? or(eq(visualQuotaReservations.quotaScope, quotaScope), sql`${visualQuotaReservations.quotaScope} IN (
+      SELECT 'owner:' || consumed.profile_id FROM consumed_guest_profiles consumed
+      JOIN accounts account ON account.id = consumed.account_id WHERE account.profile_id = ${session.ownerId}
+    )`) : eq(visualQuotaReservations.quotaScope, quotaScope);
+    const [{ used }] = await tx.select({ used: sql<number>`count(*)::int` }).from(visualQuotaReservations)
+      .where(and(scope, gte(visualQuotaReservations.createdAt, since)));
     if (Number(used ?? 0) >= cfg.dailyLimit) throw new HttpError(429, "VISUAL_QUOTA", `Дневной лимит иллюстраций (${cfg.dailyLimit}) исчерпан. Попробуйте завтра.`, { retryAfter: 3600 });
     const [row] = await tx.insert(sceneVisuals).values({ sessionId, ownerId: session.ownerId, kind: input.kind, subjectKey, turnNumber, caption: clip(caption, 160), prompt, provider: cfg.provider.id, model: cfg.model, seed, width, height }).returning(LIST_COLUMNS);
+    await tx.insert(visualQuotaReservations).values({ quotaScope, visualId: row.id });
     return row as VisualView;
   });
 }
