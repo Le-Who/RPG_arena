@@ -1,0 +1,3 @@
+## 2024-11-20 - Adding useMemo on large list filters
+**Learning:** Adding useMemo to cache large list filtering and string searches is an easy optimization that prevents O(N) recalculations on unrelated state updates. It doesn't help when typing in a search bar that acts as a filter itself (since the query changes and invalidates the memo cache), but saves lots of CPU time when unrelated component states (like toggling loading flags or modals) change.
+**Action:** Use useMemo for list filters, but properly identify and document what actions the optimization actually speeds up.

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, BookOpen, BrainCircuit, Download, Fingerprint, LoaderCircle, RefreshCw, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { useApp } from "./app-shell";
 import { api, jsonBody } from "@/lib/api-client";
@@ -60,8 +60,11 @@ export function StoryRecords({ mode }: { mode: "memory" | "journal" }) {
     try { const result = await api<{ indexed: number; failed: number; pending: number; indexing?: { indexed: number } }>(`/api/sessions/${sessionId}/memory/reindex`, jsonBody({})); await load(); notify(`Подготовлено к поиску: ${result.indexed ?? result.indexing?.indexed ?? 0} новых записей.`); }
     catch (e) { notify(e instanceof Error ? e.message : "Не удалось подготовить записи к поиску", true); } finally { setIndexing(false); }
   };
-  const memories = (results ?? snapshot?.memories ?? []).filter((node) => (!layer || node.layer === layer) && (results !== null || `${node.title} ${node.content}`.toLowerCase().includes(query.toLowerCase())));
-  const turns = snapshot?.turns.filter((turn) => !query || turn.content.toLowerCase().includes(query.toLowerCase())) ?? [];
+
+  // ⚡ Bolt: Memoize memory and turn filtering to prevent O(N) recalculations on every render.
+  // Impact: Reduces CPU time when typing in the search box or switching layers.
+  const memories = useMemo(() => (results ?? snapshot?.memories ?? []).filter((node) => (!layer || node.layer === layer) && (results !== null || `${node.title} ${node.content}`.toLowerCase().includes(query.toLowerCase()))), [results, snapshot?.memories, layer, query]);
+  const turns = useMemo(() => snapshot?.turns.filter((turn) => !query || turn.content.toLowerCase().includes(query.toLowerCase())) ?? [], [snapshot?.turns, query]);
   if (!loading && !sessions.length) return <div className="empty-state"><BrainCircuit size={32} /><h3>У этой истории ещё нет воспоминаний</h3><p>Начните первую кампанию. Мы сохраним её мир, героя и каждый сделанный выбор.</p><button className="button primary" onClick={() => newStory()}>Начать историю <ArrowRight size={14} /></button></div>;
   return <section className="records"><div className="records-toolbar"><div className="record-select"><BookOpen size={17} /><select aria-label="Выбрать кампанию" disabled={indexing} value={sessionId} onChange={(e) => chooseSession(e.target.value)}>{sessions.map((s) => <option key={s.id} value={s.id}>{s.title} · {s.character.name}</option>)}</select></div><div className="record-actions">{mode === "memory" ? <button className="button secondary" onClick={() => void reindex()} disabled={!hasKey || !settings?.embeddingsEnabled || indexing || !snapshot} title={!hasKey || !settings?.embeddingsEnabled ? "Подключите поиск по смыслу в настройках" : "Подготовить сохранённые записи к поиску по смыслу"}>{indexing ? <LoaderCircle size={14} className="spin" /> : <RefreshCw size={14} />}Подготовить поиск</button> : <a className="button secondary" href={`/api/sessions/${sessionId}/export`}><Download size={14} />Скачать историю</a>}<Link className="button primary" href={`/play/${sessionId}`}>Продолжить <ArrowRight size={14} /></Link></div></div>
     {error && <div className="notice error-notice" role="alert"><ShieldCheck size={17} /><p>{error}</p><button className="text-button" onClick={() => void load()}>Повторить</button></div>}
