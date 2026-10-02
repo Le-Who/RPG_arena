@@ -8,9 +8,7 @@ type PendingFeedTurn = { sessionId: string; expectedTurn: number; action: string
 export function buildNarrativeFeed(turns: FeedTurn[], pending: PendingFeedTurn | null, preview: string): NarrativeFeedRow[] {
   const rows = new Map<string, NarrativeFeedRow>();
   const add = (turn: FeedTurn, isPending: boolean) => {
-    // ⚡ Bolt: Using template literals is ~10x faster than JSON.stringify for composite keys,
-    // reducing main thread blocking during large narrative history renders.
-    const key = `${turn.sessionId}:${turn.turnNumber}:${turn.role}`;
+    const key = `${turn.sessionId.length}:${turn.sessionId}:${turn.turnNumber}:${turn.role}`;
     if (!rows.has(key)) rows.set(key, { ...turn, key, pending: isPending });
   };
   for (const turn of turns) add(turn, false);
