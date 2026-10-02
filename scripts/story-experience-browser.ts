@@ -56,7 +56,8 @@ async function main() {
     await mkdir("output/playwright", { recursive: true });
     await page.screenshot({ path: "output/playwright/story-experience-mobile.png", fullPage: true, animations: "disabled" });
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.getByRole("button", { name: "Создать свой мир", exact: true }).click();
+    await page.goto(`${base}/worlds`);
+    await page.locator("#main-content").getByRole("button", { name: "Создать свой мир", exact: true }).click();
     const creator = page.getByRole("dialog", { name: "Новая история", exact: true });
     await creator.getByLabel("Название истории").fill("Мой бережно сохранённый мир");
     await creator.getByLabel("Завязка истории").fill("История о возвращении домой после долгого путешествия.");

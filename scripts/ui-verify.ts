@@ -76,6 +76,6 @@ async function main() {
 
   await browser.close();
   console.log("pageErrors:", errors.length ? errors : 0);
-  if (hasMap !== 1 || nodes < 2 || travel < 1 || afterArrow !== "Память" || afterHome !== "Герой" || errors.length) process.exitCode = 1;
+  if (hasMap !== 1 || nodes < 2 || travel < 1 || afterArrow !== "Жизнь" || afterHome !== "Герой" || errors.length) process.exitCode = 1;
 }
 main().catch((e) => { console.error(e); process.exit(1); });
