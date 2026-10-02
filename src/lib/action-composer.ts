@@ -17,19 +17,21 @@ export function actionEntitySuggestions(text: string, caret: number, state: Inte
   const fragment = before.match(/[\p{L}\p{N}-]+(?:[ \t]+[\p{L}\p{N}-]+)*$/u);
   if (!fragment) return [];
   const words = [...fragment[0].matchAll(/[\p{L}\p{N}-]+/gu)];
-  let lazyEntities: Omit<ActionEntitySuggestion, "start" | "end">[] | null = null;
+  let lazyEntities: ActionEntitySuggestion[] | null = null;
 
   for (const word of words) {
     let start = caret - fragment[0].length + word.index!;
     const query = normalize(text.slice(start, caret));
     if (query.length < 2) continue;
 
+    // Defer building the entities array until we actually have a valid query length
+    // ⚡ Bolt: Prevents expensive array allocations and string normalizations on every keystroke
     if (!lazyEntities) {
       lazyEntities = [
-        ...state.inventory.filter(item => item.quantity > 0).map(item => ({ kind: "item" as const, ref: item.id, name: item.name })),
-        ...state.npcs.map(npc => ({ kind: "npc" as const, ref: npc.key, name: npc.name })),
-        ...state.locations.filter(location => location.discovered).map(location => ({ kind: "location" as const, ref: location.id, name: location.name })),
-        ...state.sceneObjects.filter(object => normalize(object.locationName) === normalize(state.currentLocation)).map(object => ({ kind: "object" as const, ref: object.key, name: object.name })),
+        ...state.inventory.filter(item => item.quantity > 0).map(item => ({ kind: "item" as const, ref: item.id, name: item.name, start: 0, end: 0 })),
+        ...state.npcs.map(npc => ({ kind: "npc" as const, ref: npc.key, name: npc.name, start: 0, end: 0 })),
+        ...state.locations.filter(location => location.discovered).map(location => ({ kind: "location" as const, ref: location.id, name: location.name, start: 0, end: 0 })),
+        ...state.sceneObjects.filter(object => normalize(object.locationName) === normalize(state.currentLocation)).map(object => ({ kind: "object" as const, ref: object.key, name: object.name, start: 0, end: 0 })),
       ];
     }
 
