@@ -127,7 +127,7 @@ async function main() {
       await expect(page.getByRole("button", { name: "Открыть карту крупно", exact: true })).toBeFocused();
     }
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.getByRole("button", { name: "Создать свой мир", exact: true }).click();
+    await goto("/worlds"); await page.waitForLoadState("networkidle"); await page.getByRole("button", { name: "Создать свой мир", exact: true }).click();
     dialog = page.getByRole("dialog", { name: "Новая история", exact: true });
     await dialog.getByRole("textbox", { name: "Название истории *", exact: true }).fill("Черновик остаётся");
     for (const [name, width, height] of [["desktop", 1280, 900], ["mobile", 390, 844]] as const) {
