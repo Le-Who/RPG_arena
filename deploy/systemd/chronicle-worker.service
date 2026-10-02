@@ -1,0 +1,26 @@
+[Unit]
+Description=Chronicle memory worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=chronicle
+Group=chronicle
+WorkingDirectory=/opt/chronicle
+Environment=NODE_ENV=production
+Environment=TZ=UTC
+EnvironmentFile=/etc/chronicle/worker.env
+ExecStart=/usr/bin/node --import tsx scripts/memory-worker.ts
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

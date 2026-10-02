@@ -29,6 +29,7 @@ export async function acquireTurn(input: TurnInput & { requestId: string }): Pro
     await lockSession(tx, input.sessionId);
     const [session] = await tx.select().from(gameSessions).where(eq(gameSessions.id, input.sessionId));
     if (!session) throw new HttpError(404, "NOT_FOUND", "Кампания не найдена.");
+    if (input.expectedOwnerId && session.ownerId !== input.expectedOwnerId) throw new HttpError(404, "NOT_FOUND", "NOT_FOUND: владелец кампании изменился.");
     const [previous] = await tx.select().from(turnRequests).where(and(eq(turnRequests.sessionId, input.sessionId), eq(turnRequests.requestId, input.requestId)));
     if (previous && previous.inputHash !== inputHash) throw new HttpError(409, "IDEMPOTENCY_CONFLICT", "Этот requestId уже относится к другому действию. История не изменена.");
     if (previous?.status === "completed" && previous.result) return { kind: "replay", result: { ...previous.result, replay: true } };
@@ -51,7 +52,7 @@ export async function acquireTurn(input: TurnInput & { requestId: string }): Pro
       if (!last?.choices?.some(choice => choice.trim() === input.action)) throw new HttpError(409, "INVALID_INPUT", "Такого варианта нет в текущей сцене. Обновите её или отправьте свободное действие.");
     }
     // Input mode selects the narration route, not whether campaign mechanics apply.
-    const dice = previous ? previous.dice : serverCheck({ rulesProfile: session.rulesProfile, playerAction: input.action, stats: session.character.stats, danger: session.worldState.danger, turnCount: session.turnCount + 1 });
+    const dice = previous ? previous.dice : serverCheck({ rulesProfile: session.rulesProfile, playerAction: input.action, stats: session.character.stats, danger: session.worldState.danger, turnCount: session.turnCount + 1, conditions: session.character.conditions });
     const token = randomUUID();
     const values = { status: "running" as const, stage: "context" as const, leaseToken: token, leaseExpiresAt: new Date(Date.now() + TURN_LEASE_MS), error: null, dice, updatedAt: new Date() };
     const [row] = previous

@@ -6,6 +6,7 @@ import { sessionOwnerId } from "./campaign-access";
 import { embedTexts, formatQuery } from "./embeddings";
 import { hashContent } from "./memory";
 import { buildMemoryQuery, queryVectorCache } from "./query-vectors";
+import { withCampaignOwnerWork } from "./owner-work";
 
 export { buildMemoryQuery } from "./query-vectors";
 
@@ -17,7 +18,7 @@ export async function prewarmSessionChoices(sessionId: string): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      runPrewarm(sessionId),
+      withCampaignOwnerWork(sessionId, undefined, () => runPrewarm(sessionId)),
       new Promise<void>(resolve => { timer = setTimeout(resolve, PREWARM_TIMEOUT_MS); }),
     ]);
   } catch {

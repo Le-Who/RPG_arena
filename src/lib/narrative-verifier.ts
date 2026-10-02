@@ -1,10 +1,8 @@
 import type { NarrativeCheckSelection, NarrativeVerdict } from "./narrative-policy";
+import { JEV_PROVIDERS, runJevTask, summarizeJevOutcome, type JevOutcome, type JevProvider, type JevTask, type JevTransport } from "./jev-tasks";
 
-export type NarrativeProvider = "typesafe" | "openrouter";
-export const NARRATIVE_PROVIDERS = {
-  typesafe: { endpoint: "https://api.typesafe.ai/v1/systemone", model: "jev-1.13.0" },
-  openrouter: { endpoint: "https://openrouter.ai/api/alpha/decisions", model: "typesafe/jev-1.13" },
-} as const;
+export type NarrativeProvider = JevProvider;
+export const NARRATIVE_PROVIDERS = JEV_PROVIDERS;
 export type NarrativeAnswer = { choice: NarrativeVerdict; confidence: number; probabilities: Record<NarrativeVerdict, number> };
 export type NarrativeVerification = {
   status: "verified" | "rejected" | "uncertain" | "unavailable" | "skipped";
@@ -13,62 +11,38 @@ export type NarrativeVerification = {
   usage?: { inputTokens: number; outputTokens: number; cost?: number };
 };
 
-const labels: NarrativeVerdict[] = ["consistent", "contradicts", "insufficient"];
-const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
-const probability = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
-const tokens = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
-function parse(raw: unknown, ids: string[], provider: NarrativeProvider) {
-  if (!record(raw) || typeof raw.model !== "string" || !record(raw.answers) || !record(raw.usage)) throw new Error("invalid_response");
-  const validModel = provider === "typesafe" ? raw.model === "jev-1.13.0" : /^(?:typesafe\/)?jev-1\.13(?:\.0)?(?:-\d{4}-?\d{2}-?\d{2})?$/.test(raw.model);
-  if (!validModel || Object.keys(raw.answers).length !== ids.length) throw new Error("invalid_response");
-  const answers: Record<string, NarrativeAnswer> = {};
-  for (const id of ids) {
-    const a = raw.answers[id];
-    if (!record(a) || a.type !== "choice" || !labels.includes(a.choice as NarrativeVerdict) || !probability(a.confidence) || !record(a.probabilities)) throw new Error("invalid_response");
-    const p = a.probabilities;
-    if (Object.keys(p).length !== labels.length || !labels.every(label => probability(p[label]))) throw new Error("invalid_response");
-    const probabilities = p as Record<NarrativeVerdict, number>;
-    if (Math.abs(labels.reduce((s, label) => s + probabilities[label], 0) - 1) > .01) throw new Error("invalid_response");
-    const choice = a.choice as NarrativeVerdict;
-    if (probabilities[choice] + 1e-6 < Math.max(...Object.values(probabilities))) throw new Error("invalid_response");
-    answers[id] = { choice, confidence: a.confidence, probabilities };
-  }
-  if (!tokens(raw.usage.input_tokens) || !tokens(raw.usage.output_tokens)) throw new Error("invalid_response");
-  const cost = raw.usage.cost;
-  if (cost !== undefined && (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0)) throw new Error("invalid_response");
-  return { model: raw.model, answers, usage: { inputTokens: raw.usage.input_tokens, outputTokens: raw.usage.output_tokens, ...(typeof cost === "number" ? { cost } : {}) } };
+export const NARRATIVE_TASK_ID = "narrative-consistency" as const;
+export const NARRATIVE_TASK_VERSION = "2026-09-default-fallback-v1" as const;
+const NARRATIVE_LABELS: readonly NarrativeVerdict[] = ["consistent", "contradicts", "insufficient"];
+/** Консервативные стартовые пороги, не измеренная калибровка. */
+const NARRATIVE_POLICY = { insufficientLabel: "insufficient" as const, acceptLabel: "consistent" as const, rejectLabel: "contradicts" as const, minConfidence: 0.8, minProbability: 0.9 };
+
+/** JEV-3a: адаптер существующей проверки повествования к общему контракту заданий. */
+export function narrativeJevTask(selection: NarrativeCheckSelection, state: Record<string, unknown>, snapshotVersion?: string | number): JevTask<NarrativeVerdict> {
+  return {
+    taskId: NARRATIVE_TASK_ID, taskVersion: NARRATIVE_TASK_VERSION, labels: NARRATIVE_LABELS, uncertainty: NARRATIVE_POLICY,
+    state, questions: selection.questions, strictProbabilities: true, limits: { maxQuestions: 12, maxBodyBytes: 100_000 },
+    ...(snapshotVersion !== undefined ? { snapshotVersion } : {}),
+  };
+}
+
+export function narrativeVerificationFromOutcome(outcome: JevOutcome<NarrativeVerdict>): NarrativeVerification {
+  const base = { provider: outcome.provider, model: outcome.model, answers: outcome.answers, latencyMs: outcome.latencyMs };
+  if (outcome.status !== "answered") return { ...base, status: "unavailable", reason: outcome.reason ?? "request_failed" };
+  const summary = summarizeJevOutcome(outcome, NARRATIVE_POLICY);
+  const status = summary === "reject" ? "rejected" : summary === "accept" ? "verified" : "uncertain";
+  return { ...base, status, ...(outcome.usage ? { usage: outcome.usage } : {}) };
 }
 
 /** Narrow checks only. Thresholds are conservative initial policy, not measured calibration. */
 export async function verifyNarrative(input: {
   selection: NarrativeCheckSelection; state: Record<string, unknown>; apiKey: string;
-  provider?: NarrativeProvider; timeoutMs?: number; fetchImpl?: typeof fetch;
+  provider?: NarrativeProvider; timeoutMs?: number; fetchImpl?: typeof fetch; transport?: JevTransport; snapshotVersion?: string | number;
 }): Promise<NarrativeVerification> {
   const provider = input.provider ?? "typesafe";
-  const config = NARRATIVE_PROVIDERS[provider];
-  const base = { provider, model: config.model, answers: {}, latencyMs: 0 };
-  if (!input.selection.required) return { ...base, status: "skipped" };
-  if (!input.apiKey.trim()) return { ...base, status: "unavailable", reason: "missing_key" };
-  const ids = Object.keys(input.selection.questions);
-  if (!ids.length || ids.length > 12) return { ...base, status: "unavailable", reason: "question_coverage" };
-  let body: string;
-  try { body = JSON.stringify({ model: config.model, state: input.state, questions: input.selection.questions }); }
-  catch { return { ...base, status: "unavailable", reason: "invalid_input" }; }
-  // No silent truncation: unknown coverage is not a verified result.
-  if (body.length > 100_000) return { ...base, status: "unavailable", reason: "input_too_large" };
-  const controller = new AbortController();
-  const started = performance.now();
-  const timeout = setTimeout(() => controller.abort(), Math.max(1, Math.min(5000, input.timeoutMs ?? 2500)));
-  try {
-    const res = await (input.fetchImpl ?? fetch)(config.endpoint, { method: "POST", redirect: "error", headers: { Authorization: `Bearer ${input.apiKey.trim()}`, "Content-Type": "application/json" }, body, signal: controller.signal });
-    if (!res.ok) { await res.body?.cancel().catch(() => undefined); throw new Error("provider_error"); }
-    const parsed = parse(await res.json(), ids, provider);
-    const values = Object.values(parsed.answers);
-    const status = values.some(a => a.choice === "contradicts" && a.confidence >= .8 && a.probabilities.contradicts >= .9) ? "rejected"
-      : values.every(a => a.choice === "consistent" && a.confidence >= .8 && a.probabilities.consistent >= .9) ? "verified" : "uncertain";
-    return { ...base, ...parsed, status, latencyMs: Math.round(performance.now() - started) };
-  } catch (error) {
-    const reason = controller.signal.aborted ? "timeout" : error instanceof Error && ["invalid_response", "provider_error"].includes(error.message) ? error.message : "request_failed";
-    return { ...base, status: "unavailable", reason, latencyMs: Math.round(performance.now() - started) };
-  } finally { clearTimeout(timeout); }
+  if (!input.selection.required) return { provider, model: JEV_PROVIDERS[provider].model, answers: {}, latencyMs: 0, status: "skipped" };
+  const outcome = await runJevTask(narrativeJevTask(input.selection, input.state, input.snapshotVersion), {
+    apiKey: input.apiKey, provider, timeoutMs: input.timeoutMs ?? 2500, maxTimeoutMs: 5000, fetchImpl: input.fetchImpl, transport: input.transport,
+  });
+  return narrativeVerificationFromOutcome(outcome);
 }

@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { pool } from "../src/db";
 import { runMemoryCycle } from "../src/lib/background";
 import { enqueueEmbeddings } from "../src/lib/embeddings";
+import { installSyntheticSecretKeyring } from "./lib/synthetic-secret-keyring";
+import { sealSecret, secretContext } from "../src/lib/secret-vault";
 
 const owners = ["worker-smoke:" + randomUUID(), "worker-smoke:" + randomUUID()];
 const ids = [randomUUID(), randomUUID()];
@@ -11,6 +13,7 @@ const nodes = [randomUUID(), randomUUID()];
 const keys = ["fake-worker-owner-A", "fake-worker-owner-B"];
 const nativeFetch = globalThis.fetch;
 const observed: { key: string | null; text: string; dims: number }[] = [];
+const smokeKeyring = installSyntheticSecretKeyring("worker-smoke-v1");
 async function run() {
   globalThis.fetch = async (input, init) => {
     assert.ok(String(input).startsWith("https://generativelanguage.googleapis.com/"), "Unexpected outbound request blocked");
@@ -24,7 +27,8 @@ async function run() {
     return Response.json(body.requests ? { embeddings } : { embedding: embeddings[0] });
   };
   for (let i = 0; i < 2; i++) {
-    await pool.query("insert into ai_settings(id,keys,use_live_ai,embeddings_enabled,semantic_extraction_enabled,embedding_dims) values($1,$2,false,true,false,$3)", [owners[i], JSON.stringify([keys[i]]), i === 0 ? 128 : 256]);
+    const stored = sealSecret(keys[i], secretContext(owners[i], "gemini"), smokeKeyring);
+    await pool.query("insert into ai_settings(id,keys,use_live_ai,embeddings_enabled,semantic_extraction_enabled,embedding_dims) values($1,$2,false,true,false,$3)", [owners[i], JSON.stringify([stored]), i === 0 ? 128 : 256]);
     await pool.query("insert into game_sessions(id,owner_id,title,character,world_state) values($1,$2,'Worker isolation fixture','{}','{}')", [ids[i], owners[i]]);
     await pool.query("insert into memory_nodes(id,session_id,layer,category,title,content) values($1,$2,'semantic','world',$3,$3)", [nodes[i], ids[i], `Private worker material ${i}`]);
     await enqueueEmbeddings(ids[i], [nodes[i]], "gemini-embedding-2", i === 0 ? 128 : 256);

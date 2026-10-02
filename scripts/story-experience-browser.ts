@@ -7,7 +7,7 @@ async function main() {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    await installUiMock(page);
+    await installUiMock(page, { admin: true });
     const errors: string[] = [];
     page.on("pageerror", e => errors.push(e.message));
     const base = process.env.SMOKE_BASE_URL ?? "http://localhost:3010";
@@ -110,7 +110,7 @@ async function main() {
     await overlayHistoryPage.close();
 
     const typeSafePage = await browser.newPage();
-    await installUiMock(typeSafePage);
+    await installUiMock(typeSafePage, { admin: true });
     await typeSafePage.route("**/api/developer/typesafe/results", route => route.fulfill({ json: { results: [{ id: "malformed", campaignTitle: "Сбой", turnNumber: 1, report: null, completedAt: new Date().toISOString() }] } }));
     let removeStarted = false;
     let finishRemove!: () => void;

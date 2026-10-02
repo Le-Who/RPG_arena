@@ -3,10 +3,11 @@ import { db } from "@/db";
 import { gameSessions, memoryJobs } from "@/db/schema";
 import { httpError } from "@/lib/http";
 import { currentProfileId } from "@/lib/identity";
+import { withAdminAccess } from "@/lib/admin-access";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function handleGET() {
   try {
     const results = await db.select({
       id: memoryJobs.id,
@@ -30,3 +31,4 @@ export async function GET() {
     return httpError(error);
   }
 }
+export const GET = withAdminAccess(handleGET);

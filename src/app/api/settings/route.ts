@@ -4,8 +4,10 @@ import { db } from "@/db";
 import { aiSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { MODEL_CATALOG, ROUTING_PROFILES, RoutingProfile } from "@/lib/gemini";
-import { getSettingsRow } from "@/lib/ai-settings";
+import { getRawSettingsRow, prepareGeminiKeysWrite } from "@/lib/ai-settings";
 import { EMBEDDING_MODEL_ALIASES } from "@/lib/embeddings";
+import { decodeGeminiSecrets, secretStorageAvailable } from "@/lib/secret-vault";
+import { withIdentityWork } from "@/lib/owner-work";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +18,21 @@ function mask(keys: string[]) {
   return keys.map((k) => (k.length <= 8 ? "••••" : `${k.slice(0, 4)}••••${k.slice(-4)}`));
 }
 
-function view(s: Awaited<ReturnType<typeof getSettingsRow>>) {
+function view(s: ReturnType<typeof decodeGeminiSecrets<Awaited<ReturnType<typeof getRawSettingsRow>>>>) {
   const keys = ((s.keys as string[]) ?? []).filter(Boolean);
+  const textProvider = s.textProvider ?? "gemini";
+  const pollinationsKeyExpired = Boolean(s.pollinationsKeyExpiresAt && s.pollinationsKeyExpiresAt.getTime() <= Date.now());
+  const canUseLive = s.useLiveAI && (textProvider === "gemini" ? keys.length > 0
+    : Boolean(s.textModel && (textProvider === "openrouter" ? s.openrouterKey : textProvider === "pollinations" && s.pollinationsKey && !pollinationsKeyExpired)));
   return {
+    secretStorageAvailable: secretStorageAvailable(),
     keysMasked: mask(keys),
     keysCount: keys.length,
     envKeysCount: 0,
+    textProvider,
+    textModel: s.textModel ?? "",
+    canUseLive,
+    ...(textProvider === "pollinations" && s.pollinationsKeyExpiresAt ? { textKeyExpiresAt: s.pollinationsKeyExpiresAt.toISOString() } : {}),
     routingProfile: s.routingProfile ?? "balanced",
     narrationModel: s.narrationModel,
     customActionModel: s.customActionModel,
@@ -30,6 +41,8 @@ function view(s: Awaited<ReturnType<typeof getSettingsRow>>) {
     useLiveAI: s.useLiveAI,
     dailyFlashLimit: s.dailyFlashLimit,
     dailyLiteLimit: s.dailyLiteLimit,
+    keysSharedProject: s.keysSharedProject,
+    dailyEmbeddingLimit: s.dailyEmbeddingLimit,
     enforceLimits: s.enforceLimits,
     embeddingsEnabled: s.embeddingsEnabled,
     embeddingModel: s.embeddingModel,
@@ -40,20 +53,20 @@ function view(s: Awaited<ReturnType<typeof getSettingsRow>>) {
   };
 }
 
-export async function GET() {
+async function handleGET() {
   try {
-    return NextResponse.json(view(await getSettingsRow()));
+    return NextResponse.json(view(decodeGeminiSecrets(await getRawSettingsRow())));
   } catch (err) {
     return httpError(err);
   }
 }
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
     const body = await readJsonObject(req, 16384);
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Некорректные настройки" }, { status: 400 });
     if (body.embeddingModel && body.embeddingModel !== "gemini-embedding-2") return NextResponse.json({ error: "Поддерживается только gemini-embedding-2" }, { status: 400 });
-    const s = await getSettingsRow();
+    const s = decodeGeminiSecrets(await getRawSettingsRow());
     const currentKeys = ((s.keys as string[]) ?? []).filter(Boolean);
 
     let keys = currentKeys;
@@ -88,15 +101,17 @@ export async function POST(req: Request) {
     await db
       .update(aiSettings)
       .set({
-        keys,
+        keys: prepareGeminiKeysWrite(s.id, keys),
         routingProfile: profile,
         narrationModel,
         customActionModel,
         compactionModel,
         fastTaskModel,
-        useLiveAI: boolInAuto(body.useLiveAI, s.useLiveAI, keys.length),
+        useLiveAI: boolInAuto(body.useLiveAI, s.useLiveAI, s.textProvider === "openrouter" ? Number(Boolean(s.openrouterKey)) : s.textProvider === "pollinations" ? Number(Boolean(s.pollinationsKey)) : keys.length),
         dailyFlashLimit: intIn(body.dailyFlashLimit, 1, 100000, s.dailyFlashLimit),
         dailyLiteLimit: intIn(body.dailyLiteLimit, 1, 1000000, s.dailyLiteLimit),
+        dailyEmbeddingLimit: intIn(body.dailyEmbeddingLimit, 1, 1000000, s.dailyEmbeddingLimit),
+        keysSharedProject: boolIn(body.keysSharedProject, s.keysSharedProject),
         enforceLimits: boolIn(body.enforceLimits, s.enforceLimits),
         embeddingsEnabled: boolIn(body.embeddingsEnabled, s.embeddingsEnabled),
         embeddingModel,
@@ -106,7 +121,7 @@ export async function POST(req: Request) {
       })
       .where(eq(aiSettings.id, s.id));
 
-    const fresh = await getSettingsRow();
+    const fresh = decodeGeminiSecrets(await getRawSettingsRow());
     return NextResponse.json({ ok: true, ...view(fresh) });
   } catch (err) {
     return httpError(err);
@@ -118,3 +133,5 @@ function boolInAuto(v: unknown, cur: boolean, totalKeys: number) {
   const next = typeof v === "boolean" ? v : cur;
   return totalKeys > 0 ? next : false;
 }
+export const GET = withIdentityWork(handleGET);
+export const POST = withIdentityWork(handlePOST);

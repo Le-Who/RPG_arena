@@ -13,6 +13,10 @@ import { indexPendingEmbeddings, searchMemory } from "../src/lib/embeddings";
 import { prewarmSessionChoices, buildMemoryQuery } from "../src/lib/choice-prewarm";
 import { emptyChanges } from "../src/lib/resolution";
 import { mockSession } from "./ui-mock";
+import { installSyntheticSecretKeyring } from "./lib/synthetic-secret-keyring";
+import { sealSecret, secretContext } from "../src/lib/secret-vault";
+
+const smokeKeyring = installSyntheticSecretKeyring("latency-smoke-v1");
 
 async function main() {
   assert.equal(process.env.ARENA_ISOLATED_TEST_DB, "1", "Refusing to change settings outside an explicitly isolated test database");
@@ -41,7 +45,8 @@ async function main() {
     }}),{headers:{"Content-Type":"text/event-stream"}});
   };
   try {
-    await db.insert(aiSettings).values({id:smokeOwnerId,keys:["fake-a","fake-b"],useLiveAI:true,enforceLimits:false,embeddingsEnabled:true,embeddingDims:128,semanticExtractionEnabled:false}).onConflictDoUpdate({target:aiSettings.id,set:{keys:["fake-a","fake-b"],useLiveAI:true,enforceLimits:false,embeddingsEnabled:true,embeddingDims:128,semanticExtractionEnabled:false}});
+    const storedKeys = ["fake-a", "fake-b"].map(key => sealSecret(key, secretContext(smokeOwnerId, "gemini"), smokeKeyring));
+    await db.insert(aiSettings).values({id:smokeOwnerId,keys:storedKeys,useLiveAI:true,enforceLimits:false,embeddingsEnabled:true,embeddingDims:128,semanticExtractionEnabled:false}).onConflictDoUpdate({target:aiSettings.id,set:{keys:storedKeys,useLiveAI:true,enforceLimits:false,embeddingsEnabled:true,embeddingDims:128,semanticExtractionEnabled:false}});
     const [session] = await db.insert(gameSessions).values({ownerId:smokeOwnerId,title:"Isolated turn latency smoke",campaignMode:"free",rulesProfile:"narrative",turnCount:1,character:mockSession.character,worldState:mockSession.worldState}).returning(); sessionId=session.id;
     const action="Использовать «Набор инструментов»: изучить карту";
     await db.insert(gameTurns).values({sessionId,turnNumber:1,role:"narrator",content:"Вы в гавани.",choices:[action,"Осмотреться","Поговорить"]});

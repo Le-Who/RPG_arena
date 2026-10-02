@@ -5,17 +5,53 @@ import type { CheckpointSnapshot } from "@/lib/checkpoint-types";
 import type { TypeSafeReport } from "@/lib/typesafe-report";
 import {
   pgTable,
+  bigserial,
+  doublePrecision,
   uuid,
   text,
   integer,
+  bigint,
+  date,
+  primaryKey,
   boolean,
   jsonb,
   timestamp,
   real,
   type AnyPgColumn,
+  customType,
   index,
+  check,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+
+export const accounts = pgTable("accounts", {
+  id: uuid("id").primaryKey(),
+  login: text("login").notNull().unique(),
+  profileId: text("profile_id").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const accountSessions = pgTable("account_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  accountId: uuid("account_id").notNull().references(() => accounts.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("account_sessions_account_idx").on(table.accountId)]);
+export const consumedGuestProfiles = pgTable("consumed_guest_profiles", {
+  profileId: text("profile_id").primaryKey(),
+  accountId: uuid("account_id").references(() => accounts.id, { onDelete: "set null" }),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const authRateLimits = pgTable("auth_rate_limits", {
+  bucket: text("bucket").primaryKey(),
+  attempts: integer("attempts").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+export const ownerActivity = pgTable("owner_activity", {
+  id: uuid("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("owner_activity_owner_idx").on(table.ownerId)]);
 
 // ─────────────────────────────────────────────────────────────
 //  Общие типы домена
@@ -54,6 +90,20 @@ export type WorldState = {
   flags: Record<string, boolean | string | number>;
   danger: number; // 0-100 накал
   chapter: number;
+  // INTERACT-2 / NARR-7: необязательные поля; старые кампании читаются через readLife() с безопасными значениями.
+  clock?: import("../lib/world-life").WorldClock;
+  story?: import("../lib/world-life").StoryShape;
+  commitments?: import("../lib/world-life").Commitment[];
+  holdings?: import("../lib/world-life").Holding[];
+  // WORLD-2 / NARR-10 / MECH-4 (2.8): повестка мира, цели NPC, голос рассказчика и таймеры состояний.
+  agenda?: import("../lib/world-agenda").AgendaEvent[];
+  npcAgendas?: import("../lib/world-agenda").NpcAgenda[];
+  narrator?: import("../lib/narrator-preferences").NarratorPreferences;
+  conditionTimers?: import("../lib/conditions").ConditionTimers;
+  // WORLD-2b/3b, NARR-9b (2.9): связи и распорядок NPC, завершённые арки.
+  npcBonds?: import("../lib/world-social").NpcBond[];
+  npcSchedules?: import("../lib/world-social").ScheduleSlot[];
+  arcHistory?: import("../lib/world-life").ArcRecord[];
 };
 
 export type DiceResult = {
@@ -82,12 +132,23 @@ export type AppliedChanges = {
   levelUp: boolean;
   dead: boolean;
   location: { from: string; to: string; isNew: boolean } | null;
-  quests: { title: string; status: string; progress: number; isNew: boolean }[];
-  npcs: { name: string; relation: number; delta: number; status: string; isNew: boolean }[];
+  quests: { title: string; status: string; progress: number; isNew: boolean; before?: { status: string; progress: number }; note?: string }[];
+  resources?: import("../lib/applied-changes").ResourceSnapshot;
+  npcs: { name: string; relation: number; delta: number; status: string; isNew: boolean; note?: string }[];
   inventory: { op: string; name: string; quantity: number; ok: boolean; reason?: string }[];
   sceneObjects: { name: string; state: string; isNew: boolean }[];
   conditions: { added: string[]; removed: string[] };
   rejected: string[]; // причины отклонённых изменений (наблюдаемость)
+  /** INTERACT-2/3, NARR-7: время, договорённости, передачи и форма истории. */
+  life?: import("../lib/world-life").LifeApplied;
+  /** INTERACT-1: распознанное серверное действие над сущностью. */
+  interaction?: { verb: string; label: string; target: string; valid: boolean; reasons: string[] } | null;
+  /** WORLD-2: запланированные/наступившие события и раскрытые цели NPC. */
+  agenda?: import("../lib/world-agenda").AgendaApplied;
+  /** MECH-4: состояния, снятые по времени мира, и новые таймеры. */
+  conditionTimers?: { expired: string[]; scheduled: { condition: string; expiresAt: import("../lib/world-life").WorldClock }[] };
+  /** WORLD-2b/3b (2.9): связи, распорядок, знания NPC и исходы встреч. */
+  social?: import("../lib/world-social").SocialApplied;
 };
 
 export type TurnContextMeta = {
@@ -100,6 +161,7 @@ export type TurnContextMeta = {
     evidence: import("../lib/narrative-evidence").NarrativeEvidence;
   };
   timings?: import("../lib/turn-contract").TurnTimings;
+  promptBudget?: import("../lib/prompt-budget").PromptBudget;
   model: string;
   rulesProfile: RulesProfile;
   digestChars: number;
@@ -380,6 +442,11 @@ export const sceneObjects = pgTable(
 export const aiSettings = pgTable("ai_settings", {
   id: text("id").primaryKey(), // authenticated profile identifier; legacy 'global' is quarantined
   keys: jsonb("keys").$type<string[]>().default([]),
+  textProvider: text("text_provider").notNull().default("gemini"),
+  textModel: text("text_model").notNull().default(""),
+  openrouterKey: text("openrouter_key").notNull().default(""),
+  pollinationsKey: text("pollinations_key").notNull().default(""),
+  pollinationsKeyExpiresAt: timestamp("pollinations_key_expires_at", { withTimezone: true }),
   routingProfile: text("routing_profile").notNull().default("balanced"),
   narrationModel: text("narration_model").notNull().default("gemini-3.5-flash-lite"),
   customActionModel: text("custom_action_model").notNull().default("gemini-3.8-flash"),
@@ -388,6 +455,8 @@ export const aiSettings = pgTable("ai_settings", {
   useLiveAI: boolean("use_live_ai").notNull().default(false),
   dailyFlashLimit: integer("daily_flash_limit").notNull().default(20),
   dailyLiteLimit: integer("daily_lite_limit").notNull().default(500),
+  keysSharedProject: boolean("keys_shared_project").notNull().default(true),
+  dailyEmbeddingLimit: integer("daily_embedding_limit").notNull().default(5000),
   // DATA-1d: принудительное соблюдение дневных лимитов на сервере
   enforceLimits: boolean("enforce_limits").notNull().default(true),
   // MEM-2: эмбеддинги
@@ -415,6 +484,7 @@ export const tokenLogs = pgTable(
     sessionId: uuid("session_id").references(() => gameSessions.id, { onDelete: "set null" }),
     model: text("model").notNull(),
     taskType: text("task_type").notNull(), // narration | resolution | compaction | fast | embedding
+    quotaReserved: boolean("quota_reserved").notNull().default(false),
     promptTokens: integer("prompt_tokens").notNull().default(0),
     completionTokens: integer("completion_tokens").notNull().default(0),
     totalTokens: integer("total_tokens").notNull().default(0),
@@ -430,6 +500,15 @@ export const tokenLogs = pgTable(
     index("idx_token_logs_model_created").on(t.model, t.createdAt),
   ],
 );
+
+export const modelCallQuotas = pgTable("model_call_quotas", {
+  ownerId: text("owner_id").notNull(),
+  scope: text("scope").notNull(),
+  model: text("model").notNull(),
+  day: date("day").notNull(),
+  attempts: bigint("attempts", { mode: "number" }).notNull().default(0),
+  legacyUsed: bigint("legacy_used", { mode: "number" }).notNull().default(0),
+}, t => [primaryKey({ columns: [t.ownerId, t.scope, t.model, t.day] })]);
 
 /** Reading preferences belong to the current authenticated or guest profile. */
 export type ReadingPreferences = {
@@ -489,6 +568,15 @@ export const checkpointForks = pgTable("checkpoint_forks", {
   branchId: uuid("branch_id").references(() => gameSessions.id, { onDelete: "set null" }), createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("uq_checkpoint_fork_request").on(t.checkpointId, t.requestId)]);
 
+/** Import keys survive deletion of their target, so a retry cannot resurrect it. */
+export const campaignImports = pgTable("campaign_imports", {
+  ownerId: text("owner_id").notNull(),
+  requestId: text("request_id").notNull(),
+  inputHash: text("input_hash").notNull(),
+  campaignId: uuid("campaign_id").references(() => gameSessions.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => [primaryKey({ columns: [t.ownerId, t.requestId] })]);
+
 export const workerHeartbeats = pgTable("worker_heartbeats", {
   id: text("id").primaryKey(), status: text("status").notNull(),
   lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
@@ -512,3 +600,78 @@ export const agreementEvents = pgTable("agreement_events", {
   source: jsonb("source").notNull().$type<AgreementRevision["source"]>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, t => [uniqueIndex("uq_agreement_revision").on(t.agreementId, t.version), index("idx_agreement_session_turn").on(t.sessionId, t.turnNumber)]);
+
+// ─────────────────────────────────────────────────────────────
+//  VIS-1 / VIS-2: ручная визуализация сцен, паспорта внешности
+//  Изображения — не канон: они не меняют состояние мира и не копируются в forks.
+// ─────────────────────────────────────────────────────────────
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType() { return "bytea"; } });
+export type VisualKind = "scene" | "portrait" | "location";
+export type VisualStatus = "pending" | "ready" | "failed";
+
+export const visualIdentities = pgTable("visual_identities", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sessionId: uuid("session_id").notNull().references(() => gameSessions.id, { onDelete: "cascade" }),
+  /** hero | npc:<key> | location:<id> */
+  subjectKey: text("subject_key").notNull(),
+  subjectName: text("subject_name").notNull(),
+  passport: text("passport").notNull().default(""),
+  seed: integer("seed").notNull(),
+  referenceVisualId: uuid("reference_visual_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [uniqueIndex("uq_visual_identities_subject").on(t.sessionId, t.subjectKey)]);
+
+export const sceneVisuals = pgTable("scene_visuals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sessionId: uuid("session_id").notNull().references(() => gameSessions.id, { onDelete: "cascade" }),
+  ownerId: text("owner_id"),
+  kind: text("kind").notNull().$type<VisualKind>(),
+  subjectKey: text("subject_key").notNull().default("scene"),
+  turnNumber: integer("turn_number").notNull().default(0),
+  caption: text("caption").notNull().default(""),
+  prompt: text("prompt").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  seed: integer("seed").notNull(),
+  width: integer("width").notNull(),
+  height: integer("height").notNull(),
+  status: text("status").notNull().default("pending").$type<VisualStatus>(),
+  attempts: integer("attempts").notNull().default(0),
+  error: text("error"),
+  mimeType: text("mime_type"),
+  image: bytea("image"),
+  latencyMs: integer("latency_ms"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [index("idx_scene_visuals_session").on(t.sessionId, t.createdAt), index("idx_scene_visuals_owner_day").on(t.ownerId, t.createdAt)]);
+
+/** Global image model chosen by an administrator; existing visuals retain their saved model. */
+export const visualSettings = pgTable("visual_settings", {
+  id: integer("id").primaryKey().default(1),
+  model: text("model").notNull(),
+  updatedBy: uuid("updated_by").references(() => accounts.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [check("visual_settings_singleton", sql`${t.id} = 1`)]);
+
+export const performanceSamples = pgTable("performance_samples", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  metric: text("metric").notNull(),
+  route: text("route").notNull(),
+  value: doublePrecision("value").notNull(),
+  rating: text("rating").notNull().default("unknown"),
+  device: text("device").notNull().default("unknown"),
+  navigationType: text("navigation_type").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  index("performance_samples_metric_created_idx").on(t.metric, t.createdAt.desc()),
+  index("performance_samples_created_idx").on(t.createdAt),
+  check("performance_samples_metric_check", sql`char_length(${t.metric}) BETWEEN 2 AND 40`),
+  check("performance_samples_route_check", sql`char_length(${t.route}) BETWEEN 1 AND 80`),
+  check("performance_samples_value_check", sql`${t.value} >= 0 AND ${t.value} <= 600000`),
+]);
+
+export const ownerQueueService = pgTable("owner_queue_service", {
+  ownerId: text("owner_id").primaryKey(),
+  lastServedAt: timestamp("last_served_at", { withTimezone: true }).notNull().defaultNow(),
+  servedCount: integer("served_count").notNull().default(0),
+}, t => [index("owner_queue_service_served_idx").on(t.lastServedAt)]);

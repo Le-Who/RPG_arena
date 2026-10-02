@@ -4,6 +4,7 @@ import { gameSessions } from "@/db/schema";
 import { currentProfileId } from "./identity";
 import { canAccessCampaign, type CampaignAccess } from "./campaign-policy";
 import { HttpError, httpError, requireUuid } from "./http";
+import { withCurrentIdentityWork } from "./owner-work";
 
 export async function sessionOwnerId(sessionId: string): Promise<string> {
   const [session] = await db.select({ ownerId: gameSessions.ownerId }).from(gameSessions).where(eq(gameSessions.id, sessionId));
@@ -23,8 +24,10 @@ export async function requireCampaignAccess(sessionId: string, access: CampaignA
 export function withCampaignAccess<P extends { id: string }>(access: CampaignAccess, handler: (request: Request, context: { params: Promise<P> }) => Promise<Response>) {
   return async (request: Request, context: { params: Promise<P> }): Promise<Response> => {
     try {
-      await requireCampaignAccess((await context.params).id, access);
-      const response = await handler(request, context);
+      const response = await withCurrentIdentityWork(async () => {
+        await requireCampaignAccess((await context.params).id, access);
+        return handler(request, context);
+      });
       response.headers.set("Cache-Control", "private, no-store");
       return response;
     } catch (error) { return httpError(error); }

@@ -88,7 +88,9 @@ async function main() {
   page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + m.text()); });
   page.on("response", (response) => { if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`); });
 
-  const pages: [string, string][] = [["overview", "/"], ["campaigns", "/campaigns"], ["worlds", "/worlds"], ["characters", "/characters"], ["memory", "/memory"], ["journal", "/journal"], ["settings", "/settings"], ["system", "/system"], ["blueprint", "/blueprint"], ["play", `/play/${sid}`]];
+  // Guest-facing screens only. /system requires a real allowlisted server session;
+  // client mocks cannot authorize its server component. Role boundaries are checked separately.
+  const pages: [string, string][] = [["overview", "/"], ["campaigns", "/campaigns"], ["worlds", "/worlds"], ["characters", "/characters"], ["memory", "/memory"], ["journal", "/journal"], ["settings", "/settings"], ["blueprint", "/blueprint"], ["play", `/play/${sid}`]];
   let totalSmall = 0, totalLow = 0, anyOverflow = false;
   for (const [name, path] of pages) {
     const r = await audit(page, name, path, 1440);

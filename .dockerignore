@@ -1,0 +1,13 @@
+.git
+.next
+node_modules
+.env
+.env.*
+!.env.example
+revisions
+.agents
+.superpowers
+.playwright-cli
+output
+artifacts
+*.tsbuildinfo

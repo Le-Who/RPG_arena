@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { verifyNarrative, NARRATIVE_PROVIDERS } from "../src/lib/narrative-verifier";
 import { scenarios, scoreNarrativeEvaluation, selectionFor } from "./narrative-evaluation-fixtures";
 
@@ -40,7 +41,9 @@ async function run() {
     if (result.reason === "invalid_response") { stopReason = "protocol_incompatibility"; break; }
     if (rows.length < selected.length) await new Promise(resolve => setTimeout(resolve, 1200));
   }
-  const report = { date: new Date().toISOString(), syntheticOnly: true, endpoint: NARRATIVE_PROVIDERS.openrouter.endpoint, requestedModel: NARRATIVE_PROVIDERS.openrouter.model, deadlineMs: 5000, pacingMs: 1200, retryCount: 0, calls, stopReason, score: scoreNarrativeEvaluation(rows), rows };
+  const fixtureHash = createHash("sha256").update(JSON.stringify(selected)).digest("hex");
+  const questionHash = createHash("sha256").update(JSON.stringify(selected.map(selectionFor))).digest("hex");
+  const report = { date: new Date().toISOString(), evaluationVersion: "legacy-scenarios-scoped-v2", inputSchema: "simplified synthetic state; not a performTurn capture", syntheticOnly: true, fixtureHash, questionHash, routingMismatches: selected.filter(s => selectionFor(s).required !== s.shouldGuard).map(s => s.id), endpoint: NARRATIVE_PROVIDERS.openrouter.endpoint, requestedModel: NARRATIVE_PROVIDERS.openrouter.model, deadlineMs: 5000, pacingMs: 1200, retryCount: 0, calls, stopReason, score: scoreNarrativeEvaluation(rows), rows };
   await mkdir("output/narrative-evaluation", { recursive: true });
   const output = `output/narrative-evaluation/run-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
   await writeFile(output, JSON.stringify(report, null, 2), "utf8");

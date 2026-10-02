@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "node --env-file-if-exists=.env --import tsx --test tests/*.test.ts",
+    "test": "node --import tsx --import ./tests/helpers/test-environment.ts --test --test-concurrency=1 tests/*.test.ts",
+    "test:quota:postgres": "node --import tsx --test tests/integration/quota-postgres.integration.ts",
     "migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
     "worker": "node --env-file=.env --import tsx scripts/memory-worker.ts",
     "audit:ui": "node --env-file-if-exists=.env --import tsx scripts/ui-audit.ts",
@@ -17,8 +18,11 @@
     "smoke:v22": "node --env-file=.env --import tsx scripts/v22-smoke.ts",
     "verify": "npm run typecheck && npm run test && npm run build",
     "verify:story-ui": "node --env-file-if-exists=.env --import tsx scripts/story-experience-browser.ts",
+    "verify:revisions-ui": "node --import tsx scripts/revisions-browser.ts",
     "eval:story-drafts": "node --env-file-if-exists=.env --import tsx scripts/eval-story-drafts.ts",
-    "eval:typesafe": "node --env-file-if-exists=.env --import tsx scripts/eval-typesafe.ts"
+    "eval:typesafe": "node --env-file-if-exists=.env --import tsx scripts/eval-typesafe.ts",
+    "rotate:secrets": "node --env-file-if-exists=.env --import tsx scripts/rotate-secrets.ts",
+    "check:docs": "node --import tsx scripts/check-docs.ts"
   },
   "dependencies": {
     "@playwright/test": "^1.63.0",

@@ -1,9 +1,11 @@
+import { callTextWithConfig } from "./text-provider";
 import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { gameSessions, gameTurns } from "@/db/schema";
 import { getAIConfig, logToken, pickModels } from "./ai-settings";
 import { sessionOwnerId } from "./campaign-access";
-import { callGeminiWithRotation } from "./gemini";
+
+import { quotaAdmission } from "./quota";
 import { extractJsonObject } from "./resolution";
 import { upsertMemoryNode, type UpsertNodeInput } from "./memory";
 import { assertNoRunningTurn, lockSession } from "./turn-admission";
@@ -31,10 +33,11 @@ export async function compactSession(sessionId: string) {
     try {
       const { models } = await pickModels("compaction", cfg);
       if (models.length) {
-        const response = await callGeminiWithRotation({ keys: cfg.keys, models, system: "Сожми каждый ответ рассказчика отдельно на русском: 2–4 предложения, только события исходного текста, без новых фактов. Сохрани решения, предметы и отношения. evidence — дословная цитата из соответствующего хода. Не переноси события между ходами. Верни JSON summaries: [{turnNumber, summary, evidence}].", user: JSON.stringify(batch.narrators.map((t) => ({ turnNumber: t.turnNumber, narration: t.content }))), responseSchema: { type: "object", properties: { summaries: { type: "array", items: { type: "object", properties: { turnNumber: { type: "integer" }, summary: { type: "string" }, evidence: { type: "string" } }, required: ["turnNumber", "summary", "evidence"] } } }, required: ["summaries"] }, maxTokens: 2600, temperature: 0.2, timeoutMs: 20000,
-          onAttempt: async (a) => { if (!a.ok) await logToken({ sessionId, model: a.model, taskType: "compaction", promptTokens: 0, completionTokens: 0, latencyMs: a.latencyMs, success: false, error: a.error, keyIndex: a.keyIndex }); },
+        const response = await callTextWithConfig(cfg, { keys: cfg.keys, models, system: "Сожми каждый ответ рассказчика отдельно на русском: 2–4 предложения, только события исходного текста, без новых фактов. Сохрани решения, предметы и отношения. evidence — дословная цитата из соответствующего хода. Не переноси события между ходами. Верни JSON summaries: [{turnNumber, summary, evidence}].", user: JSON.stringify(batch.narrators.map((t) => ({ turnNumber: t.turnNumber, narration: t.content }))), responseSchema: { type: "object", properties: { summaries: { type: "array", items: { type: "object", properties: { turnNumber: { type: "integer" }, summary: { type: "string" }, evidence: { type: "string" } }, required: ["turnNumber", "summary", "evidence"] } } }, required: ["summaries"] }, maxTokens: 2600, temperature: 0.2, timeoutMs: 20000,
+          beforeAttempt: quotaAdmission(cfg),
+          onAttempt: async (a) => { if (!a.ok) await logToken({ provider: cfg.textProvider, sessionId, model: a.model, taskType: "compaction", promptTokens: 0, completionTokens: 0, latencyMs: a.latencyMs, success: false, error: a.error, keyIndex: a.keyIndex }); },
         });
-        await logToken({ sessionId, model: response.model, taskType: "compaction", promptTokens: response.promptTokens, completionTokens: response.completionTokens, latencyMs: response.latencyMs, success: true, keyIndex: response.keyIndex });
+        await logToken({ provider: cfg.textProvider, sessionId, model: response.model, taskType: "compaction", promptTokens: response.promptTokens, completionTokens: response.completionTokens, latencyMs: response.latencyMs, success: true, keyIndex: response.keyIndex });
         const parsed = extractJsonObject(response.text) as { summaries?: unknown } | null;
         if (Array.isArray(parsed?.summaries)) for (const item of parsed.summaries.slice(0, 6)) {
           if (!item || typeof item !== "object") continue;

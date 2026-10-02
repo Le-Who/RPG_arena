@@ -61,6 +61,13 @@ export function remapSnapshot(snapshot: CheckpointSnapshot, newSessionId = rando
     return value;
   };
   const copy = rewrite(snapshot) as CheckpointSnapshot;
+  // Owner correction notes are historical prose, not structured identity references.
+  snapshot.session.worldState.commitments?.forEach((commitment, index) => {
+    commitment.history?.forEach((entry, historyIndex) => {
+      const copied = copy.session.worldState.commitments?.[index]?.history?.[historyIndex];
+      if (copied && entry.note !== undefined) copied.note = entry.note;
+    });
+  });
   copy.session.status = "active";
   copy.turns = copy.turns.map((turn) => ({ ...turn, requestId: null }));
   // Historical source prose is immutable: remapping UUIDs inside it would invalidate its attestation.
@@ -70,6 +77,25 @@ export function remapSnapshot(snapshot: CheckpointSnapshot, newSessionId = rando
     copied.source.textSha256 = revision.source.textSha256;
     const origin = copy.turns.find(t => t.id === copied.source.originTurnId)!;
     origin.content = revision.source.quote;
+  }
+  for (let index = 0; index < snapshot.turns.length; index++) {
+    const original = snapshot.turns[index], remapped = copy.turns[index];
+    const sourceVerification = original.contextMeta?.narrativeVerification;
+    const copiedVerification = remapped.contextMeta?.narrativeVerification;
+    if (!copiedVerification || !sourceVerification) continue;
+    // Evidence and review citations attest to the original historical inputs. Preserve
+    // their text, hashes, and verdicts; only their structured source row IDs are copied.
+    const copiedSourceIds = copiedVerification.evidence.sources.map(source => source.id);
+    copiedVerification.evidence = structuredClone(sourceVerification.evidence);
+    copiedVerification.evidence.sources.forEach((source, sourceIndex) => { source.id = copiedSourceIds[sourceIndex]; });
+    if (sourceVerification.reviews) copiedVerification.reviews = structuredClone(sourceVerification.reviews);
+    if (!sourceVerification.textSha256) continue;
+    const sourceHash = createHash("sha256").update(original.content).digest("hex");
+    if (sourceVerification.version === 1 && sourceVerification.textSha256 === sourceHash) {
+      copiedVerification.textSha256 = createHash("sha256").update(remapped.content).digest("hex");
+    } else {
+      delete copiedVerification.textSha256;
+    }
   }
   const memoryIds = new Set(copy.memories.map((m) => m.id));
   copy.memories = copy.memories.map((memory) => ({ ...memory, parentId: memory.parentId && memoryIds.has(memory.parentId) ? memory.parentId : null }));

@@ -1,15 +1,22 @@
 // ── Единый доступ к настройкам ИИ (ключи, роутинг, лимиты, эмбеддинги) ──
-import { and, eq, gte, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { aiSettings, tokenLogs } from "@/db/schema";
 import { filterByDailyLimits, routeModelsFor, type RoutingConfig, type TaskType } from "./gemini";
 import { currentProfileId } from "./identity";
 import { sessionOwnerId } from "./campaign-access";
 import { DEFAULT_EMBEDDING_DIMS } from "./embeddings";
+import { decodeGeminiSecrets, decodeSettingsSecrets, openSecret, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
+import type { TextProvider } from "./text-provider-settings";
+import { quotaUsage, quotaTimezone } from "./quota";
 
 export type AIConfig = {
   ownerId?: string;
   keys: string[];
+  textProvider?: TextProvider;
+  textModel?: string;
+  textApiKey?: string;
+  textKeyExpiresAt?: string;
   dbKeyCount: number;
   envKeyCount: number;
   useLiveAI: boolean;
@@ -17,6 +24,8 @@ export type AIConfig = {
   routingConfig: RoutingConfig;
   limits: { flash: number; lite: number };
   enforceLimits: boolean;
+  keysSharedProject?: boolean;
+  dailyEmbeddingLimit?: number;
   embeddingsEnabled: boolean;
   embeddingModel: string;
   embeddingDims: number;
@@ -34,25 +43,45 @@ const DEFAULT_ROW = {
 };
 
 export async function getSettingsRow(ownerId?: string) {
+  return decodeSettingsSecrets(await getRawSettingsRow(ownerId));
+}
+
+export async function getRawSettingsRow(ownerId?: string) {
   const id = ownerId ?? await currentProfileId();
   const rows = await db.select().from(aiSettings).where(eq(aiSettings.id, id));
   if (rows[0]) return rows[0];
   await db.insert(aiSettings).values({ ...DEFAULT_ROW, id }).onConflictDoNothing();
   const fresh = await db.select().from(aiSettings).where(eq(aiSettings.id, id));
+  if (!fresh[0]) throw new Error("Settings row was not created");
   return fresh[0];
 }
 
+export function prepareGeminiKeysWrite(ownerId: string, keys: string[], keyring?: SecretKeyring): string[] {
+  return keys.map(key => sealSecret(key, secretContext(ownerId, "gemini"), keyring));
+}
+
 export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
-  const s = await getSettingsRow(ownerId);
+  quotaTimezone();
+  const s = decodeGeminiSecrets(await getRawSettingsRow(ownerId));
   const dbKeys = ((s.keys as string[]) ?? []).filter(Boolean);
   const keys = [...new Set(dbKeys)];
+  const textProvider = (s.textProvider ?? "gemini") as TextProvider;
+  const textApiKey = textProvider === "gemini" ? "" : openSecret(
+    textProvider === "openrouter" ? s.openrouterKey : s.pollinationsKey,
+    secretContext(s.id, `text:${textProvider}`),
+  );
+  const textKeyExpired = textProvider === "pollinations" && Boolean(s.pollinationsKeyExpiresAt && s.pollinationsKeyExpiresAt.getTime() <= Date.now());
   return {
     ownerId: s.id,
     keys,
+    textProvider,
+    textModel: s.textModel ?? "",
+    textApiKey,
+    ...(textProvider === "pollinations" && s.pollinationsKeyExpiresAt ? { textKeyExpiresAt: s.pollinationsKeyExpiresAt.toISOString() } : {}),
     dbKeyCount: dbKeys.length,
     envKeyCount: 0,
     useLiveAI: s.useLiveAI,
-    canUseLive: s.useLiveAI && keys.length > 0,
+    canUseLive: s.useLiveAI && (textProvider === "gemini" ? keys.length > 0 : Boolean(textApiKey && s.textModel && !textKeyExpired)),
     routingConfig: {
       profile: (s.routingProfile as RoutingConfig["profile"]) ?? "balanced",
       narrationModel: s.narrationModel ?? DEFAULT_ROW.narrationModel,
@@ -62,6 +91,8 @@ export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
     },
     limits: { flash: s.dailyFlashLimit ?? 20, lite: s.dailyLiteLimit ?? 500 },
     enforceLimits: s.enforceLimits ?? true,
+    keysSharedProject: s.keysSharedProject ?? true,
+    dailyEmbeddingLimit: s.dailyEmbeddingLimit ?? 5000,
     embeddingsEnabled: s.embeddingsEnabled ?? true,
     embeddingModel: "gemini-embedding-2",
     embeddingDims: s.embeddingDims || DEFAULT_EMBEDDING_DIMS,
@@ -69,37 +100,26 @@ export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
   };
 }
 
-function dayStart() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
 /** Число вызовов генеративных моделей сегодня (успешных и неуспешных — квота тратится в обоих случаях). */
 export async function todayUsageByModel(ownerId?: string): Promise<Record<string, number>> {
-  const id = ownerId ?? await currentProfileId();
-  const rows = await db
-    .select({ model: tokenLogs.model, c: sql<number>`count(*)` })
-    .from(tokenLogs)
-    .where(and(eq(tokenLogs.ownerId, id), gte(tokenLogs.createdAt, dayStart()), sql`${tokenLogs.model} like 'gemini-%'`))
-    .groupBy(tokenLogs.model);
-  const out: Record<string, number> = {};
-  for (const r of rows) out[r.model] = Number(r.c);
-  return out;
+  return quotaUsage(ownerId ?? await currentProfileId());
 }
 
 /** Модели для задачи с учётом роутинга и (если включено) дневных лимитов. */
 export async function pickModels(task: TaskType, cfg: AIConfig): Promise<{ models: string[]; skipped: string[] }> {
-  const routed = routeModelsFor(task, cfg.routingConfig);
+  const external = cfg.textProvider !== undefined && cfg.textProvider !== "gemini";
+  const routed = external ? (cfg.textModel ? [cfg.textModel] : []) : routeModelsFor(task, cfg.routingConfig);
   if (!cfg.enforceLimits) return { models: routed, skipped: [] };
   const usage = await todayUsageByModel(cfg.ownerId);
-  const { allowed, skipped } = filterByDailyLimits(routed, usage, cfg.limits, cfg.keys.length);
+  const providerUsage = external ? Object.fromEntries(routed.map(model => [model, usage[`${cfg.textProvider}:${model}`] ?? 0])) : usage;
+  const { allowed, skipped } = filterByDailyLimits(routed, providerUsage, external ? { flash: cfg.limits.flash, lite: cfg.limits.flash } : cfg.limits, !external && cfg.keysSharedProject === false ? cfg.keys.length : 1);
   return { models: allowed, skipped };
 }
 
 export async function logToken(row: {
   sessionId: string | null;
   model: string;
+  provider?: TextProvider;
   taskType: string;
   promptTokens: number;
   completionTokens: number;
@@ -109,10 +129,12 @@ export async function logToken(row: {
   keyIndex?: number;
 }) {
   try {
+    const model = row.provider && row.provider !== "gemini" ? `${row.provider}:${row.model}` : row.model;
     await db.insert(tokenLogs).values({
       ownerId: row.sessionId ? await sessionOwnerId(row.sessionId) : await currentProfileId(),
       sessionId: row.sessionId,
-      model: row.model,
+      model,
+      quotaReserved: model.startsWith("gemini-") || model.startsWith("openrouter:") || model.startsWith("pollinations:"),
       taskType: row.taskType,
       promptTokens: row.promptTokens,
       completionTokens: row.completionTokens,

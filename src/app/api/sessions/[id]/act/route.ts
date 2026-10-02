@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { turnHttpResponse } from "@/lib/turn-http";
 import { normalizeItemIds } from "@/lib/item-bindings";
 import { expectedTurn, httpError, HttpError, readJsonObject, requestKey, requiredText } from "@/lib/http";
+import { withCurrentIdentityWork } from "@/lib/owner-work";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 async function handlePOST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -16,7 +17,7 @@ async function handlePOST(req: Request, { params }: { params: Promise<{ id: stri
     // Foreground AI always belongs to the player making this request. Public
     // campaigns must first be copied into that player's private workspace.
     const playerConfig = await getAIConfig();
-    return turnHttpResponse(req.headers.get("accept")?.includes("application/x-ndjson") ?? false, runtime => performTurn(input, { ...runtime, loadAIConfig: async () => playerConfig }), after);
+    return turnHttpResponse(req.headers.get("accept")?.includes("application/x-ndjson") ?? false, runtime => withCurrentIdentityWork(() => performTurn({ ...input, expectedOwnerId: playerConfig.ownerId }, { ...runtime, loadAIConfig: async () => playerConfig })), after);
   } catch (error) { return httpError(error); }
 }
 

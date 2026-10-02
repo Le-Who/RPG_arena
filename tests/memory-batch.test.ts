@@ -1,7 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getTableName } from 'drizzle-orm';
-import { writeStateEvents } from '../src/lib/memory';
+import { selectStateEvents, writeStateEvents } from '../src/lib/memory';
+test('state event selection keeps the latest semantic facts under a busy-turn cap', () => {
+  const episodes = Array.from({length:35},(_,i)=>({layer:'episodic' as const,category:'event',title:`Event ${i}`,content:`Content ${i}`,importance:30,entityKey:`event:${i}`,mode:'upsert' as const}));
+  const oldState = {layer:'semantic' as const,category:'character',title:'Состояние',content:'Испуган',importance:64,entityKey:'character:conditions',mode:'upsert' as const};
+  const newState = {...oldState,content:'Нет активных состояний'};
+  const selected = selectStateEvents([oldState,...episodes,newState]);
+  assert.equal(selected.length,24);
+  assert.equal(selected.filter(e=>e.entityKey==='character:conditions').length,1);
+  assert.equal(selected.find(e=>e.entityKey==='character:conditions')?.content,'Нет активных состояний');
+});
 test('state event batch shares lock/config and writes embedding outbox once', async () => {
   const counts: Record<string,number> = {}; let next=0;
   const tx = {

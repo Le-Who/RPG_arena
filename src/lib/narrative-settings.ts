@@ -1,4 +1,5 @@
 import { HttpError } from "./http";
+import { decodeNarrativeSecret, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
 import { NARRATIVE_PROVIDERS, type NarrativeProvider } from "./narrative-verifier";
 
 type CredentialSource = "personal" | "administrator" | "none";
@@ -63,31 +64,41 @@ export function narrativeSettingsPatch(row: SettingsRow, input: NarrativeSetting
   return patch;
 }
 
+export function prepareNarrativeSettingsWrite(ownerId: string, row: SettingsRow, input: NarrativeSettingsUpdate, keyring?: SecretKeyring) {
+  const patch = narrativeSettingsPatch(row, input);
+  if (patch.narrativeGuardKey !== undefined) {
+    const provider = patch.narrativeGuardProvider ?? row.narrativeGuardProvider;
+    patch.narrativeGuardKey = sealSecret(patch.narrativeGuardKey, secretContext(ownerId, `narrative:${provider}`), keyring);
+  }
+  return patch;
+}
+
 export async function getNarrativeGuardConfig(ownerId?: string): Promise<NarrativeGuardConfig> {
-  const { getSettingsRow } = await import("./ai-settings");
-  return resolveNarrativeGuardConfig(await getSettingsRow(ownerId), administratorCredential());
+  const { getRawSettingsRow } = await import("./ai-settings");
+  return resolveNarrativeGuardConfig(decodeNarrativeSecret(await getRawSettingsRow(ownerId)), administratorCredential());
 }
 
 export async function getNarrativeSettingsView(): Promise<NarrativeSettingsView> {
   const { currentProfileId } = await import("./identity");
   const ownerId = await currentProfileId();
-  const { getSettingsRow } = await import("./ai-settings");
-  return narrativeSettingsView(await getSettingsRow(ownerId), administratorCredential());
+  const { getRawSettingsRow } = await import("./ai-settings");
+  return narrativeSettingsView(decodeNarrativeSecret(await getRawSettingsRow(ownerId)), administratorCredential());
 }
 
 export async function updateNarrativeSettings(raw: Record<string, unknown>): Promise<NarrativeSettingsView> {
   const { currentProfileId } = await import("./identity");
   const ownerId = await currentProfileId();
   const input = parseNarrativeSettingsUpdate(raw);
-  const { getSettingsRow } = await import("./ai-settings");
-  await getSettingsRow(ownerId);
+  const { getRawSettingsRow } = await import("./ai-settings");
+  await getRawSettingsRow(ownerId);
   const { db } = await import("@/db");
   const { aiSettings } = await import("@/db/schema");
   const { eq } = await import("drizzle-orm");
   // Serialize provider/key updates so concurrent requests cannot mix provider credentials.
   return db.transaction(async tx => {
     const [row] = await tx.select().from(aiSettings).where(eq(aiSettings.id, ownerId)).for("update");
-    const [saved] = await tx.update(aiSettings).set({ ...narrativeSettingsPatch(row, input), updatedAt: new Date() }).where(eq(aiSettings.id, ownerId)).returning();
-    return narrativeSettingsView(saved, administratorCredential());
+    const patch = prepareNarrativeSettingsWrite(ownerId, row, input);
+    const [saved] = await tx.update(aiSettings).set({ ...patch, updatedAt: new Date() }).where(eq(aiSettings.id, ownerId)).returning();
+    return narrativeSettingsView(decodeNarrativeSecret(saved), administratorCredential());
   });
 }

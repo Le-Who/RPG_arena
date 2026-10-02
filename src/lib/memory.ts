@@ -199,8 +199,20 @@ async function upsertLocked(input: UpsertNodeInput, tx: Tx, queued: Map<string, 
 }
 
 /** Записать канонические события состояния (source = "state") — вызывается внутри транзакции хода. */
+export function selectStateEvents(events: readonly MemoryEvent[], limit = 24): MemoryEvent[] {
+  // Several reducers can update the same fact during one turn (for example, a condition
+  // is added in the scene and expires after the clock advances). Keep only the final fact.
+  const latest = new Map<string, number>();
+  events.forEach((event, index) => { if (event.mode === "upsert" && event.entityKey) latest.set(event.entityKey, index); });
+  const candidates = events.flatMap((event, index) => event.mode === "upsert" && event.entityKey && latest.get(event.entityKey) !== index ? [] : [{ event, index }]);
+  if (candidates.length <= limit) return candidates.map(({ event }) => event);
+  // Current semantic state must outrank optional episodes, even when reducers append it late.
+  const chosen = new Set(candidates.toSorted((a, b) => Number(b.event.layer === "semantic") - Number(a.event.layer === "semantic") || b.event.importance - a.event.importance || b.index - a.index).slice(0, limit).map(({ index }) => index));
+  return candidates.filter(({ index }) => chosen.has(index)).map(({ event }) => event);
+}
+
 export async function writeStateEvents(sessionId: string, events: MemoryEvent[], turnNumber: number, tx: Tx = db, options: { lockHeld?: boolean; dims?: number; extra?: UpsertNodeInput[] } = {}): Promise<string[]> {
-  const inputs: UpsertNodeInput[] = events.slice(0, 12).map(e => ({ sessionId, layer: e.layer, category: e.category, title: e.title, content: e.content, importance: e.importance, source: "state", sourceTurn: turnNumber, entityKey: e.entityKey, mode: e.mode }));
+  const inputs: UpsertNodeInput[] = selectStateEvents(events).map(e => ({ sessionId, layer: e.layer, category: e.category, title: e.title, content: e.content, importance: e.importance, source: "state", sourceTurn: turnNumber, entityKey: e.entityKey, mode: e.mode }));
   const results = await writeMemoryNodes([...inputs, ...(options.extra ?? [])], tx, options);
   return results.filter(r => r.changed).map(r => r.id);
 }

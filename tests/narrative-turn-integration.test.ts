@@ -1,16 +1,19 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import type { AIConfig } from "../src/lib/ai-settings";
 import type { TurnEvent } from "../src/lib/turn-stream";
+import { sealSecret, secretContext } from "../src/lib/secret-vault";
 
 // Import the real orchestrator only after installing a nonsecret, unreachable URL.
 // Every pool operation and provider request is intercepted below.
 process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:1/narrative_test";
+process.env.CHRONICLE_SECRET_ACTIVE_KEY = "fixture";
+process.env.CHRONICLE_SECRET_KEYS = JSON.stringify({ fixture: randomBytes(32).toString("base64") });
 
 // Explicit opt-in exports only this test's synthetic state, never credentials or real campaign data.
 async function captureSyntheticCheck(id: string, expected: string, input: { state: Record<string, unknown>; selection: unknown }) {
@@ -56,8 +59,91 @@ test("performTurn narrative guard persists only canonical, verified narration", 
   const canonical = "Условия договора касаются прохода через ворота. О кольце в нём не сказано.";
   const repairedChoices = ["Уточнить условия прохода", "Спросить о кольце"];
   try {
+    for (const failure of ["expired", "provider"] as const) await t.test(`external preset ${failure} never silently commits offline narration`, async () => {
+      const sessionId = randomUUID();
+      await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'External failure','preset','narrative',$2,$3,1,'external-failure')", [sessionId, JSON.stringify(character), JSON.stringify(world)]);
+      let calls = 0;
+      const fetchMock = mock.method(globalThis, "fetch", async () => { calls++; return Response.json({ error: "invalid_key" }, { status: 401 }); });
+      try {
+        const result = await performTurn({ sessionId, requestId: randomUUID(), expectedTurn: 1, isFree: true, action: "Смотрю на воду" }, {
+          loadAIConfig: async () => ({ ...cfg, keys: [], textProvider: "pollinations", textModel: "story", textApiKey: "synthetic", canUseLive: failure !== "expired", textKeyExpiresAt: new Date(0).toISOString() }),
+          loadNarrativeConfig: async () => ({ enabled: false, provider: "openrouter", apiKey: "" }), schedule() {},
+        });
+        assert.equal(result.ok, false);
+        assert.equal(calls, failure === "expired" ? 0 : 1);
+        assert.equal((await pg.query<{ turn_count: number }>("SELECT turn_count FROM game_sessions WHERE id=$1", [sessionId])).rows[0].turn_count, 1);
+      } finally { fetchMock.mock.restore(); }
+    });
+    for (const provider of ["openrouter", "pollinations"] as const) await t.test(`external ${provider} narrator commits without Gemini and scopes its quota`, async () => {
+      const sessionId = randomUUID(), owner = `text-${provider}`;
+      await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'External','free','narrative',$2,$3,1,$4)", [sessionId, JSON.stringify(character), JSON.stringify(world), owner]);
+      const draft = { outcome: "neutral", effects: { hp: 0, xp: 0, gold: 0, danger: 0 }, stateChanges: emptyChanges(), choices: ["Осмотреться"], narration: "Ты наблюдаешь за отражениями в воде." };
+      let calls = 0;
+      const external = { ...cfg, keys: [], textProvider: provider, textModel: "vendor/story", textApiKey: "synthetic-external", semanticExtractionEnabled: false };
+      const fetchMock = mock.method(globalThis, "fetch", async (url: unknown, init?: RequestInit) => {
+        calls++;
+        assert.equal(String(url), provider === "openrouter" ? "https://openrouter.ai/api/v1/chat/completions" : "https://gen.pollinations.ai/v1/chat/completions");
+        assert.equal(new Headers(init?.headers).get("authorization"), "Bearer synthetic-external");
+        assert.equal(JSON.parse(String(init?.body)).model, "vendor/story");
+        return Response.json({ choices: [{ message: { content: JSON.stringify(draft) }, finish_reason: "stop" }], usage: { prompt_tokens: 20, completion_tokens: 10 } });
+      });
+      try {
+        const result = await performTurn({ sessionId, requestId: randomUUID(), expectedTurn: 1, isFree: true, action: "Смотрю на воду" }, {
+          loadAIConfig: async () => external, loadNarrativeConfig: async () => ({ enabled: false, provider: "openrouter", apiKey: "" }), schedule() {},
+        });
+        assert.equal(result.ok, true, JSON.stringify(result));
+        assert.equal(calls, 1);
+        assert.equal((await pg.query<{ turn_count: number }>("SELECT turn_count FROM game_sessions WHERE id=$1", [sessionId])).rows[0].turn_count, 2);
+        const usage = (await pg.query<{ model: string; attempts: number }>("SELECT model,attempts FROM model_call_quotas WHERE owner_id=$1", [owner])).rows;
+        assert.equal(usage[0].model, `${provider}:vendor/story`);
+        assert.equal(usage[0].attempts, 1);
+        const logs = (await pg.query<{ model: string; quota_reserved: boolean }>("SELECT model,quota_reserved FROM token_logs WHERE session_id=$1", [sessionId])).rows;
+        assert.ok(logs.some(row => row.model === `${provider}:vendor/story` && row.quota_reserved));
+      } finally { fetchMock.mock.restore(); }
+    });
+    for (const mode of ["short", "recovery", "repair"] as const) await t.test(`condition recovery evidence is gated before verification: ${mode}`, async () => {
+      const sessionId = randomUUID();
+      await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Recovery','free','narrative',$2,$3,1,'recovery-owner')", [sessionId, JSON.stringify({ ...character, conditions: ["Усталость"] }), JSON.stringify(world)]);
+      const changes = { ...emptyChanges(), conditions: { add: [], remove: ["Усталость"] }, time: { advanceMinutes: mode === "short" ? 5 : 120 } };
+      const narration = "Ты отдохнул. Усталость прошла.";
+      const draft = { continuity: { mode: "event", referencesPast: false }, outcome: "neutral", effects: { hp: 0, xp: 0, gold: 0, danger: 0 }, stateChanges: changes, choices: ["Осмотреться"], narration };
+      let generations = 0;
+      const states: Record<string, unknown>[] = [];
+      const fetchMock = mock.method(globalThis, "fetch", async () => {
+        generations++;
+        return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(generations === 1 ? draft : { narration: "Ты смотришь на воду.", choices: ["Осмотреться"] }) }] }, finishReason: "STOP" }] });
+      });
+      try {
+        const result = await performTurn({ sessionId, requestId: randomUUID(), expectedTurn: 1, isFree: true, action: "Отдыхаю у воды" }, {
+          loadAIConfig: async () => cfg, loadNarrativeConfig: async () => ({ enabled: true, provider: "openrouter", apiKey: "fake-key" }), schedule() {},
+          verifyNarrative: async input => {
+            states.push(structuredClone(input.state));
+            return { status: mode === "repair" && states.length === 1 ? "rejected" : "verified", provider: "openrouter", model: "typesafe/jev-1.13", answers: {}, latencyMs: 1 };
+          },
+        });
+        assert.ok(states.length > 0);
+        const accepted = states[0].accepted_changes as { character: { conditions: string[] }; conditions: { removed: string[] }; rejected: string[] };
+        assert.deepEqual(accepted.character.conditions, mode === "short" ? ["Усталость"] : []);
+        assert.deepEqual(accepted.conditions.removed, mode === "short" ? [] : ["Усталость"]);
+        if (mode === "short") assert.ok(accepted.rejected.some(reason => reason.startsWith("CONDITION:")));
+        assert.equal(result.ok, mode !== "repair", JSON.stringify(result));
+        const persisted = (await pg.query<{ character: { conditions: string[] }; turn_count: number }>("SELECT character,turn_count FROM game_sessions WHERE id=$1", [sessionId])).rows[0];
+        assert.deepEqual(persisted.character.conditions, mode === "recovery" ? [] : ["Усталость"]);
+        assert.equal(persisted.turn_count, mode === "repair" ? 1 : 2);
+        if (mode === "short") {
+          const memory = (await pg.query<{ content: string }>("SELECT content FROM memory_nodes WHERE session_id=$1 AND entity_key='character:conditions'", [sessionId])).rows;
+          assert.equal(memory.length, 1);
+          assert.match(memory[0].content, /Усталость/);
+        }
+        if (mode === "repair") {
+          assert.equal((await pg.query("SELECT id FROM game_turns WHERE session_id=$1", [sessionId])).rows.length, 0);
+          assert.equal((await pg.query("SELECT id FROM memory_jobs WHERE session_id=$1", [sessionId])).rows.length, 0);
+        }
+      } finally { fetchMock.mock.restore(); }
+    });
     for (const mode of ["repair", "unavailable", "off"] as const) await t.test(mode, async () => {
       const sessionId = randomUUID(), requestId = randomUUID();
+      const quotaBefore = Number((await pg.query<{ n: string }>("SELECT coalesce(sum(attempts),0) AS n FROM model_call_quotas WHERE owner_id='test-owner'")).rows[0].n);
       await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Guard integration','free','narrative',$2,$3,1,'test-owner')", [sessionId, JSON.stringify(character), JSON.stringify(world)]);
       await pg.query("INSERT INTO game_turns(session_id,turn_number,role,content,choices) VALUES ($1,1,'narrator',$2,'[]')", [sessionId, "Сторож согласился пропустить вас через ворота за помощь. Сделка не касается кольца."]);
       const events: TurnEvent[] = [];
@@ -111,6 +197,8 @@ test("performTurn narrative guard persists only canonical, verified narration", 
           const replay = await performTurn(input, runtime);
           assert.ok(replay.ok && replay.replay); assert.equal(replay.narration, expected); assert.deepEqual(replay.choices, choices);
           assert.equal(generation, mode === "repair" ? 2 : 1); assert.equal(verification, mode === "repair" ? 2 : mode === "unavailable" ? 1 : 0);
+          const quotaAfter = Number((await pg.query<{ n: string }>("SELECT coalesce(sum(attempts),0) AS n FROM model_call_quotas WHERE owner_id='test-owner'")).rows[0].n);
+          assert.equal(quotaAfter - quotaBefore, generation, "main and repair HTTP attempts require real reservations; replay is free");
           const diagnostics = (await pg.query<{ payload: { decision: string }; outcome: string }>("SELECT payload,outcome FROM narrative_attempts WHERE session_id=$1", [sessionId])).rows;
           assert.equal(diagnostics.length, 1);
           assert.equal(diagnostics[0].outcome, "completed");
@@ -127,9 +215,39 @@ test("performTurn narrative guard persists only canonical, verified narration", 
         }
       } finally { fetchMock.mock.restore(); }
     });
+    await t.test("preset does not commit an offline substitute when quota ledger fails after prefilter", async () => {
+      const ownerId = "preset-ledger-owner", sessionId = randomUUID();
+      await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,scenario_id,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Ledger outage','preset','custom','narrative',$2,$3,1,$4)",
+        [sessionId, JSON.stringify(character), JSON.stringify(world), ownerId]);
+      let fetches = 0;
+      const fetchMock = mock.method(globalThis, "fetch", async () => { fetches++; throw new Error("Unexpected provider fetch"); });
+      const admission = mock.method(pool, "query", (async (query: string | { text: string; values?: unknown[]; rowMode?: string }, values?: unknown[]) => {
+        if ((typeof query === "string" ? query : query.text).includes("INSERT INTO model_call_quotas")) throw new Error("synthetic ledger outage: private details");
+        return run(query, values);
+      }) as never);
+      try {
+        const result = await performTurn({ sessionId, requestId: randomUUID(), expectedTurn: 1, action: "Осмотреть причал", isFree: true }, {
+          loadAIConfig: async () => ({ ...cfg, ownerId, enforceLimits: true }),
+          loadNarrativeConfig: async () => ({ enabled: false, provider: "typesafe", apiKey: "" }),
+          schedule() {},
+        });
+        assert.deepEqual({ ok: result.ok, code: result.ok ? null : result.code }, { ok: false, code: "QUOTA_UNAVAILABLE" });
+        assert.equal(JSON.stringify(result).includes("private details"), false);
+        assert.equal(fetches, 0);
+        assert.equal((await pg.query<{ turn_count: number }>("SELECT turn_count FROM game_sessions WHERE id=$1", [sessionId])).rows[0].turn_count, 1);
+        assert.equal((await pg.query("SELECT id FROM game_turns WHERE session_id=$1", [sessionId])).rows.length, 0);
+      } finally { admission.mock.restore(); fetchMock.mock.restore(); }
+    });
     for (const mode of ["owner-missing-key", "owner-off", "malformed", "duplicate", "pants", "description", "late-escalation"] as const) await t.test(mode, async () => {
       const ownerId = `owner-${mode}`, otherOwnerId = `other-${mode}`, sessionId = randomUUID();
-      await pg.query("INSERT INTO ai_settings(id,narrative_guard_enabled,narrative_guard_provider,narrative_guard_key) VALUES ($1,$2,'typesafe',$3),($4,$5,'openrouter','other-owner-secret')", [ownerId, mode !== "owner-off", mode === "owner-missing-key" ? "" : "fake-owner-key", otherOwnerId, mode === "owner-off"]);
+      await pg.query("INSERT INTO ai_settings(id,narrative_guard_enabled,narrative_guard_provider,narrative_guard_key) VALUES ($1,$2,'typesafe',$3),($4,$5,'openrouter',$6)", [
+        ownerId,
+        mode !== "owner-off",
+        mode === "owner-missing-key" ? "" : sealSecret("fake-owner-key", secretContext(ownerId, "narrative:typesafe")),
+        otherOwnerId,
+        mode === "owner-off",
+        sealSecret("other-owner-secret", secretContext(otherOwnerId, "narrative:openrouter")),
+      ]);
       await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Boundary integration','free',$2,$3,$4,1,$5)", [sessionId, mode === "pants" ? "d20" : "narrative", JSON.stringify(character), JSON.stringify(world), ownerId]);
       const prefix = "Туман стелется над причалом.";
       const draft = { continuity: { mode: ["description", "late-escalation"].includes(mode) ? "description" : "event", referencesPast: false }, outcome: "neutral", effects: { hp: 0, xp: 0, gold: 0, danger: 0 }, stateChanges: emptyChanges(), choices: ["Осмотреть туман"], narration: mode === "pants" ? "Вы получили штаны стражника." : mode === "late-escalation" ? `${prefix} Вы получаете кольцо.` : prefix };
@@ -184,6 +302,11 @@ test("performTurn narrative guard persists only canonical, verified narration", 
           }
         } else {
           assert.ok(result.ok, JSON.stringify(result)); assert.equal(saved.rows[0].turn_count, 2);
+          const committed = (await pg.query<{ character: typeof character; world_state: typeof world }>("SELECT character,world_state FROM game_sessions WHERE id=$1", [sessionId])).rows[0];
+          assert.deepEqual(result.applied.resources?.hp, { before: character.hp, after: committed.character.hp, maxBefore: character.maxHp, maxAfter: committed.character.maxHp });
+          assert.deepEqual(result.applied.resources?.danger, { before: world.danger, after: committed.world_state.danger });
+          const persistedChanges = (await pg.query<{ state_changes: typeof result.applied }>("SELECT state_changes FROM game_turns WHERE session_id=$1 AND role='narrator'", [sessionId])).rows[0].state_changes;
+          assert.deepEqual(persistedChanges.resources, result.applied.resources);
           if (mode === "pants") {
             assert.equal(result.dice?.success, false); assert.equal(result.dice?.d20, 1);
             assert.equal(result.narration, repaired.narration); assert.deepEqual(result.choices, repaired.choices);
@@ -386,8 +509,9 @@ test("performTurn narrative guard persists only canonical, verified narration", 
     for (const [independent, unavailable] of [[false, false], [true, false], [true, true]]) await t.test(`failed-roll acquisition requires independent evidence: ${independent}; unavailable: ${unavailable}`, async () => {
       const sessionId = randomUUID();
       const beforeWorld = { ...world, flags: independent ? { confirmedDelivery: "Аптечка оплачена и доставлена к началу хода" } : {} };
-      await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Scoped failure','free','d20',$2,$3,1,'scope-owner')", [sessionId, JSON.stringify(character), JSON.stringify(beforeWorld)]);
+      await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Scoped failure','free','d20',$2,$3,1,'scope-owner')", [sessionId, JSON.stringify({ ...character, conditions: unavailable ? ["Усталость"] : [] }), JSON.stringify(beforeWorld)]);
       const changes = emptyChanges();
+      if (unavailable) changes.conditions.remove.push("Усталость");
       changes.inventory.push({ op: "add", ref: null, name: independent ? "Аптечка" : "Штаны", kind: "misc", quantity: 1, description: "", checkDependency: "independent" });
       // Intentionally omit the item: checking prose alone would miss this state mutation.
       const draft = { continuity: { mode: "event", referencesPast: false }, outcome: "failure", effects: { hp: 0, xp: 0, gold: 0, danger: 0 }, stateChanges: changes, choices: ["Осмотреться"], narration: "Твоя попытка не удалась." };
@@ -411,6 +535,11 @@ test("performTurn narrative guard persists only canonical, verified narration", 
         assert.equal(result.ok, independent || unavailable, JSON.stringify(result));
         assert.equal(fetchMock.mock.callCount(), 1, "a prose repair cannot invent independence");
         assert.equal((await pg.query("SELECT id FROM inventory_items WHERE session_id=$1", [sessionId])).rows.length, independent && !unavailable ? 1 : 0);
+        if (unavailable && result.ok) {
+          assert.deepEqual(result.state?.character.conditions, ["Усталость"]);
+          assert.deepEqual(result.applied.conditions.removed, []);
+          assert.ok(result.applied.rejected.some(reason => reason.startsWith("CONDITION:")));
+        }
         if (!result.ok) assert.match(result.details ?? "", /independence_not_verified/);
       } finally { fetchMock.mock.restore(); random.mock.restore(); }
     });
@@ -440,6 +569,7 @@ test("performTurn narrative guard persists only canonical, verified narration", 
         assert.ok(result.ok, JSON.stringify(result));
         assert.equal(result.narration, narration);
         assert.equal(generations, 1); assert.equal(reviews, 1);
+        assert.equal(Number((await pg.query<{ n: string }>("SELECT sum(attempts) AS n FROM model_call_quotas WHERE owner_id='review-owner'")).rows[0].n), 2, "review is independently reserved as well as main generation");
         const rows = await pg.query<{ context_meta: { narrativeVerification: { reviews: { attempt: number; result: { status: string } }[] } } }>("SELECT context_meta FROM game_turns WHERE session_id=$1 AND turn_number=2 AND role='narrator'", [sessionId]);
         assert.equal(rows.rows[0].context_meta.narrativeVerification.reviews[0].result.status, "verified");
       } finally { fetchMock.mock.restore(); }

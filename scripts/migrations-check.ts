@@ -3,9 +3,10 @@ import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 import { sql } from "drizzle-orm";
 import { db, pool } from "../src/db";
-import { gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats } from "../src/db/schema";
+import { gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats, visualSettings } from "../src/db/schema";
 async function run() {
   // Only use in a disposable development sandbox: requires CREATE DATABASE permission.
   const name = `chronicle_migration_test_${Date.now()}`;
@@ -16,7 +17,7 @@ async function run() {
     targetPool = new Pool({ connectionString: url.toString(), max: 2 });
     const target = drizzle(targetPool);
     await migrate(target, { migrationsFolder: "./drizzle" });
-    for (const table of [gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats]) await target.select().from(table).limit(1);
+    for (const table of [gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats, visualSettings]) await target.select().from(table).limit(1);
     const compatibility = await target.execute(sql`
       SELECT table_name, column_name
       FROM information_schema.columns
@@ -45,13 +46,14 @@ async function run() {
         "memory_nodes.last_accessed_at",
         "workspace_preferences.reading",
       ],
-      "v2.5 must add reading preferences without dropping legacy columns",
+      "v2.7 must add reading preferences and visual schema without dropping legacy columns",
     );
     const first = await target.execute(sql`SELECT count(*)::integer AS n FROM drizzle.__drizzle_migrations`);
-    assert.equal(first.rows[0].n, 5);
+    const migrationCount = readMigrationFiles({ migrationsFolder: "./drizzle" }).length;
+    assert.equal(first.rows[0].n, migrationCount);
     await migrate(target, { migrationsFolder: "./drizzle" });
     const second = await target.execute(sql`SELECT count(*)::integer AS n FROM drizzle.__drizzle_migrations`);
-    assert.equal(second.rows[0].n, 5);
+    assert.equal(second.rows[0].n, migrationCount);
 
     const legacySchema = `legacy_${Date.now()}`;
     const migrationSql = await readFile("drizzle/0004_typesafe_pilot.sql", "utf8");
@@ -73,7 +75,7 @@ async function run() {
     } finally {
       client.release();
     }
-    console.log("PASS: clean PostgreSQL database, complete v2.5 schema, repeat migration is a no-op");
+    console.log("PASS: clean PostgreSQL database, complete v2.7 schema, repeat migration is a no-op");
   } finally {
     await targetPool?.end();
     await db.execute(sql.raw(`DROP DATABASE "${name}"`));

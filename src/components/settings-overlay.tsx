@@ -1,12 +1,13 @@
 "use client";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Dialog } from "./dialog";
 import { SettingsPanel } from "./settings-panel";
 
 export function SettingsOverlay({ onClose, returnLabel, section = "" }: { onClose: () => void; returnLabel: string; section?: string }) {
   const closeGuard = useRef<(() => void) | null>(null);
+  const [closeLabel, setCloseLabel] = useState(returnLabel);
   const closeOverlay = useRef(onClose);
-  const register = useCallback((close: (() => void) | null) => { closeGuard.current = close; }, []);
+  const register = useCallback((close: (() => void) | null, label?: string) => { closeGuard.current = close; setCloseLabel(close && label ? label : returnLabel); }, [returnLabel]);
   useEffect(() => { closeOverlay.current = onClose; }, [onClose]);
   useEffect(() => {
     const marker = crypto.randomUUID();
@@ -35,7 +36,7 @@ export function SettingsOverlay({ onClose, returnLabel, section = "" }: { onClos
     const timer = setTimeout(() => document.querySelector(`.settings-dialog [id="${CSS.escape(section)}"]`)?.scrollIntoView({ block: "start" }), 100);
     return () => clearTimeout(timer);
   }, [section]);
-  return <Dialog title="Настройки пространства" wide className="settings-dialog" onClose={() => (closeGuard.current ?? onClose)()}>
+  return <Dialog title="Настройки пространства" closeLabel={closeLabel} wide className="settings-dialog" onClose={() => (closeGuard.current ?? onClose)()}>
     <SettingsPanel onClose={onClose} returnLabel={returnLabel} onCloseReady={register} />
   </Dialog>;
 }

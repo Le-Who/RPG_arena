@@ -1,3 +1,5 @@
+import { normalizeStoryShape } from "@/lib/world-life";
+import type { WorldState } from "@/db/schema";
 import { readJsonObject, httpError } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { after } from "next/server";
@@ -13,10 +15,11 @@ import { upsertMemoryNode } from "@/lib/memory";
 import { slugify, iconForKind } from "@/lib/resolution";
 import { getAIConfig } from "@/lib/ai-settings";
 import { enqueueEmbeddings, indexPendingEmbeddings } from "@/lib/embeddings";
+import { withIdentityWork, withCampaignOwnerWork } from "@/lib/owner-work";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
+async function handleGET(req: Request) {
   const ownerId = await currentProfileId();
   const shared = new URL(req.url).searchParams.get("scope") === "public";
   const { scenarioPrompt: _omit, ...listColumns } = getTableColumns(gameSessions);
@@ -30,6 +33,7 @@ type CreateBody = {
   scenarioId?: string;
   characterIndex?: number;
   rulesProfile?: RulesProfile;
+  storyShape?: Record<string, unknown>;
   customScenario?: { title?: string; worldName?: string; pitch?: string; mainQuest?: string; tone?: string; era?: string; startLocation?: string; factions?: string[] };
   customCharacter?: { name?: string; archetype?: string; backstory?: string; stats?: Record<string, number>; skills?: string[]; traits?: string[]; startItems?: string[] };
 };
@@ -46,7 +50,7 @@ function normalizeStats(over?: Record<string, number>): Record<string, number> {
 const clean = (v: unknown, max: number, dflt = "") => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : dflt);
 const cleanList = (v: unknown, max: number, itemMax = 40) => (Array.isArray(v) ? v.map((x) => clean(x, itemMax)).filter(Boolean).slice(0, max) : []);
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   try {
   const raw = await readJsonObject(req, 32768);
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
@@ -144,7 +148,10 @@ export async function POST(req: Request) {
     appearance: "Определяется по ходу истории",
     conditions: [] as string[],
   };
-  const worldState = { worldName, tone, era, mainQuest, currentLocation: startLocation, factions, flags: {}, danger, chapter: 1 };
+  // NARR-7: форма истории задаётся при создании; по умолчанию пресет — арка, свободная история — открытая жизнь.
+  const storyShape = normalizeStoryShape(body.storyShape && typeof body.storyShape === "object" ? body.storyShape : { kind: mode === "preset" ? "arc" : "open-life" }, { mainQuest });
+  if (storyShape.kind === "arc" && !storyShape.goal) storyShape.goal = mainQuest.slice(0, 240);
+  const worldState: WorldState = { worldName, tone, era, mainQuest, currentLocation: startLocation, factions, flags: {}, danger, chapter: 1, clock: { day: 1, minute: 9 * 60 }, story: storyShape, commitments: [], holdings: [] };
 
   const { session, seedIds } = await db.transaction(async (tx) => {
   const inserted = await tx
@@ -213,10 +220,12 @@ export async function POST(req: Request) {
   // Индексация стартовых нод — в фоне
   after(async () => {
     try {
+      await withCampaignOwnerWork(session.id, ownerId, async () => {
       const cfg = await getAIConfig(ownerId);
       if (!cfg.keys.length || !cfg.embeddingsEnabled) return;
       await enqueueEmbeddings(session.id, seedIds, cfg.embeddingModel, cfg.embeddingDims);
       await indexPendingEmbeddings({ sessionId: session.id, keys: cfg.keys, model: cfg.embeddingModel, dims: cfg.embeddingDims });
+      });
     } catch (e) {
       console.warn("[seed-embed]", e instanceof Error ? e.message : e);
     }
@@ -225,3 +234,5 @@ export async function POST(req: Request) {
   return NextResponse.json({ session, slug: slugify(title) });
   } catch (error) { return httpError(error); }
 }
+export const GET = withIdentityWork(handleGET);
+export const POST = withIdentityWork(handlePOST);

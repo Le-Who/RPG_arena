@@ -95,7 +95,7 @@ export function assessRisk(action: string, danger: number): "safe" | "risky" | "
   if (isTrivialAction(action)) return "safe";
   const a = action.toLowerCase();
   const violent = /атак|удар|бой|драк|стрел|напад|взлом|проник|пробир|тайк|тайно|незамет|крад|украд|бег|прыг|погон|угрож|ложь|солг|обман|взорв|поджеч|сбеж|лаз|ныря|взбир|карабк|рискн|бросаюсь|хвата/.test(a);
-  const social = /убед|уговор|переговор|торг|подкуп|флирт|соблазн|допрос|обвин/.test(a);
+  const social = /убед|уговор|переговор|торг|подкуп|флирт|соблазн|допрос|допраш|обвин/.test(a);
   if (!violent && !social) return danger >= 70 ? "risky" : "safe";
   if (violent && danger >= 60) return "desperate";
   return "risky";

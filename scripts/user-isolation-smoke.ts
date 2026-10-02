@@ -9,7 +9,7 @@ type Json = Record<string, any>; // API assertions intentionally inspect heterog
 class Visitor {
   cookie = "";
   async call(path: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
-    const response = await fetch(base + path, { method, headers: { "Content-Type": "application/json", ...(this.cookie ? { Cookie: this.cookie } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const response = await fetch(base + path, { method, headers: { "Content-Type": "application/json", Origin: process.env.CHRONICLE_PUBLIC_ORIGIN || new URL(base).origin, ...(this.cookie ? { Cookie: this.cookie } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     assert.match(response.headers.get("cache-control") ?? "", /no-store/i, `personalized response must not be cached: ${path}`);
     const setCookie = response.headers.get("set-cookie");
     if (setCookie) {
