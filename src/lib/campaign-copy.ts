@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { agreementEvents } from "@/db/schema";
 import { loadAgreementHistory } from "./narrative-agreements";
-import { and, asc, count, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { aiSettings, campaignImports, gameSessions, gameTurns, inventoryItems, memoryEmbeddings, memoryLinks, memoryNodes, npcs, quests, sceneObjects, worldLocations } from "@/db/schema";
 import type { CheckpointSnapshot } from "./checkpoint-types";
@@ -17,7 +17,7 @@ const chunk = <T>(rows: T[], size = 100): T[][] => Array.from({ length: Math.cei
 const plain = <T>(value: unknown): T => JSON.parse(JSON.stringify(value)) as T;
 export const IMPORT_MAX_ACTIVE = 10;
 export const IMPORT_MAX_PER_DAY = 20;
-const IMPORT_TOMBSTONE_DAYS = 30;
+export const IMPORT_MAX_HISTORY = 1000;
 
 /** Caller owns the transaction: a repeatable-read export or a locked copy. */
 export async function readCampaignSnapshot(tx: DbTransaction, source: typeof gameSessions.$inferSelect): Promise<CheckpointSnapshot> {
@@ -98,9 +98,10 @@ export async function importCampaign(input: { profileId: string; requestId: stri
   const title = input.title === undefined ? document.title : requiredText(input.title, "Название кампании");
   const inputHash = portableFingerprint(document, title);
   return db.transaction(async tx => {
-    // A profile-wide lock makes quota admission and insertion one atomic unit and
-    // bounds each profile to one expensive import transaction at a time.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.profileId}), hashtext('campaign-import'))`);
+    // Admit one import per profile without holding pool connections behind another import.
+    // The transaction lock keeps quota checks and insertion atomic across web instances.
+    const lock = await tx.execute<{ locked: boolean }>(sql`select pg_try_advisory_xact_lock(hashtext(${input.profileId}), hashtext('campaign-import')) as locked`);
+    if (!lock.rows[0]?.locked) throw new HttpError(409, "IMPORT_BUSY", "Другая кампания уже импортируется. Повторите попытку через секунду.", { retryAfter: 1 });
     const [previous] = await tx.select().from(campaignImports).where(and(eq(campaignImports.ownerId, input.profileId), eq(campaignImports.requestId, input.requestId)));
     if (previous) {
       if (previous.inputHash !== inputHash) throw new HttpError(409, "IDEMPOTENCY_CONFLICT", "Этот requestId уже использован для другого файла или названия.");
@@ -109,8 +110,10 @@ export async function importCampaign(input: { profileId: string; requestId: stri
       if (!session) throw new HttpError(410, "IMPORT_DELETED", "Импортированная кампания больше не доступна. Для нового импорта нужен новый requestId.");
       return { session, replay: true };
     }
-    const tombstoneCutoff = new Date(Date.now() - IMPORT_TOMBSTONE_DAYS * 24 * 60 * 60 * 1000);
-    await tx.delete(campaignImports).where(and(eq(campaignImports.ownerId, input.profileId), isNull(campaignImports.campaignId), lt(campaignImports.createdAt, tombstoneCutoff)));
+    // Never discard deleted-import keys: a retry must not resurrect a deleted campaign.
+    // A lifetime admission cap bounds this durable history while preserving all accepted keys.
+    const [history] = await tx.select({ value: count() }).from(campaignImports).where(eq(campaignImports.ownerId, input.profileId));
+    if ((history?.value ?? 0) >= IMPORT_MAX_HISTORY) throw new HttpError(409, "IMPORT_HISTORY_QUOTA", `Достигнут предел: ${IMPORT_MAX_HISTORY} импортов за всё время. Ранее импортированные кампании и повторы запросов остаются доступны.`);
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const [active] = await tx.select({ value: count() }).from(campaignImports).where(and(eq(campaignImports.ownerId, input.profileId), isNotNull(campaignImports.campaignId)));
     const [recent] = await tx.select({ value: count() }).from(campaignImports).where(and(eq(campaignImports.ownerId, input.profileId), gte(campaignImports.createdAt, dayAgo)));
