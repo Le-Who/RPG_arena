@@ -48,9 +48,10 @@ function Campaigns({ compact = false }: { compact?: boolean }) {
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // ⚡ Bolt: Memoize campaign filtering to prevent O(N) recalculations on every render.
-  // Impact: Reduces CPU time during text input in the search field.
-  const filtered = useMemo(() => sessions.filter((s) => (filter === "active" ? s.status === "active" : s.status !== "active") && `${s.title} ${s.character.name}`.toLowerCase().includes(query.toLowerCase())), [sessions, filter, query]);
+  const filtered = useMemo(() => {
+    const lowerQuery = query.toLowerCase();
+    return sessions.filter((s) => (filter === "active" ? s.status === "active" : s.status !== "active") && `${s.title} ${s.character.name}`.toLowerCase().includes(lowerQuery));
+  }, [sessions, filter, query]);
   const visible = useMemo(() => compact ? filtered.slice(0, 2) : filtered, [compact, filtered]);
   const share = async (s: Session) => {
     setMenu(null);
@@ -79,8 +80,9 @@ function Characters() {
   const { sessions, newStory, loading } = useApp();
   const [query, setQuery] = useState("");
 
-  // ⚡ Bolt: Memoize character filtering to prevent O(N) recalculations on every render.
-  // Impact: Reduces CPU time during text input in the search field.
-  const filtered = useMemo(() => sessions.filter((s) => `${s.character.name} ${s.character.archetype} ${s.title}`.toLowerCase().includes(query.toLowerCase())), [sessions, query]);
+  const filtered = useMemo(() => {
+    const lowerQuery = query.toLowerCase();
+    return sessions.filter((s) => `${s.character.name} ${s.character.archetype} ${s.title}`.toLowerCase().includes(lowerQuery));
+  }, [sessions, query]);
   return <section><div className="section-heading"><h2>Герои ваших кампаний <span className="count-badge">{sessions.length}</span></h2><label className="search-field"><Search size={14} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Имя или роль…" aria-label="Поиск персонажей" /></label></div><div className="characters-grid">{filtered.map((s) => <article className="character-card" key={s.id}><div className="character-cover" style={{ backgroundImage: `url(${coverFor(s.scenarioId)})` }} /><div className="character-portrait"><UserRound size={34} strokeWidth={1.2} /></div><div className="character-card-body"><span className="pill violet">{s.character.archetype}</span><h2>{s.character.name}</h2><Link className="character-campaign" href={`/play/${s.id}`}><BookOpen size={13} />{s.title}</Link><p>{s.character.backstory}</p><div className="tag-row">{s.character.skills.map((skill) => <span className="tag" key={skill}>{skill}</span>)}</div>{s.rulesProfile === "d20" && <div className="stats-row">{Object.entries(s.character.stats).map(([key, value]) => <div key={key}><small>{key}</small><strong>{value}</strong></div>)}</div>}<Link className="button secondary full-width" href={`/play/${s.id}`}>Вернуться в историю <ArrowRight size={14} /></Link></div></article>)}</div>{!loading && !filtered.length && <div className="empty-state"><UserRound size={32} /><h3>Знакомство ещё впереди</h3><p>Создайте кампанию — и её главный герой появится здесь.</p><button className="button primary" onClick={() => newStory()}>Создать первого героя <Plus size={15} /></button></div>}</section>;
 }
