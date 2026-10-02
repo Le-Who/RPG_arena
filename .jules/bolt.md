@@ -1,3 +1,0 @@
-## 2024-05-20 - Optimizing Action Entity Suggestions
-**Learning:** In React, local state changes (like selecting an item from a dropdown using arrow keys) trigger re-renders that can cause expensive derived state (like filtering game entities for suggestions) to be needlessly recalculated if not memoized. Furthermore, building arrays before validating query constraints (e.g. `query.length < 2`) performs useless work on every keystroke.
-**Action:** Always memoize derived arrays in UI components using `useMemo` when they depend on props that change less frequently than local state, and use lazy initialization for expensive arrays in helper functions.
