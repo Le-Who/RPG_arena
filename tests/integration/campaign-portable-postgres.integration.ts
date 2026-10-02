@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { Pool } from "pg";
 
-test("twelve independent PostgreSQL imports serialize to one campaign and preserve tombstones", {
+test("PostgreSQL imports reject busy admission and retry to one campaign with permanent tombstones", {
   skip: process.env.CHRONICLE_RUN_PORTABLE_POSTGRES !== "1", timeout: 60000,
 }, async () => {
   const schema = `portable_task4_${randomUUID().replaceAll("-", "")}`;
@@ -97,7 +97,38 @@ test("twelve independent PostgreSQL imports serialize to one campaign and preser
     const document = (await exportPortableCampaign(source, owner))!;
     assert.equal(document.snapshot.turns.length, 2);
     const request = { profileId: importer, requestId: "twelve-contenders", document, title: "Imported Harbor" };
-    const results = await Promise.all(Array.from({ length: 12 }, () => importCampaign(request)));
+    const importGatePool = new Pool({ connectionString: url.toString() });
+    const importGate = await importGatePool.connect();
+    let competing: ReturnType<typeof importCampaign> | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await importGate.query("BEGIN");
+      await importGate.query("SELECT pg_advisory_xact_lock(hashtext($1),hashtext('campaign-import'))", [importer]);
+      competing = importCampaign(request);
+      const timeout = new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error("Import waited for the held profile lock")), 2000); });
+      await assert.rejects(Promise.race([competing, timeout]), error => {
+        const busy = error as { code?: string; status?: number; extra?: { retryAfter?: number } };
+        return busy.code === "IMPORT_BUSY" && busy.status === 409 && busy.extra?.retryAfter === 1;
+      });
+      assert.equal(Number((await importGatePool.query("SELECT count(*)::int n FROM campaign_imports WHERE owner_id=$1", [importer])).rows[0].n), 0);
+    } finally {
+      clearTimeout(deadline);
+      await importGate.query("ROLLBACK");
+      importGate.release();
+      await competing?.catch(() => undefined);
+      await importGatePool.end();
+    }
+    const retryImport = async () => {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        try { return await importCampaign(request); }
+        catch (error) {
+          if ((error as { code?: string }).code !== "IMPORT_BUSY") throw error;
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+      }
+      throw new Error("Import remained busy after bounded retries");
+    };
+    const results = await Promise.all(Array.from({ length: 12 }, retryImport));
     assert.equal(results.filter(result => !result.replay).length, 1);
     assert.equal(results.filter(result => result.replay).length, 11);
     assert.equal(new Set(results.map(result => result.session.id)).size, 1);

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { api, jsonBody } from "@/lib/api-client";
 import type { Session } from "@/lib/ui-data";
 import { useApp } from "./app-shell";
@@ -8,6 +9,7 @@ import { Dialog } from "./dialog";
 
 export function CampaignImport() {
   const { refresh, notify, loading, identity } = useApp();
+  const canImport = identity?.kind === "account";
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -19,6 +21,7 @@ export function CampaignImport() {
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   async function select(file?: File) {
+    if (!canImport) return;
     const ticket = ++selection.current;
     attempt.current = null; setName(""); setError("");
     if (!file) return;
@@ -31,7 +34,7 @@ export function CampaignImport() {
     } catch (cause) { if (ticket === selection.current) setError(cause instanceof Error ? cause.message : "Не удалось прочитать файл."); }
   }
   async function submit() {
-    if (busy || !attempt.current) return;
+    if (busy || !canImport || !attempt.current) return;
     setBusy(true); setError("");
     try {
       const result = await api<{ session: Session; replay: boolean }>("/api/sessions/import", jsonBody(attempt.current));
@@ -45,8 +48,9 @@ export function CampaignImport() {
   }
   return <><button className="button secondary" disabled={loading || !identity} onClick={() => setOpen(true)}>Импорт кампании</button>{open && <Dialog title="Импорт кампании" onClose={() => { if (!busy) setOpen(false); }}>
     <p className="dialog-intro">Продолжите историю из JSON-экспорта Chronicle. Новая кампания будет приватной. Ключи, настройки аккаунта и расходы не переносятся; поиск по памяти переиндексируется отдельно.</p>
-    <label className="field"><span>JSON-файл · до 4 МиБ</span><input type="file" accept="application/json,.json" disabled={busy} onChange={event => void select(event.target.files?.[0])} /></label>
+    {!canImport && <p className="settings-footnote">Для импорта кампании нужен аккаунт. <Link href="/settings#account" className="text-link" onClick={() => setOpen(false)}>Войти или создать аккаунт</Link>.</p>}
+    <label className="field"><span>JSON-файл · до 4 МиБ</span><input type="file" accept="application/json,.json" disabled={busy || !canImport} onChange={event => void select(event.target.files?.[0])} /></label>
     {name && <p className="settings-footnote">Выбран файл: {name}</p>}{error && <p role="alert" className="notice error-notice">{error}</p>}
-    <div className="dialog-actions"><button className="button secondary" disabled={busy} onClick={() => setOpen(false)}>Отмена</button><button className="button primary" disabled={busy || !name} onClick={() => void submit()}>{busy ? "Импортируем…" : "Импортировать"}</button></div>
+    <div className="dialog-actions"><button className="button secondary" disabled={busy} onClick={() => setOpen(false)}>Отмена</button><button className="button primary" disabled={busy || !canImport || !name} onClick={() => void submit()}>{busy ? "Импортируем…" : "Импортировать"}</button></div>
   </Dialog>}</>;
 }

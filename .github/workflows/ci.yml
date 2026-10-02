@@ -25,6 +25,19 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres -d chronicle_ci"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      import-postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: chronicle_test
+          POSTGRES_PASSWORD: fixture-only
+          POSTGRES_DB: chronicle_auth_test
+          TZ: UTC
+          PGTZ: UTC
+        ports:
+          - 55439:5432
+        options: >-
+          --health-cmd "pg_isready -U chronicle_test -d chronicle_auth_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/chronicle_ci
       CHRONICLE_AUTO_MIGRATE: "0"
@@ -41,6 +54,11 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - name: Isolated PostgreSQL import admission and concurrent retries
+        env:
+          CHRONICLE_RUN_PORTABLE_POSTGRES: "1"
+          PGPASSWORD: fixture-only
+        run: node --import tsx --test tests/integration/campaign-portable-postgres.integration.ts
       - run: npm run check:docs
       - name: Fresh schema and replay
         run: |

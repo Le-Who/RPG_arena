@@ -9,7 +9,7 @@ import { cookieContext } from "./helpers/accounts-db";
 import { portableFixture } from "./helpers/portable-fixture";
 import { newGuestToken, profileIdFromToken } from "../src/lib/guest-identity";
 
-async function portableDb() {
+async function portableDb({ importLockAvailable = true } = {}) {
   const { pool } = await import("../src/db");
   const pg = new PGlite({ extensions: { vector, pgcrypto } });
   await pg.exec("SET TIME ZONE 'UTC'");
@@ -17,6 +17,8 @@ async function portableDb() {
   const run = async (query: string | { text: string; values?: unknown[]; rowMode?: string }, values?: unknown[]) => {
     const config = typeof query === "string" ? { text: query, values } : { ...query, values: values ?? query.values };
     if (config.text.startsWith("BEGIN;")) { await pg.exec(config.text); return { rows: [] }; }
+    // PGlite owns one connection, so model a lock held by another PostgreSQL connection.
+    if (!importLockAvailable && config.text.includes("hashtext('campaign-import')")) return { rows: [{ locked: false }] };
     const result = await pg.query<Record<string, unknown>>(config.text, config.values);
     return { ...result, rows: result.rows.map(row => config.rowMode === "array" ? result.fields.map(f => row[f.name]) : row) };
   };
@@ -92,7 +94,13 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     const { POST } = await import("../src/app/api/sessions/import/route");
     const body = JSON.stringify({ requestId: "portable-retry", document, title: "My Harbor" });
     const request = () => new Request("https://game.test/api/sessions/import", { method: "POST", headers: { "content-type": "application/json" }, body });
-    const imported = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(request()));
+    const guestDenied = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(request()));
+    assert.equal(guestDenied.status, 403);
+    assert.equal((await guestDenied.json()).code, "ACCOUNT_REQUIRED");
+    const { auth } = await import("../src/lib/auth");
+    const registered = await auth.register(otherToken, "portable-user", "correct horse battery staple");
+    const accountCookie = `chronicle_guest=${registered.guestToken}; chronicle_session=${registered.sessionToken}`;
+    const imported = await cookieContext(accountCookie, () => POST(request()));
     assert.equal(imported.status, 201);
     const result = await imported.json();
     assert.equal(result.replay, false);
@@ -101,10 +109,10 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     assert.equal(result.session.visibility, "private");
     assert.equal(result.session.status, "active");
     assert.notEqual(result.session.id, source);
-    const replay = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(request()));
+    const replay = await cookieContext(accountCookie, () => POST(request()));
     assert.equal(replay.status, 200);
     assert.equal((await replay.json()).session.id, result.session.id);
-    const conflict = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(new Request("https://game.test/api/sessions/import", {
+    const conflict = await cookieContext(accountCookie, () => POST(new Request("https://game.test/api/sessions/import", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: "portable-retry", document, title: "Other Harbor" }),
     })));
     assert.equal(conflict.status, 409);
@@ -144,7 +152,7 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     invalidDocument.snapshot.turns.find((turn: { turnNumber: number }) => turn.turnNumber === 2).contextMeta.narrativeVerification.evidence.sources[0].sha256 = "0".repeat(64);
     const { snapshotChecksum } = await import("../src/lib/checkpoint-snapshot");
     invalidDocument.checksum = snapshotChecksum(invalidDocument.snapshot);
-    const invalidResponse = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(new Request("https://game.test/api/sessions/import", {
+    const invalidResponse = await cookieContext(accountCookie, () => POST(new Request("https://game.test/api/sessions/import", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ requestId: "invalid-verification", document: invalidDocument, title: "Invalid verification" }),
     })));
@@ -161,7 +169,7 @@ test("portable HTTP export is owner-only and import remaps structured data witho
     assert.equal((await fixture.pg.query<{ status: string; dims: number }>("SELECT status,dims FROM memory_embeddings WHERE session_id=$1", [result.session.id])).rows[0].status, "pending");
     await fixture.pg.query("DELETE FROM game_sessions WHERE id=$1", [result.session.id]);
     await fixture.pg.query("DELETE FROM game_sessions WHERE id=$1", [invalidCampaign]);
-    const deleted = await cookieContext(`chronicle_guest=${otherToken}`, () => POST(request()));
+    const deleted = await cookieContext(accountCookie, () => POST(request()));
     assert.equal(deleted.status, 410);
     assert.equal((await deleted.json()).code, "IMPORT_DELETED");
     assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM game_sessions WHERE owner_id=$1", [other])).rows[0].n), 0);
@@ -181,5 +189,100 @@ test("portable failed import leaves neither target nor ledger", async () => {
     await assert.rejects(() => importCampaign({ profileId: "owner", requestId: "rollback", document }), error => /duplicate|unique/i.test(String((error as Error & { cause?: Error }).cause)));
     assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM game_sessions")).rows[0].n), 0);
     assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM campaign_imports")).rows[0].n), 0);
+  } finally { await fixture.close(); }
+});
+
+test("portable import enforces the profile admission quota before materializing a campaign", async () => {
+  const fixture = await portableDb();
+  try {
+    const owner = "account-import-quota";
+    for (let i = 0; i < 20; i++) {
+      await fixture.pg.query("INSERT INTO campaign_imports(owner_id,request_id,input_hash) VALUES ($1,$2,$3)", [owner, `prior-${i}`, `hash-${i}`]);
+    }
+    const { createPortableDocument } = await import("../src/lib/campaign-portable");
+    const { importCampaign } = await import("../src/lib/campaign-copy");
+    await assert.rejects(
+      () => importCampaign({ profileId: owner, requestId: "over-daily-limit", document: createPortableDocument(portableFixture()) }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "IMPORT_RATE_LIMIT",
+    );
+    assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM game_sessions WHERE owner_id=$1", [owner])).rows[0].n), 0);
+  } finally { await fixture.close(); }
+});
+
+test("portable HTTP import reports a busy profile before creating any campaign rows", async () => {
+  const fixture = await portableDb({ importLockAvailable: false });
+  try {
+    const { auth } = await import("../src/lib/auth");
+    const account = await auth.register(newGuestToken(), "busy-importer", "correct horse battery staple");
+    const { createPortableDocument } = await import("../src/lib/campaign-portable");
+    const { POST } = await import("../src/app/api/sessions/import/route");
+    const response = await cookieContext(`chronicle_guest=${account.guestToken}; chronicle_session=${account.sessionToken}`, () => POST(new Request("https://game.test/api/sessions/import", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "busy-attempt", document: createPortableDocument(portableFixture()) }),
+    })));
+    assert.equal(response.status, 409);
+    assert.equal(response.headers.get("Retry-After"), "1");
+    assert.equal((await response.json()).code, "IMPORT_BUSY");
+    for (const table of ["game_sessions", "campaign_imports", "owner_activity"]) {
+      assert.equal(Number((await fixture.pg.query<{ n: number }>(`SELECT count(*)::int n FROM ${table}`)).rows[0].n), 0);
+    }
+  } finally { await fixture.close(); }
+});
+
+test("portable deleted-import tombstones survive later imports regardless of age", async () => {
+  const fixture = await portableDb();
+  try {
+    const { createPortableDocument } = await import("../src/lib/campaign-portable");
+    const { importCampaign } = await import("../src/lib/campaign-copy");
+    const document = createPortableDocument(portableFixture());
+    const original = { profileId: "account-old-import", requestId: "old-attempt", document };
+    const imported = await importCampaign(original);
+    await fixture.pg.query("UPDATE campaign_imports SET created_at=now()-interval '31 days' WHERE owner_id=$1", [original.profileId]);
+    await fixture.pg.query("DELETE FROM game_sessions WHERE id=$1", [imported.session.id]);
+    await importCampaign({ ...original, requestId: "fresh-attempt" });
+    await assert.rejects(() => importCampaign(original), error => (error as { code?: string }).code === "IMPORT_DELETED");
+    await assert.rejects(() => importCampaign({ ...original, title: "Different document title" }), error => (error as { code?: string }).code === "IDEMPOTENCY_CONFLICT");
+    const rows = await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM campaign_imports WHERE owner_id=$1", [original.profileId]);
+    assert.equal(rows.rows[0].n, 2);
+    assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM game_sessions WHERE owner_id=$1", [original.profileId])).rows[0].n), 1);
+  } finally { await fixture.close(); }
+});
+
+test("portable import quotas preserve replay and remain isolated to their owner", async t => {
+  const fixture = await portableDb();
+  try {
+    const { createPortableDocument } = await import("../src/lib/campaign-portable");
+    const { importCampaign } = await import("../src/lib/campaign-copy");
+    const document = createPortableDocument(portableFixture());
+    for (const { kind, limit, code } of [
+      { kind: "active", limit: 10, code: "IMPORT_STORAGE_QUOTA" },
+      { kind: "daily", limit: 20, code: "IMPORT_RATE_LIMIT" },
+      { kind: "history", limit: 1000, code: "IMPORT_HISTORY_QUOTA" },
+    ]) await t.test(kind, async () => {
+      const original = { profileId: `account-${kind}-quota`, requestId: "saved-attempt", document };
+      const imported = await importCampaign(original);
+      if (kind === "active") {
+        for (let i = 1; i < limit; i++) await importCampaign({ ...original, requestId: `prior-${i}` });
+      } else {
+        await fixture.pg.query(
+          `INSERT INTO campaign_imports(owner_id,request_id,input_hash,created_at)
+           SELECT $1,'prior-' || n,'previous-hash',CASE WHEN $3 THEN now()-interval '31 days' ELSE now() END
+           FROM generate_series(1,$2::int) n`,
+          [original.profileId, limit - 1, kind === "history"],
+        );
+      }
+      await assert.rejects(() => importCampaign({ ...original, requestId: "over-limit" }), error => (error as { code?: string }).code === code);
+      const replay = await importCampaign(original);
+      assert.equal(replay.replay, true);
+      assert.equal(replay.session.id, imported.session.id);
+      await assert.rejects(() => importCampaign({ ...original, title: "Changed title" }), error => (error as { code?: string }).code === "IDEMPOTENCY_CONFLICT");
+      assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM campaign_imports WHERE owner_id=$1", [original.profileId])).rows[0].n), limit);
+      assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM game_sessions WHERE owner_id=$1", [original.profileId])).rows[0].n), kind === "active" ? 10 : 1);
+      assert.equal((await importCampaign({ ...original, profileId: `unrelated-${kind}` })).replay, false);
+      await fixture.pg.query("DELETE FROM game_sessions WHERE id=$1", [imported.session.id]);
+      await assert.rejects(() => importCampaign(original), error => (error as { code?: string }).code === "IMPORT_DELETED");
+      if (kind === "active") assert.equal((await importCampaign({ ...original, requestId: "replacement" })).replay, false);
+      else await assert.rejects(() => importCampaign({ ...original, requestId: "after-delete" }), error => (error as { code?: string }).code === code);
+    });
   } finally { await fixture.close(); }
 });
