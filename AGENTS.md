@@ -14,22 +14,18 @@ Chronicle Engine is a universal interactive-story application: everyday life, so
 
 ## Working context
 
-Use `package.json` for current scripts and dependencies, and the [roadmap](docs/superpowers/plans/roadmap.md) for priorities and links to current plans. If code and documentation disagree, investigate intended behavior using tests and change history. Reuse the project's current UI conventions.
+Use `package.json` for current scripts and dependencies and the [roadmap](docs/superpowers/plans/roadmap.md) for priorities and current plans. Resolve code/documentation disagreements using tests and change history.
 
-Before changing an area below, read its rules in [CODING_STANDARDS.md](CODING_STANDARDS.md):
+Read each matching section before changes:
 
-- Turn processing, reducers, narration or semantic memory: [Turn and state correctness](CODING_STANDARDS.md#turn-and-state-correctness).
-- Campaign access, caches, background work or portable export: [Identity and secrets](CODING_STANDARDS.md#identity-and-secrets).
-- Persisted fields, checkpoints, forks, copies or ID remapping: [Persistence compatibility](CODING_STANDARDS.md#persistence-compatibility).
-- Provider integration, quotas, evaluations or real campaign database operations: [Providers and authorized environments](CODING_STANDARDS.md#providers-and-authorized-environments).
-- SQL schema, migrations or local PostgreSQL setup: [PostgreSQL and migrations](CODING_STANDARDS.md#postgresql-and-migrations).
+- [Turns and state](CODING_STANDARDS.md#turn-and-state-correctness): turn processing, reducers, narration, applied changes or semantic memory.
+- [Identity and secrets](CODING_STANDARDS.md#identity-and-secrets): campaign access, caches, background work, portable export or provider keys.
+- [Persistence](CODING_STANDARDS.md#persistence-compatibility): persisted fields, checkpoints, forks, copies or ID remapping.
+- [Providers and environments](CODING_STANDARDS.md#providers-and-authorized-environments): provider integration, quotas, evaluations or real campaign database operations.
+- [PostgreSQL](CODING_STANDARDS.md#postgresql-and-migrations): SQL schema, migrations, readiness or local database setup.
+- [UI](CODING_STANDARDS.md#ui-changes): interfaces or user-facing copy.
+- [Documentation and revisions](CODING_STANDARDS.md#documentation-and-revisions): documentation, feature status or candidate snapshots.
 
-## Verification and delivery
+## Verification
 
-Use npm and the existing lockfile. Select checks from `package.json` and inspect their environment setup before narrowing a run. Use disposable databases and keep real provider credentials out of local tests. After a passing run, repeat only checks affected by later changes or unresolved failures.
-
-Check changed behavior with focused tests; use broader type, lint, integration and build checks when the scope warrants them. Run the repository's documentation checker for documentation changes. For UI changes, inspect relevant desktop/mobile and keyboard states using an isolated server or existing mock fixtures and the repository's current verification tooling.
-
-Treat `revisions/` as candidate snapshots. Compare meaningful changes after line-ending normalization, integrate selectively, and preserve the supplied source. Record accepted, adapted and deferred ideas in a revision review.
-
-Update behavior documentation and the main roadmap when a feature's status changes; keep existing task IDs. Put feature contracts and one-off investigation history in `docs/`. Report actual checks and limitations: mock/unit success does not establish live model quality or production readiness.
+Use npm and the existing lockfile. Choose checks proportional to changed behavior; after a passing run, repeat only checks affected by later changes or unresolved failures. For every change, follow [Verification](CODING_STANDARDS.md#verification).

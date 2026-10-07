@@ -1,7 +1,5 @@
 # Coding standards
 
-Read the section matching the work before changing that area. [AGENTS.md](AGENTS.md) provides the project intent and verification guide.
-
 ## Turn and state correctness
 
 Models propose changes; server rules determine what is committed. Intent, a model verdict and an exact quote are different kinds of evidence. Check claims against the appropriate source and final repaired narration; uncertainty is not permission to invent canon. Deterministic resources, permissions and execution remain in code.
@@ -27,3 +25,21 @@ Live paid evaluations and operations on a real campaign database need authorizat
 Schema evolution is append-only. Preserve historical migrations and their ledger entries; add a migration when persisted SQL structure changes.
 
 Migration `drizzle/0006_database_memory_search.sql` is immutable and requires pgvector/pgcrypto. When local PostgreSQL lacks pgvector, use the bundled PGlite tests or the pgvector Docker image described in [agent-pgvector-setup.md](docs/agent-pgvector-setup.md). Do not rewrite migration 0006, the Drizzle journal, or readiness checks to bypass a missing local extension.
+
+## UI changes
+
+Reuse the project's current UI conventions. Inspect relevant desktop/mobile and keyboard states using an isolated server or existing mock fixtures and the repository's current verification tooling.
+
+## Documentation and revisions
+
+For documentation changes, run the repository's documentation checker. Put feature contracts and one-off investigation history in `docs/`; keep agent instructions concise and stable, retain the generated Next.js block, and avoid duplicating module inventories or command lists maintained elsewhere.
+
+When a feature's status changes, update behavior documentation and the main [roadmap](docs/superpowers/plans/roadmap.md); keep existing task IDs.
+
+Treat `revisions/` as candidate snapshots. Compare meaningful changes after line-ending normalization, integrate selectively, and preserve the supplied source. Record accepted, adapted and deferred ideas in a revision review.
+
+## Verification
+
+Select checks from `package.json` and inspect their environment setup before narrowing a run. Use disposable databases and keep real provider credentials out of local tests.
+
+Check changed behavior with focused tests; use broader type, lint, integration and build checks when the scope warrants them. Report actual checks and limitations: mock/unit success does not establish live model quality or production readiness.
