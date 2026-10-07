@@ -1,5 +1,15 @@
 # Coding standards
 
+## Work and verification
+
+Use npm and the existing lockfile. Take current scripts and dependencies from `package.json`. Resolve code/documentation disagreements using tests and change history.
+
+Before narrowing a verification run, inspect its environment setup. Use disposable databases and keep real provider credentials out of local tests.
+
+Choose checks proportional to changed behavior: focused tests, adding broader type, lint, integration and build checks when warranted. After a passing run, repeat only checks affected by later changes or unresolved failures. For reviews without edits, record inspected evidence and gaps.
+
+Report actual checks and limitations: mock/unit success does not establish live model quality or production readiness.
+
 ## Turn and state correctness
 
 Models propose changes; server rules determine what is committed. Intent, a model verdict and an exact quote are different kinds of evidence. Check claims against the appropriate source and final repaired narration; uncertainty is not permission to invent canon. Deterministic resources, permissions and execution remain in code.
@@ -32,14 +42,8 @@ Reuse the project's current UI conventions. Inspect relevant desktop/mobile and 
 
 ## Documentation and revisions
 
-For documentation changes, run the repository's documentation checker. Put feature contracts and one-off investigation history in `docs/`; keep agent instructions concise and stable, retain the generated Next.js block, and avoid duplicating module inventories or command lists maintained elsewhere.
+For documentation changes, run the repository's documentation checker. For root instruction edits, check local links and heading anchors separately: the checker scans only `README.md` and `docs/` and skips anchors. Put feature contracts and one-off investigation history in `docs/`. When editing agent instructions, retain the generated Next.js block and avoid duplicating module inventories or command lists maintained elsewhere.
 
-When a feature's status changes, update behavior documentation and the main [roadmap](docs/superpowers/plans/roadmap.md); keep existing task IDs.
+For feature planning, use the [roadmap](docs/superpowers/plans/roadmap.md) for priorities and current plans. When a feature's status changes, update behavior documentation and the main roadmap; keep existing task IDs.
 
 Treat `revisions/` as candidate snapshots. Compare meaningful changes after line-ending normalization, integrate selectively, and preserve the supplied source. Record accepted, adapted and deferred ideas in a revision review.
-
-## Verification
-
-Select checks from `package.json` and inspect their environment setup before narrowing a run. Use disposable databases and keep real provider credentials out of local tests.
-
-Check changed behavior with focused tests; use broader type, lint, integration and build checks when the scope warrants them. Report actual checks and limitations: mock/unit success does not establish live model quality or production readiness.
