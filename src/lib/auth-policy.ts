@@ -30,7 +30,9 @@ export async function verifyPassword(password: unknown, encoded?: string): Promi
   const valid = parts?.length === 7 && parts.slice(0, 5).join(":") === SCRYPT_PREFIX && /^[a-f0-9]{32}$/.test(parts[5]) && /^[a-f0-9]{128}$/.test(parts[6]);
   // Missing accounts take the same expensive derivation as existing accounts.
   const result = await derive(password, valid ? parts![5] : "0".repeat(32));
-  return !!valid && timingSafeEqual(result, Buffer.from(parts![6], "hex"));
+  const expectedBuffer = Buffer.from(valid ? parts![6] : "0".repeat(128), "hex");
+  const match = timingSafeEqual(result, expectedBuffer);
+  return !!valid && match;
 }
 export function isAdminAccount(id: string | null | undefined, allowlist = process.env.CHRONICLE_ADMIN_ACCOUNT_IDS ?? ""): boolean {
   return !!id && allowlist.split(",").map(x => x.trim()).filter(Boolean).includes(id);
