@@ -4,6 +4,7 @@ import Link from "next/link";
 import { createTurnHistory, mergeHistoryTurns } from "@/lib/turn-history";
 import { memo, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type FormEvent } from "react";
 import type React from "react";
+import { findLast } from "@/lib/find-last";
 import { ArrowDown, ArrowLeft, ArrowRight, Backpack, BookOpen, BookOpenText, Camera, Clock3, BrainCircuit, Check, ChevronUp, Compass, CornerDownLeft, Dices, Download, Feather, Flag, GitBranch, Globe2, Heart, LoaderCircle, MapPin, Minimize2, Plus, RefreshCw, Send, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 import { useApp } from "./app-shell";
 import { api, jsonBody } from "@/lib/api-client";
@@ -52,7 +53,7 @@ const FIRST_ACTIONS: Record<StoryShapeKind, string[]> = {
 
 function lastNarratorChoices(snapshot: Snapshot | null): string[] {
   if (!snapshot) return [];
-  const last = [...snapshot.turns].reverse().find((turn) => turn.role === "narrator");
+  const last = findLast(snapshot.turns, (turn) => turn.role === "narrator");
   return last?.choices ?? [];
 }
 
@@ -328,7 +329,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const world = session.worldState;
   const live = canUseLiveNarrator(settings);
   const turns = feedTurns;
-  const lastNarrator = [...snapshot.turns].reverse().find((turn) => turn.role === "narrator");
+  const lastNarrator = findLast(snapshot.turns, (turn) => turn.role === "narrator");
   const isOwner = snapshot.isOwner !== false;
   const active = isOwner && session.status === "active";
   // INTERACT-1: то же состояние, по которому сервер проверяет доступность действий.
