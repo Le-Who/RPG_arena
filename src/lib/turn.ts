@@ -473,7 +473,16 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     turnNumber: nextTurn,
     allowProvisionalIndependentAdds: narrativeConfig.enabled && !modelUsed.startsWith("offline-engine"),
   };
-  let result = applyResolution(resolutionInput);
+  // Rebuilding a draft must reuse entity identities and the admitted dice. Only
+  // prose-dependent evidence gates may change their accepted consequences.
+  const planIds = new Map<string, string[]>();
+  const idsFor = (kind: string) => {
+    const ids = planIds.get(kind) ?? [];
+    planIds.set(kind, ids);
+    let index = 0;
+    return () => { const at = index++; return ids[at] ?? (ids[at] = randomUUID()); };
+  };
+  let result = applyResolution({ ...resolutionInput, makeInventoryId: idsFor("inventory"), makeLocationId: idsFor("location") });
   // Preview the pure life reducer so condition evidence uses accepted elapsed time
   // before the narrator verifier observes the canonical character and changes.
   const previewLife = () => {
@@ -481,7 +490,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     const mainQuestCompleted = result.applied.quests.some((q) => q.status === "completed" && questRows.some((row) => row.isMain && row.title === q.title));
     return applyLife({ world: result.world, inventory, npcs: npcRows, locations, life: payload.life ?? emptyLifeChanges(), intent,
       defaultMinutes: interactionCheck.defaultMinutes, turnNumber: nextTurn, touchedItemIds, mainQuestCompleted,
-      addedItems: result.applied.inventory.filter((entry) => entry.op === "add" && entry.ok).map((entry) => ({ name: entry.name, quantity: entry.quantity })) });
+      addedItems: result.applied.inventory.filter((entry) => entry.op === "add" && entry.ok).map((entry) => ({ name: entry.name, quantity: entry.quantity })), makeId: idsFor("life") });
   };
   const enforceConditionRemovals = (narration = payload.narration) => {
     const consumedItems = result.applied.inventory.filter((entry) => entry.ok && entry.op === "consume")
@@ -501,17 +510,76 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     }
     return conditionGate.restored.length > 0;
   };
-  enforceConditionRemovals();
   let narrativeAudit: TurnContextMeta["narrativeVerification"];
   const declaredAgreements = parseAgreementProposals(narrativeConfig.enabled && !modelUsed.startsWith("offline-engine")
     ? (declaration as { agreements?: unknown } | null)?.agreements : undefined);
-  const agreementPlan = reduceAgreementProposals({ sessionId, turnNumber: nextTurn, originTurnId: narratorTurnId,
-    currentNarration: payload.narration, playerAction, history: agreements, proposals: declaredAgreements.proposals });
-  const agreementRejected = [...declaredAgreements.rejected, ...agreementPlan.rejected].map(r => `Договорённость ${r.index + 1}: ${r.reason}`);
-  result.applied.rejected.push(...agreementRejected);
+  let agreementPlan: ReturnType<typeof reduceAgreementProposals> = { accepted: [], rejected: [] };
+  let isChapterBoundary = false;
+  const rebuildPlan = (narration: string, allowProvisionalIndependentAdds = resolutionInput.allowProvisionalIndependentAdds, acceptAgreements = true) => {
+    result = applyResolution({ ...resolutionInput, allowProvisionalIndependentAdds, makeInventoryId: idsFor("inventory"), makeLocationId: idsFor("location") });
+    enforceConditionRemovals(narration);
+    agreementPlan = reduceAgreementProposals({ sessionId, turnNumber: nextTurn, originTurnId: narratorTurnId,
+      currentNarration: narration, playerAction, history: agreements, proposals: declaredAgreements.proposals }, idsFor("agreement"));
+    if (!acceptAgreements) agreementPlan.accepted = [];
+    result.applied.rejected.push(...[...declaredAgreements.rejected, ...agreementPlan.rejected].map(r => `Договорённость ${r.index + 1}: ${r.reason}`));
+
+    // Finish every reducer before the guard observes the accepted state. Re-run
+    // this pure plan after repair so quotes from an abandoned draft cannot persist.
+    const agendaStartClock = readLife(result.world).clock;
+    const lifeResult = previewLife();
+    result.world = lifeResult.world;
+    result.ops.push(...lifeResult.ops);
+    result.events.push(...lifeResult.events);
+    result.applied.life = lifeResult.applied;
+    result.applied.rejected.push(...intentRejected, ...lifeResult.rejected);
+    const agendaNpcs: NpcRow[] = npcRows.map((npc) => ({ ...npc }));
+    for (const op of result.ops) {
+      if (op.t === "npc.insert") agendaNpcs.push({ id: op.row.key, ...op.row });
+      if (op.t === "npc.update") {
+        const row = agendaNpcs.find((npc) => npc.id === op.id);
+        if (row) Object.assign(row, op.patch);
+      }
+    }
+    const agendaResult = applyAgenda({ world: result.world, startClock: agendaStartClock, npcs: agendaNpcs, changes: payload.agenda ?? emptyAgendaChanges(), intent, turnNumber: nextTurn, narration, makeId: idsFor("agenda") });
+    result.world = agendaResult.world;
+    result.events.push(...agendaResult.events);
+    result.applied.agenda = agendaResult.applied;
+    result.applied.rejected.push(...agendaResult.rejected);
+    const timers = applyConditionTimers({ world: result.world, character: result.character, clock: readLife(result.world).clock, added: result.applied.conditions.added, turnNumber: nextTurn });
+    result.world = timers.world;
+    result.character = timers.character;
+    result.events.push(...timers.events);
+    result.applied.conditionTimers = { expired: timers.expired, scheduled: timers.scheduled };
+    result.applied.conditions.removed.push(...timers.expired);
+    const socialResult = applySocial({ world: result.world, startClock: agendaStartClock, startLocation: world.currentLocation, npcs: agendaNpcs, locations,
+      applied: result.applied, changes: payload.social ?? emptySocialChanges(), intent, turnNumber: nextTurn, narration, makeId: idsFor("social"),
+      interaction: interactionCheck.interaction ? { label: interactionCheck.label, target: interactionCheck.interaction.target.name } : null });
+    result.world = socialResult.world;
+    result.ops.push(...socialResult.ops);
+    result.events.push(...socialResult.events);
+    result.applied.social = socialResult.applied;
+    result.applied.rejected.push(...socialResult.rejected);
+    result.applied.interaction = interactionCheck.interaction
+      ? { verb: interactionCheck.interaction.verb, label: interactionCheck.label, target: interactionCheck.interaction.target.name, valid: interactionCheck.valid, reasons: interactionCheck.reasons }
+      : null;
+    isChapterBoundary = lifeResult.chapterBoundary ?? nextTurn % 12 === 0;
+    result.world = { ...result.world, chapter: isChapterBoundary ? world.chapter + 1 : world.chapter };
+    result.applied.resources = resourceSnapshot(character, result.character, { before: world.danger, after: result.world.danger });
+    for (const key of ["hp", "gold", "xp", "danger"] as const) result.applied[key] = result.applied.resources[key].after - result.applied.resources[key].before;
+  };
+  rebuildPlan(payload.narration);
+  const narrativeState = () => ({
+    currentTurn: nextTurn, player_action: playerAction, dice, accepted_outcome: result.outcome,
+    provisional_independent_additions: result.provisionalIndependentAdds,
+    before_state: { character, world, inventory, quests: questRows, npcs: npcRows, sceneObjects: scene, locations },
+    requested_changes: { effects: payload.effects, stateChanges: payload.stateChanges, life: payload.life, agenda: payload.agenda, social: payload.social },
+    accepted_changes: { ...result.applied, operations: result.ops, flags: payload.stateChanges.flags, character: result.character, world: result.world, agreements: agreementPlan.accepted },
+    rejected_changes: result.applied.rejected, historical_evidence: { ...evidence, agreements: agreementContext },
+  });
   if (narrativeConfig.enabled && modelUsed.startsWith("offline-engine")) {
     payload.narration = offlineCanonicalNarration({ action: playerAction, location: result.world.currentLocation, outcome: result.outcome, applied: result.applied });
     payload.choices = ["Осмотреться", "Обдумать следующий шаг", "Проверить инвентарь"];
+    rebuildPlan(payload.narration);
   }
   if (narrativeConfig.enabled && !modelUsed.startsWith("offline-engine")) {
     const checkingStarted = performance.now();
@@ -524,14 +592,8 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       hasDice: !!dice, hasStateChanges: requiresMetadataReview || hasNarrativeStateChanges(payload, result.applied) || agreementPlan.accepted.length > 0,
       rejected: result.applied.rejected, emittedPrefix, remainingMs,
       hasProvisionalIndependentAdds: result.provisionalIndependentAdds.length > 0,
-      state: {
-        currentTurn: nextTurn, player_action: playerAction, dice, accepted_outcome: result.outcome,
-        provisional_independent_additions: result.provisionalIndependentAdds,
-        before_state: { character, world, inventory, quests: questRows, npcs: npcRows, sceneObjects: scene, locations },
-        requested_changes: { effects: payload.effects, stateChanges: payload.stateChanges },
-        accepted_changes: { ...result.applied, operations: result.ops, flags: payload.stateChanges.flags, character: result.character, world: result.world, agreements: agreementPlan.accepted },
-        rejected_changes: result.applied.rejected, historical_evidence: { ...evidence, agreements: agreementContext },
-      },
+      state: narrativeState(),
+      stateForDraft: draft => { rebuildPlan(draft.narration); return narrativeState(); },
       verify: async (state, selection) => {
         verifiedState = structuredClone(state);
         try { return await (runtime.verifyNarrative ?? verifyNarrative)({ state, selection,
@@ -583,67 +645,14 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       }
       // Recompute a pure plan from the same snapshot/dice; no provisional acquisition
       // may become a real operation without independent verification. Nothing is applied twice.
-      if (result.provisionalIndependentAdds.length) {
-        result = applyResolution({ ...resolutionInput, allowProvisionalIndependentAdds: false });
-        enforceConditionRemovals(originalDraft.narration);
-      }
-      agreementPlan.accepted = [];
+      rebuildPlan(payload.narration, false, false);
     }
     narrativeAudit = { version: 1, reasons: guarded.selection.reasons, repaired: guarded.repaired,
       checks: guarded.checks, checkSelections: guarded.checkSelections, reviews: guarded.reviews, evidence, emittedCharacters: emittedPrefix.length };
   }
-  // Repairs may remove the event that justified an initially accepted recovery.
-  // Never commit a different character result from the one the guard checked.
-  if (enforceConditionRemovals() && narrativeConfig.enabled && !modelUsed.startsWith("offline-engine")) {
-    captureDiagnostic({ decision: "blocked", reason: "condition_evidence_changed" });
-    return { ok: false, code: "AI_FAILED", message: "Не удалось согласовать рассказ с результатом хода. Ход не сохранён; повторите попытку.", details: "narrative:condition_evidence_changed" };
-  }
   captureDiagnostic({ committedDraftCandidate: { narration: payload.narration, choices: payload.choices },
     acceptedChanges: result.applied, dice, model: modelUsed, generationUsage: { promptTokens, completionTokens },
     ...(modelUsed.startsWith("offline-engine") ? { decision: "skipped_offline" } : {}) });
-  // ── INTERACT-2/3, NARR-7: время, передачи, договорённости, форма истории ──
-  const agendaStartClock = readLife(result.world).clock;
-  const lifeResult = previewLife();
-  result.world = lifeResult.world;
-  result.ops.push(...lifeResult.ops);
-  result.events.push(...lifeResult.events);
-  result.applied.life = lifeResult.applied;
-  result.applied.rejected.push(...intentRejected, ...lifeResult.rejected);
-  // ── WORLD-2: повестка мира и цели NPC — после сдвига часов, чтобы «наступившие» события определялись новым временем ──
-  const agendaNpcs: NpcRow[] = npcRows.map((npc) => ({ ...npc }));
-  for (const op of result.ops) {
-    if (op.t === "npc.insert") agendaNpcs.push({ id: op.row.key, ...op.row });
-    if (op.t === "npc.update") {
-      const row = agendaNpcs.find((npc) => npc.id === op.id);
-      if (row) Object.assign(row, op.patch);
-    }
-  }
-  const agendaResult = applyAgenda({ world: result.world, startClock: agendaStartClock, npcs: agendaNpcs, changes: payload.agenda ?? emptyAgendaChanges(), intent, turnNumber: nextTurn, narration: payload.narration });
-  result.world = agendaResult.world;
-  result.events.push(...agendaResult.events);
-  result.applied.agenda = agendaResult.applied;
-  result.applied.rejected.push(...agendaResult.rejected);
-  // ── MECH-4: состояния с длительностью снимаются по часам мира, новые получают срок ──
-  const timers = applyConditionTimers({ world: result.world, character: result.character, clock: readLife(result.world).clock, added: result.applied.conditions.added, turnNumber: nextTurn });
-  result.world = timers.world;
-  result.character = timers.character;
-  result.events.push(...timers.events);
-  result.applied.conditionTimers = { expired: timers.expired, scheduled: timers.scheduled };
-  if (timers.expired.length) result.applied.conditions.removed.push(...timers.expired);
-  // ── WORLD-2b/3b (2.9): связи, распорядок и знания NPC, исходы просроченных договорённостей ──
-  const socialResult = applySocial({ world: result.world, startClock: agendaStartClock, startLocation: world.currentLocation, npcs: agendaNpcs, locations,
-    applied: result.applied, changes: payload.social ?? emptySocialChanges(), intent, turnNumber: nextTurn, narration: payload.narration,
-    interaction: interactionCheck.interaction ? { label: interactionCheck.label, target: interactionCheck.interaction.target.name } : null });
-  result.world = socialResult.world;
-  result.ops.push(...socialResult.ops);
-  result.events.push(...socialResult.events);
-  result.applied.social = socialResult.applied;
-  result.applied.rejected.push(...socialResult.rejected);
-  result.applied.interaction = interactionCheck.interaction
-    ? { verb: interactionCheck.interaction.verb, label: interactionCheck.label, target: interactionCheck.interaction.target.name, valid: interactionCheck.valid, reasons: interactionCheck.reasons }
-    : null;
-  // Процедурная граница каждые 12 ходов сохраняется только как совместимое значение для арок без события.
-  const isChapterBoundary = lifeResult.chapterBoundary ?? nextTurn % 12 === 0;
   const contextMeta: TurnContextMeta = { ...(promptBudget ? { promptBudget } : {}), timings, model: modelUsed, rulesProfile: spec.id, digestChars: memoryDigest.length, retrievedIds: [...retrievedIds], retrievalMs, skippedModels: skipped, ...(narrativeAudit ? { narrativeVerification: narrativeAudit } : {}) };
   const narrationOut = result.applied.dead
     ? `${payload.narration}\n\n💀 ${character.name} на грани гибели. История не обрывается — но цена уплачена${spec.resources.gold ? " (−10 средств)" : ""}.`
@@ -651,9 +660,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   if (narrativeAudit) narrativeAudit.textSha256 = createHash("sha256").update(narrationOut).digest("hex");
 
   const needsCompaction = shouldCompact((playerCount[0]?.c ?? 0) + 1, 0, estimateTokens(recentTurns), tier === "flash" ? 8000 : LAYER_INFO.working.budget);
-  const committedWorld = { ...result.world, chapter: isChapterBoundary ? world.chapter + 1 : world.chapter };
-  result.applied.resources = resourceSnapshot(character, result.character, { before: world.danger, after: committedWorld.danger });
-  for (const key of ["hp", "gold", "xp", "danger"] as const) result.applied[key] = result.applied.resources[key].after - result.applied.resources[key].before;
+  const committedWorld = result.world;
   const response: TurnResponse = { ok: true, playerAction, timings, state: { character: result.character, worldState: committedWorld }, requestId, turnNumber: nextTurn, narration: narrationOut, choices: payload.choices, dice, outcome: result.outcome, applied: result.applied, modelUsed, taskType, needsCompaction, dead: result.applied.dead, retrieved: retrieved.map((r) => ({ id: r.id, title: r.title, why: r.why })), skippedModels: skipped, warnings };
   timings.validationMs = Math.round(performance.now() - validationStarted);
   await setTurnStage(lease, "applying");

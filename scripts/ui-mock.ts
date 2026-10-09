@@ -67,8 +67,13 @@ export async function installUiMock(page: Page, { admin = false }: { admin?: boo
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
-    if (process.env.UI_AUDIT_DEBUG === "1") console.log("UI MOCK", route.request().method(), path);
-    let body: unknown = {};
+    const method = route.request().method();
+    if (process.env.UI_AUDIT_DEBUG === "1") console.log("UI MOCK", method, path);
+    const unavailable = () => route.fulfill({ status: 501, contentType: "application/json", body: JSON.stringify({ code: "UI_MOCK_UNHANDLED", error: `Нет тестового ответа для ${method} ${path}.` }) });
+    // Scripts that exercise a mutation must install its explicit response and assert
+    // the submitted payload. A generic success would conceal missing fixtures.
+    if (method !== "GET") return unavailable();
+    let body: unknown;
     if (path === "/api/auth/me") body = { ok: true, identity: { kind: admin ? "account" : "guest", profileId: mockProfileId, account: admin ? { id: "00000000-0000-4000-8000-000000000099", login: "ui-admin-fixture", profileId: mockProfileId } : null, guestProfileId: mockProfileId, isAdmin: admin, capabilities: { administration: admin }, pendingGuestCampaigns: 0, passwordRecoveryAvailable: false } };
     else if (path === "/api/sessions") body = { sessions: [mockSession] };
     else if (path === "/api/settings") body = settings;
@@ -89,6 +94,7 @@ export async function installUiMock(page: Page, { admin = false }: { admin?: boo
     };
     else if (path === `/api/sessions/${mockSessionId}`) body = mockSnapshot;
     else if (path === `/api/sessions/${mockSessionId}/checkpoints`) body = { checkpoints: [] };
+    if (body === undefined) return unavailable();
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
 }

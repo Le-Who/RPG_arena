@@ -56,6 +56,50 @@ test("accepted transfer moves the item to a present NPC once, with memory and ho
   assert.ok(r.events.some((e) => e.entityKey === "holding:книга стихов"));
 });
 
+test("ambiguous transfer item references never select the first owned item", () => {
+  const first = { ...book, id: "abcdef01-0000-4000-8000-000000000001" };
+  const second = { ...book, id: "abcdef02-0000-4000-8000-000000000002" };
+  for (const inventory of [[first, second], [second, first]]) {
+    for (const ref of ["abcdef", book.name, "abc"]) {
+      const result = base({ inventory, life: life({ transfers: [{ ref, to: "anna", quantity: 1, accepted: true }] }) });
+      assert.deepEqual(result.ops, []);
+      assert.equal(result.applied.transfers[0].ok, false);
+      assert.equal(readLife(result.world).holdings.length, 0);
+    }
+  }
+  const exact = base({ inventory: [first, second], life: life({ transfers: [{ ref: second.id, to: "anna", quantity: 1, accepted: true }] }) });
+  assert.deepEqual(exact.ops, [{ t: "inv.delete", id: second.id }]);
+});
+
+test("transfer identity references take precedence over another item's matching name", () => {
+  const first = { ...book, id: "11111111-aaaa-4aaa-8aaa-111111111111" };
+  for (const ref of [first.id, "111111", `#${first.id}`]) {
+    const second = { ...book, id: "22222222-bbbb-4bbb-8bbb-222222222222", name: ref };
+    for (const inventory of [[first, second], [second, first]]) {
+      const result = base({ inventory, life: life({ transfers: [{ ref, to: "anna", quantity: 1, accepted: true }] }) });
+      assert.deepEqual(result.ops, [{ t: "inv.delete", id: "11111111-aaaa-4aaa-8aaa-111111111111" }]);
+      assert.deepEqual(result.applied.transfers, [{ name: "Книга стихов", to: "Анна", quantity: 1, ok: true }]);
+    }
+  }
+  const legacy = base({ inventory: [first], life: life({ transfers: [{ ref: "Книга стихов", to: "anna", quantity: 1, accepted: true }] }) });
+  assert.deepEqual(legacy.ops, [{ t: "inv.delete", id: "11111111-aaaa-4aaa-8aaa-111111111111" }]);
+  const foreign = "33333333-cccc-4ccc-8ccc-333333333333";
+  const namedForeign = { ...book, id: "22222222-bbbb-4bbb-8bbb-222222222222", name: foreign };
+  const rejected = base({ inventory: [first, namedForeign], life: life({ transfers: [{ ref: foreign, to: "anna", quantity: 1, accepted: true }] }) });
+  assert.deepEqual(rejected.ops, []);
+  assert.equal(rejected.applied.transfers[0].ok, false);
+});
+
+test("life transfer leaves its caller's touched-item set unchanged across repeated plans", () => {
+  const touchedItemIds = new Set<string>();
+  const input = { touchedItemIds, life: life({ transfers: [{ ref: book.id, to: "anna", quantity: 1, accepted: true }] }) };
+  const first = base(input);
+  assert.deepEqual([...touchedItemIds], []);
+  const second = base(input);
+  assert.deepEqual(second.ops, [{ t: "inv.delete", id: book.id }]);
+  assert.deepEqual(second, first);
+});
+
 test("an item added back to the hero clears its holding record", () => {
   const given = base({ life: life({ transfers: [{ ref: book.id, to: "anna", quantity: 1, accepted: true }] }) });
   const back = base({ world: given.world, inventory: [], addedItemNames: ["Книга стихов"] });
@@ -199,7 +243,7 @@ test("visual prompts are bounded, contain no service IDs and seeds are stable", 
   } finally { if (saved === undefined) delete process.env.POLLINATIONS_API_KEY; else process.env.POLLINATIONS_API_KEY = saved; }
 });
 
-test("provider responses must be real images of bounded size", async () => {
+test("provider responses enforce image MIME and declared byte-size bounds", async () => {
   const saved = process.env.POLLINATIONS_API_KEY;
   process.env.POLLINATIONS_API_KEY = "test";
   try {

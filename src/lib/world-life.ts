@@ -5,6 +5,7 @@
 // сервер валидирует их чистым reducer'ом applyLife и решает, что стало фактом.
 import type { WorldState } from "@/db/schema";
 import type { DbOp, InvRow, LocRow, MemoryEvent, NpcRow, ResolutionPayload } from "./resolution";
+import { resolveInventoryReference } from "./entity-identity";
 
 // ─────────────────────────────────────────────────────────────
 //  Типы
@@ -377,15 +378,23 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
   }
 
   // ── Передача предметов (INTERACT-2/3) ──
+  const touchedItemIds = new Set(input.touchedItemIds);
   const qtyLeft = new Map(input.inventory.map((i) => [i.id, i.quantity]));
   for (const t of input.life.transfers) {
-    const item = input.inventory.find((i) => i.id === t.ref || i.id.startsWith(t.ref) || normName(i.name) === normName(t.ref));
+    const reference = t.ref.trim();
+    const key = reference.replace(/^#/, "").toLowerCase();
+    // UUIDs and their prefixes retain their identity even when another item is
+    // named after that reference. Legacy prose names use the separate name lane.
+    const idReference = reference.startsWith("#") || /^[0-9a-f-]{6,}$/i.test(key)
+      || input.inventory.some(i => i.id.toLowerCase().startsWith(key));
+    const identity = resolveInventoryReference(input.inventory, idReference ? reference : null, idReference ? null : reference);
+    const item = identity.entity;
     const toName = t.to;
     const reject = (reason: string) => { applied.transfers.push({ name: item?.name ?? t.ref, to: toName, quantity: t.quantity, ok: false, reason }); rejected.push(`TRANSFER: ${reason}`); };
-    if (!item) { reject("предмета нет в инвентаре героя"); continue; }
+    if (!item) { reject(identity.error ?? "предмета нет в инвентаре героя"); continue; }
     if (input.intent === "intend" || input.intent === "ask") { reject(`«${item.name}»: это намерение, а не совершённая передача`); continue; }
     if (!t.accepted) { reject(`«${item.name}»: получатель не принял предмет`); continue; }
-    if (input.touchedItemIds.has(item.id)) { reject(`«${item.name}»: предмет уже изменён в этом ходе`); continue; }
+    if (touchedItemIds.has(item.id)) { reject(`«${item.name}»: предмет уже изменён в этом ходе`); continue; }
     const left = qtyLeft.get(item.id) ?? 0;
     if (left < t.quantity) { reject(`«${item.name}»: недостаточно (есть ${left})`); continue; }
     const npc = input.npcs.find((n) => n.key === t.to || normName(n.name) === normName(t.to) || mentions(t.to, n.name));
@@ -396,7 +405,7 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
     if (loc && normName(loc.name) !== normName(currentLocation)) { reject(`«${item.name}»: оставить можно только в текущем месте`); continue; }
     const holderName = npc ? npc.name : loc!.name;
     qtyLeft.set(item.id, left - t.quantity);
-    input.touchedItemIds.add(item.id);
+    touchedItemIds.add(item.id);
     if (left - t.quantity <= 0) ops.push({ t: "inv.delete", id: item.id });
     else ops.push({ t: "inv.update", id: item.id, patch: { quantity: left - t.quantity } });
     const existing = life.holdings.find((h) => normName(h.name) === normName(item.name) && h.holderKey === (npc ? npc.key : loc!.id));

@@ -1,12 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getPathMatch } from "next/dist/shared/lib/router/utils/path-match";
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
 import nextConfig from "../next.config";
 
 async function configuredHeaders(url: string): Promise<Headers> {
   const pathname = new URL(url, "https://chronicle.test").pathname;
   const headers = new Headers();
-  for (const rule of await nextConfig.headers?.() ?? []) {
+  const config = nextConfig(PHASE_PRODUCTION_BUILD);
+  for (const rule of await config.headers?.() ?? []) {
     if (getPathMatch(rule.source)(pathname)) {
       for (const header of rule.headers) headers.set(header.key, header.value);
     }

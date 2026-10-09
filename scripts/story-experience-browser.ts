@@ -73,6 +73,8 @@ async function main() {
     await creator.getByRole("button", { name: "Назад к миру" }).click();
     await expect(creator.getByLabel("Название истории")).toHaveValue("Мой бережно сохранённый мир");
     await creator.getByRole("button", { name: "Закрыть", exact: true }).click();
+    await page.goto(`${base}/play/${mockSessionId}`);
+    await expect(page.locator("#action-input")).toBeVisible();
     await page.locator(".bottom-settings").click();
     await settings.getByRole("button", { name: "Для разработки", exact: true }).click();
     await expect(settings.getByRole("switch", { name: "Теневой пилот TypeSafe" })).toHaveAttribute("aria-checked", "false");
@@ -81,6 +83,20 @@ async function main() {
 
     const overlayHistoryPage = await browser.newPage();
     await installUiMock(overlayHistoryPage);
+    let overlaySavedSettings: Omit<typeof mockSettings, "keysMasked"> & { keysMasked: string[] } = { ...mockSettings };
+    let overlaySaveFails = true;
+    const overlayWrites: Record<string, unknown>[] = [];
+    const overlayErrors: string[] = [];
+    overlayHistoryPage.on("pageerror", error => overlayErrors.push(error.message));
+    await overlayHistoryPage.route("**/api/settings", async route => {
+      const method = route.request().method();
+      if (method === "GET") return route.fulfill({ json: overlaySavedSettings });
+      if (method !== "POST") return route.fallback();
+      overlayWrites.push(route.request().postDataJSON());
+      if (overlaySaveFails) return route.fulfill({ status: 503, json: { error: "Синтетическая ошибка сохранения" } });
+      overlaySavedSettings = { ...overlaySavedSettings, keysCount: 1, keysMasked: ["••••-key"] };
+      return route.fulfill({ json: overlaySavedSettings });
+    });
     await overlayHistoryPage.goto(`${base}/play/${mockSessionId}`);
     await overlayHistoryPage.locator("#action-input").fill("Замысел остаётся в игре");
     await overlayHistoryPage.locator(".bottom-settings").click();
@@ -103,11 +119,35 @@ async function main() {
     await overlayHistoryPage.locator(".bottom-settings").click();
     await overlaySettings.getByLabel("API-ключ Gemini", { exact: true }).fill("overlay-save-key");
     await overlayHistoryPage.evaluate(() => history.back());
+    const failedSave = overlayHistoryPage.waitForResponse(response => new URL(response.url()).pathname === "/api/settings" && response.request().method() === "POST");
     await overlaySettings.getByRole("button", { name: "Сохранить и вернуться" }).click();
+    const rejectedSave = await failedSave;
+    assert.equal(rejectedSave.status(), 503);
+    await rejectedSave.finished();
+    await expect(overlayHistoryPage.getByText("Синтетическая ошибка сохранения", { exact: true })).toBeVisible();
+    await expect(overlaySettings).toBeVisible();
+    await expect(overlaySettings.getByLabel("API-ключ Gemini", { exact: true })).toHaveValue("overlay-save-key");
+    await expect(overlaySettings.getByRole("button", { name: "Сохранить и вернуться" })).toBeEnabled();
+    assert.deepEqual(overlayWrites.map(payload => ({ keysText: payload.keysText, append: payload.append })), [{ keysText: "overlay-save-key", append: true }]);
+    overlaySaveFails = false;
+    const successfulSave = overlayHistoryPage.waitForResponse(response => new URL(response.url()).pathname === "/api/settings" && response.request().method() === "POST");
+    await overlaySettings.getByRole("button", { name: "Сохранить и вернуться" }).click();
+    const acceptedSave = await successfulSave;
+    assert.equal(acceptedSave.status(), 200);
+    await acceptedSave.finished();
     await expect(overlaySettings).toHaveCount(0);
     await expect(overlayHistoryPage).toHaveURL(`${base}/play/${mockSessionId}`);
     await expect(overlayHistoryPage.locator("#action-input")).toHaveValue("Замысел остаётся в игре");
     await expect.poll(() => overlayHistoryPage.evaluate(() => Boolean(history.state?.chronicleSettingsOverlay || history.state?.chronicleDirtyGuard))).toBe(false);
+    assert.deepEqual(overlayWrites.map(payload => ({ keysText: payload.keysText, append: payload.append })), [
+      { keysText: "overlay-save-key", append: true }, { keysText: "overlay-save-key", append: true },
+    ]);
+    await overlayHistoryPage.locator(".bottom-settings").click();
+    await expect(overlaySettings.locator(".saved-key code")).toHaveText("••••-key");
+    await expect(overlaySettings.getByLabel("API-ключ Gemini", { exact: true })).toHaveValue("");
+    await overlaySettings.getByRole("button", { name: "Вернуться в игру", exact: true }).click();
+    await expect(overlaySettings).toHaveCount(0);
+    assert.deepEqual(overlayErrors, [], `overlay page errors: ${overlayErrors.join(" | ")}`);
     await overlayHistoryPage.close();
 
     const typeSafePage = await browser.newPage();
@@ -235,7 +275,10 @@ async function main() {
       }, { sessionId: mockSessionId, text: scenario.text });
       await testPage.goto(`${base}/play/${mockSessionId}`);
       await expect(testPage.locator("#action-input")).toBeVisible();
-      if (scenario.method === "button") await testPage.getByRole("button", { name: /Выйти на Пепельный тракт/ }).click();
+      if (scenario.method === "retry") {
+        await expect(testPage.locator("#action-input")).toHaveValue("Выйти на Пепельный тракт");
+        await testPage.getByRole("button", { name: "Повторить безопасно", exact: true }).click();
+      } else if (scenario.method === "button") await testPage.getByRole("button", { name: /Выйти на Пепельный тракт/ }).click();
       else {
         await testPage.locator("#action-input").fill(scenario.text);
         await testPage.locator("#action-input").press("Control+Enter");

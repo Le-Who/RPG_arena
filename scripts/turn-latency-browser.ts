@@ -123,9 +123,13 @@ async function main() {
     await expect(continuityPage.locator("#turn-4 .gx-prose")).toHaveText("Сохранённый рассказ continuity");
     await expect(continuityPage.locator("#turn-4")).not.toHaveAttribute("aria-busy", "true");
     await assertContinuity("committed response must update existing streamed nodes");
+    const snapshotResponse = continuityPage.waitForResponse(response => new URL(response.url()).pathname === `/api/sessions/${mockSessionId}` && response.request().method() === "GET");
     continuityRefresh.open();
-    // Snapshot fixture uses offline-engine rather than the committed gemini-test marker.
-    await expect(continuityPage.locator("#turn-4 .gx-turn-tag")).toHaveText("Офлайн");
+    await (await snapshotResponse).finished();
+    // The snapshot choices differ from the committed response, proving the refresh was rendered.
+    await expect(continuityPage.getByRole("button", { name: "1 Идти дальше", exact: true })).toBeVisible();
+    await expect(continuityPage.getByRole("button", { name: "1 Действие после хода 4", exact: true })).toHaveCount(0);
+    await expect(continuityPage.locator("#turn-4 .gx-turn-tag")).toHaveCount(0);
     await assertContinuity("DB UUID replacement must preserve committed article and prose nodes");
     await tracked.evaluate(state => state.observer?.disconnect());
     await tracked.dispose();

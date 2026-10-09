@@ -1,6 +1,8 @@
 # Selective narrative verification
 
-The default-enabled turn guard resolves game mechanics once, then verifies consequential narration against the accepted result and independently retrieved original turns. It can repair narration and choices once, verifies the repair, and commits only the final version. The same version feeds history, chapter memory and semantic extraction. Dice and reducer operations are never recalculated during repair.
+The default-enabled turn guard resolves dice once, then verifies consequential narration against the final transition plan and independently retrieved original turns. The plan includes life/transfers, recovery, timer expiry, agenda and social consequences. It can repair narration and choices once; each draft rebuilds its pure transition plan from the same admitted snapshot and frozen dice. Only the checked final plan is committed. The same final narration, choices and state feed history, chapter memory and semantic extraction.
+
+The accepted-notes question also covers newly written commitments, agenda notes, NPC goals/routines/schedules and bond history/knowledge. It compares them with before-state and historical evidence; player intent and requested changes do not prove historical events. Current descriptions are distinct from new claims about the past. The task version is `2026-10-09-final-canon-notes-v2`; older replay recordings do not authorize this contract. [Local regressions and evidence limits](test-coverage-audit-2026-10-09.md).
 
 ## Configuration and rollout
 

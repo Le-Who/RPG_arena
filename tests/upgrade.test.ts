@@ -41,6 +41,68 @@ test("extractor: intentions, partial quotations, NaN and malformed facts are not
   assert.equal(normalizeExtractedFacts({ facts: [{ ...fact, confidence: "0.9" }] }, phrase, "").length, 0);
   assert.equal(normalizeExtractedFacts({ facts: [null, 7, { ...fact, type: "inventory" }] }, phrase, "").length, 0);
 });
+test("extractor rejects Russian state-owned resources, item acquisition and movement", () => {
+  for (const content of [
+    "Герой прибыл в таверну.", "Героиня прибыла в город.", "Герой перешёл в библиотеку.",
+    "Герой подобрал серебряный ключ.", "Героиня подобрала записку.", "Предмет получен героем у ворот.",
+    "Герой получил 50 монет.", "Герой потратил две монеты.", "Герой получил золото за работу.",
+    "Герой получил двадцать золотых.", "Герой потратил десять кредитов.", "Герой получил 15 очков опыта за помощь.",
+    "Герой восстановил 10 HP.", "Герой получил 10 xp.",
+    "У героя в кошельке осталось 12 монет.", "На счету героини осталось 30 кредитов.", "У Ады 40 hp.",
+  ]) for (const type of ["event", "world"]) {
+    const fact = { type, content, evidence: content, confidence: .95, importance: 70 };
+    assert.deepEqual(normalizeExtractedFacts({ facts: [fact] }, content, ""), [], content);
+  }
+});
+for (const content of [
+  "Герой получил опыт за помощь.", "Hero gained 10 XP.",
+  "HP героя выросло до 40.", "Герой потерял всё золото.",
+  "10 XP получено героем за помощь.", "HP increased to 40.",
+]) test(`extractor rejects supported resource change: ${content}`, () => {
+  for (const type of ["event", "world"]) {
+    const fact = { type, content, evidence: content, confidence: .95, importance: 70 };
+    assert.deepEqual(normalizeExtractedFacts({ facts: [fact] }, content, ""), [], content);
+  }
+});
+for (const content of [
+  "HP героя: 8 из 20.", "XP героя составляет 15.", "Герой имеет 10 XP.",
+]) test(`extractor rejects explicit state-owned score balance: ${content}`, () => {
+  for (const type of ["event", "world"]) {
+    const fact = { type, content, evidence: content, confidence: .95, importance: 70 };
+    assert.deepEqual(normalizeExtractedFacts({ facts: [fact] }, content, ""), [], content);
+  }
+});
+test("extractor preserves descriptive resource topics and everyday experience", () => {
+  for (const content of [
+    "Золото считается священным металлом в этом городе.",
+    "Монеты этой страны украшены изображением маяка.",
+    "Опыт старого мастера помогает ученикам понимать музыку.",
+    "Анна получила опыт ухода за детьми в летнем лагере.",
+    "Анна получила книгу о монетах этой страны.",
+    "Мастерская HP выпускает 20 моделей насосов.",
+    "Эмблема XP изображена на 15 городских флагах.",
+  ]) for (const type of ["world", "event"]) {
+    const fact = { type, entityKey: "world:description", title: "Описание мира", content, evidence: content, confidence: .95, importance: 70 };
+    assert.deepEqual(normalizeExtractedFacts({ facts: [fact] }, content, ""), [fact], content);
+  }
+});
+test("extractor preserves similar Russian words and descriptive facts about places and objects", () => {
+  for (const content of [
+    "Опытный наставник рассказал историю города.", "Золотистая крыша храма видна издали.",
+    "Монетарная политика города зависит от совета.", "Кредитование ремесленников ведёт городская гильдия.",
+    "Подобрался дождливый вечер, и жители зажгли фонари.",
+    "На городской площади находится библиотека.", "Серебряный ключ служит символом гильдии.",
+  ]) {
+    const fact = { type: "world", entityKey: "world:description", title: "Описание мира", content, evidence: content, confidence: .95, importance: 70 };
+    assert.deepEqual(normalizeExtractedFacts({ facts: [fact] }, content, ""), [fact]);
+  }
+  const content = "Портной по прозвищу Монета дружит с героем.";
+  assert.equal(normalizeExtractedFacts({ facts: [{ type: "npc", content, evidence: content, confidence: .95 }] }, content, "").length, 1);
+});
+test("extractor never treats the player's matching action as narrative evidence", () => {
+  const content = "Марина обещала встретить героя у библиотеки.";
+  assert.deepEqual(normalizeExtractedFacts({ facts: [{ type: "promise", content, evidence: content, confidence: .95 }] }, "Марина пока не ответила на просьбу героя.", content), []);
+});
 test("offline engine reuses the authoritative dice result instead of rolling again", () => {
   const dice: DiceResult = { kind: "d20", d20: 1, modifier: 0, total: 1, dc: 15, success: false, critical: "fumble", skill: "Анализ", label: "Проверка" };
   const scenario = SCENARIOS.find((s) => s.id === "ashen-crown")!;

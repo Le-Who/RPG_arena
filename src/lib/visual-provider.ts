@@ -71,7 +71,7 @@ export type PromptInput = {
   partOfDay?: string;
 };
 
-/** Только визуальное описание: без имён пользователя, ключей и служебных ID (приватность VIS). */
+/** Служебные ID и ключи не добавляются; авторские описания передаются как визуальный контекст. */
 export function buildVisualPrompt(p: PromptInput): string {
   const style = styleFor(p.world.tone, p.world.worldName);
   const era = p.world.era ? `era: ${clip(p.world.era, 60)}` : "";
@@ -90,30 +90,58 @@ const MAX_BYTES = 8 * 1024 * 1024;
 
 export async function fetchFromProvider(provider: MediaProvider, request: VisualRequest, fetchImpl: typeof fetch = fetch): Promise<{ image: Buffer; mimeType: string }> {
   const { url, headers } = provider.buildRequest(request);
-  const response = await fetchImpl(url, { headers, signal: AbortSignal.timeout(90_000), cache: "no-store" });
-  if (!response.ok) throw new Error(`PROVIDER_HTTP_${response.status}`);
-  const mimeType = (response.headers.get("content-type") ?? "").split(";")[0].trim();
-  if (!/^image\/(jpeg|png|webp|gif)$/.test(mimeType)) throw new Error("PROVIDER_NOT_IMAGE");
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BYTES) throw new Error("PROVIDER_BAD_SIZE");
-  let image: Buffer;
-  if (response.body) {
-    const reader = response.body.getReader();
-    const chunks: Buffer[] = [];
-    let total = 0;
+  const signal = AbortSignal.timeout(90_000);
+  const bounded = async <T>(operation: () => Promise<T>) => {
+    if (signal.aborted) throw new Error("PROVIDER_TIMEOUT");
+    let abort!: () => void;
     try {
-      while (true) {
-        const next = await reader.read();
-        if (next.done) break;
-        total += next.value.byteLength;
-        if (total > MAX_BYTES) throw new Error("PROVIDER_BAD_SIZE");
-        chunks.push(Buffer.from(next.value));
-      }
-    } finally { reader.releaseLock(); }
-    image = Buffer.concat(chunks, total);
-  } else {
-    image = Buffer.from(await response.arrayBuffer());
+      return await Promise.race([Promise.resolve().then(() => {
+        if (signal.aborted) throw new Error("PROVIDER_TIMEOUT");
+        return operation();
+      }), new Promise<never>((_, reject) => {
+        abort = () => reject(new Error("PROVIDER_TIMEOUT")); signal.addEventListener("abort", abort, { once: true });
+      })]);
+    } catch (error) {
+      if (signal.aborted) throw new Error("PROVIDER_TIMEOUT");
+      throw error;
+    } finally { signal.removeEventListener("abort", abort); }
+  };
+  const response = await bounded(() => fetchImpl(url, { headers, signal, cache: "no-store" }).then(response => {
+    if (signal.aborted) void response.body?.cancel().catch(() => {});
+    return response;
+  }));
+  try {
+    if (!response.ok) throw new Error(`PROVIDER_HTTP_${response.status}`);
+    const mimeType = (response.headers.get("content-type") ?? "").split(";")[0].trim();
+    if (!/^image\/(jpeg|png|webp|gif)$/.test(mimeType)) throw new Error("PROVIDER_NOT_IMAGE");
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_BYTES) throw new Error("PROVIDER_BAD_SIZE");
+    let image: Buffer;
+    if (response.body) {
+      const reader = response.body.getReader();
+      const chunks: Buffer[] = [];
+      let total = 0;
+      const cancel = () => { void reader.cancel().catch(() => {}); };
+      signal.addEventListener("abort", cancel, { once: true });
+      try {
+        while (true) {
+          const next = await bounded(() => reader.read());
+          if (signal.aborted) throw new Error("PROVIDER_TIMEOUT");
+          if (next.done) break;
+          total += next.value.byteLength;
+          if (total > MAX_BYTES) throw new Error("PROVIDER_BAD_SIZE");
+          chunks.push(Buffer.from(next.value));
+        }
+      } finally { signal.removeEventListener("abort", cancel); cancel(); reader.releaseLock(); }
+      image = Buffer.concat(chunks, total);
+    } else {
+      image = Buffer.from(await bounded(() => response.arrayBuffer()));
+    }
+    if (!image.length || image.length > MAX_BYTES) throw new Error("PROVIDER_BAD_SIZE");
+    return { image, mimeType };
+  } catch (error) {
+    if (!response.body?.locked) void response.body?.cancel().catch(() => {});
+    if (signal.aborted) throw new Error("PROVIDER_TIMEOUT");
+    throw error;
   }
-  if (!image.length || image.length > MAX_BYTES) throw new Error("PROVIDER_BAD_SIZE");
-  return { image, mimeType };
 }

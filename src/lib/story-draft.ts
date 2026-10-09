@@ -287,7 +287,7 @@ export function createStoryDraftAutofillService<TConfig extends StoryDraftAIConf
       const selected = await deps.selectModels(config);
       signal?.throwIfAborted();
       const models = config.textProvider && config.textProvider !== "gemini" ? selected : selected.filter((model) => model === "gemini-3.5-flash-lite");
-      if (!models.length) throw new StoryDraftError("AI_FAILED", "Лимит выбранной модели на сегодня исчерпан.", 429);
+      if (!models.length) throw new StoryDraftError("QUOTA_EXHAUSTED", "Лимит выбранной модели на сегодня исчерпан.", 429);
       const remaining = deadline - now();
       if (remaining <= 0) throw new StoryDraftError("AI_FAILED", "Рассказчик не успел заполнить черновик за 30 секунд.", 504);
       let response: GenerationResult;

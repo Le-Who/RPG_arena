@@ -1,6 +1,6 @@
 # Chronicle Engine — Roadmap
 
-> Актуальный срез: **интеграция 2.10 и проверка открытых PR, 2 октября 2026**.
+> Актуальный срез: **аудит кодовой базы и тестов, 9 октября 2026**.
 > Этот файл — единый список текущих статусов и приоритетов. Планы отдельных версий ниже — исторические документы, а не параллельные актуальные roadmap.
 > «Реализовано» означает наличие в коде; успешное развёртывание и качество реального AI требуют отдельных проверок. Сроки будущих этапов не назначены.
 
@@ -9,6 +9,16 @@
 Дополнение после выборочной интеграции 2.9: [следующие шаги и приоритет JEV-3](../../development-roadmap-2026-09-27.md). **JEV-3 — универсальное применение Jev для задач проекта — важный приоритет P1 ближайшего цикла.** Общий слой Choice и адаптеры реализованы; следующий шаг — размеченная оценка механик и отдельный допуск наблюдения. [Дополнения поставки и границы](../../revision-29-addendum-review.md).
 
 ## Продуктовые решения
+
+### Дополнение к аудиту — 09.10.2026
+
+Удалён неиспользуемый Drizzle Kit и явно объявлен bundler browser fixtures, сокращая dev audit 9→5 high entries; runtime audit0. CLI evaluator получил восемь actual subprocess cases, production script остался неизменным. На отдельном portable PostgreSQL16.15 прошли existing auth/quota/portable fixtures без skip, а полный ordinary suite — **687/687**. [Проверки, происхождение runtime и пределы](../../test-followup-2026-10-09.md). Это закрывает исполнение названных native/CLI сценариев; исключение migration0006 в relational fixtures не заменяет pgvector readiness и full-turn/worker concurrency. Остальные MEM/NARR/SEC/ECO/UX/PERF task IDs и приоритеты сохраняются.
+
+### Аудит кодовой базы и тестов — 09.10.2026
+
+Изучена активная кодовая база; сохранены [пофайловая карта и схема покрытия 25 направлений](../../test-coverage-audit-2026-10-09.md). Исправлены воспроизведённые дефекты финального состояния guard/repair, reducers и ссылок на предметы, Unicode-фильтра памяти, provider deadlines/usage/errors, disabled visual retry, нулевых квот и executable evaluator. Importer проверяется через production transaction; UI fixtures требуют явного поведения сохранения и повторов.
+
+Проверено **679/679** обычных unit/integration cases; typecheck, lint и production build прошли. Actual Next build/start/restart подтвердил единый ID artifact/HTML/client/API/SW; current story/turn и standalone gallery/update-guards Chromium прошли. Native PostgreSQL auth/quota проверки включены в уже существующий disposable CI service, локально не выполнены без skip. Synthetic verdicts, PGlite и mock browser checks сохраняют собственные пределы доказательности. Live качество моделей, public deployment и concurrency между процессами не объявлены завершёнными; существующие MEM/NARR/SEC/ECO/UX/PERF task IDs и приоритеты сохраняются. Concrete gaps и подходящие test boundaries перечислены в [матрице](../../testing/coverage-matrix-2026-10-09.md).
 
 ### Проверка открытых PR — 02.10.2026
 

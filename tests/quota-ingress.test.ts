@@ -6,6 +6,51 @@ import { sealSecret, secretContext } from "../src/lib/secret-vault";
 import { profileIdFromToken } from "../src/lib/guest-identity";
 import { quotaUsage, reserveModelCall } from "../src/lib/quota";
 
+test("zero budgets survive the settings HTTP round-trip and prevent generation and embedding fetches", async () => {
+  const fixture = await accountsDb();
+  const oldFetch = global.fetch;
+  const guest = "8".repeat(64), owner = profileIdFromToken(guest)!;
+  process.env.CHRONICLE_SECRET_ACTIVE_KEY = "zero-budget";
+  process.env.CHRONICLE_SECRET_KEYS = JSON.stringify({ "zero-budget": Buffer.alloc(32, 9).toString("base64") });
+  let fetches = 0;
+  global.fetch = async () => { fetches++; throw new Error("Zero-budget requests must not reach a provider"); };
+  try {
+    const { POST: saveSettings, GET: readSettings } = await import("../src/app/api/settings/route");
+    const { POST: draft } = await import("../src/app/api/story-drafts/autofill/route");
+    const { POST: connection } = await import("../src/app/api/settings/test/route");
+    const { getAIConfig } = await import("../src/lib/ai-settings");
+    await cookieContext(`chronicle_guest=${guest}`, async () => {
+      const saved = await saveSettings(new Request("https://game.test/api/settings", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ keysText: "synthetic-zero-budget-key", useLiveAI: true, enforceLimits: true, dailyFlashLimit: 0, dailyLiteLimit: 0, dailyEmbeddingLimit: 0 }),
+      }));
+      assert.equal(saved.status, 200);
+      for (const response of [await saved.json(), await (await readSettings()).json()]) {
+        assert.equal(response.dailyFlashLimit, 0);
+        assert.equal(response.dailyLiteLimit, 0);
+        assert.equal(response.dailyEmbeddingLimit, 0);
+      }
+      const config = await getAIConfig(owner);
+      assert.deepEqual(config.limits, { flash: 0, lite: 0 });
+      assert.equal(config.dailyEmbeddingLimit, 0);
+      const fields = ["title", "worldName", "pitch", "era", "tone", "mainQuest", "startLocation", "name", "archetype", "backstory", "skills", "startItems"];
+      const generated = await draft(new Request("https://game.test/api/story-drafts/autofill", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ draft: { ...Object.fromEntries(fields.map(field => [field, ""])), rulesProfile: "narrative" } }),
+      }));
+      assert.equal(generated.status, 429);
+      assert.equal((await generated.json()).code, "QUOTA_EXHAUSTED");
+      assert.equal((await connection()).status, 502);
+      assert.equal(fetches, 0);
+    });
+  } finally {
+    global.fetch = oldFetch;
+    delete process.env.CHRONICLE_SECRET_KEYS;
+    delete process.env.CHRONICLE_SECRET_ACTIVE_KEY;
+    await fixture.close();
+  }
+});
+
 test("personal settings, draft retries and connection tests share the effective owner's app budgets", async () => {
   const f = await accountsDb(); const old = global.fetch;
   process.env.CHRONICLE_SECRET_ACTIVE_KEY = "quota-test";

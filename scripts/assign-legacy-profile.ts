@@ -1,10 +1,9 @@
 /** Offline administrator utility. Never expose legacy ownership claims as an HTTP route. */
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db, pool } from "../src/db";
-import { aiSettings, gameSessions, tokenLogs, workspacePreferences } from "../src/db/schema";
+import { gameSessions, workspacePreferences } from "../src/db/schema";
 import { requireUuid } from "../src/lib/http";
-import { hasStoredSettingsCredentials, rebindSettingsSecrets } from "../src/lib/secret-vault";
-import { assertLegacyProfileTarget } from "./lib/legacy-profile-target";
+import { applyLegacyProfileAssignment, assertLegacyProfileTarget } from "./lib/legacy-profile-target";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -21,27 +20,7 @@ async function main() {
   if (selected.length !== new Set(ids).size) throw new Error("Every selected campaign must exist and have no owner. No changes made.");
   console.log(JSON.stringify({ profile, campaigns: selected, importLegacySettings: includeSettings, allowLegacyPlaintext: allowPlaintext, apply: args.includes("--apply") }, null, 2));
   if (!args.includes("--apply")) { console.log("Dry run. Add --apply after verifying the target browser and selected campaigns."); return; }
-  await db.transaction(async tx => {
-    await assertLegacyProfileTarget(tx, profile, true);
-    if (includeSettings) {
-      await tx.insert(aiSettings).values({ id: profile }).onConflictDoNothing();
-      const [target] = await tx.select().from(aiSettings).where(eq(aiSettings.id, profile)).for("update");
-      if (target && hasStoredSettingsCredentials(target)) throw new Error("Target already has credentials. Import refused to avoid overwriting them.");
-      const [legacyAI] = await tx.select().from(aiSettings).where(eq(aiSettings.id, "global"));
-      const [legacyWorkspace] = await tx.select().from(workspacePreferences).where(eq(workspacePreferences.id, "local"));
-      if (legacyAI) {
-        const rebound = rebindSettingsSecrets(legacyAI, profile, { allowPlaintext });
-        const imported = { ...legacyAI, ...rebound, id: profile, updatedAt: new Date() };
-        await tx.insert(aiSettings).values(imported).onConflictDoUpdate({ target: aiSettings.id, set: imported });
-      }
-      if (legacyWorkspace) await tx.update(workspacePreferences).set({ displayName: legacyWorkspace.displayName, favorites: legacyWorkspace.favorites, reading: legacyWorkspace.reading, updatedAt: new Date() }).where(eq(workspacePreferences.id, profile));
-    }
-    if (ids.length) {
-      const assigned = await tx.update(gameSessions).set({ ownerId: profile, visibility: "private" }).where(and(inArray(gameSessions.id, ids), isNull(gameSessions.ownerId))).returning({ id: gameSessions.id });
-      if (assigned.length !== selected.length) throw new Error("Ownership changed concurrently; import rolled back.");
-      await tx.update(tokenLogs).set({ ownerId: profile }).where(and(inArray(tokenLogs.sessionId, ids), isNull(tokenLogs.ownerId)));
-    }
-  });
+  await applyLegacyProfileAssignment({ profile, campaignIds: ids, includeSettings, allowPlaintext });
   console.log("Selected legacy data assigned privately. Original global/local settings retained; credentials were not printed.");
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : "Import failed"); process.exitCode = 1; }).finally(() => pool.end());

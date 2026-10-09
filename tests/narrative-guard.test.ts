@@ -56,6 +56,15 @@ test("empty proposal is still material when reducer adds XP or flags change", ()
   assert.equal(hasNarrativeStateChanges(payload), true);
 });
 
+test("routine clock metadata does not escalate description but an explicit elapsed-time proposal does", () => {
+  const payload = { stateChanges: emptyChanges(), effects: { hp: 0, xp: 0, gold: 0, danger: 0 },
+    life: { advanceMinutes: null, commitments: [], transfers: [], story: { status: null, epilogue: "" } } };
+  const derived = { life: { intent: "act", clock: { from: "День 1, 09:00", to: "День 1, 09:05", minutes: 5, newDay: false }, commitments: [], transfers: [], story: null },
+    interaction: { verb: "inspect", label: "Осмотреть", target: "Вода", valid: true, reasons: [] } };
+  assert.equal(hasNarrativeStateChanges(payload, derived), false);
+  assert.equal(hasNarrativeStateChanges({ ...payload, life: { ...payload.life, advanceMinutes: 5 } }, derived), true);
+});
+
 test("repair and verifier cannot mutate the authoritative reducer snapshot", async () => {
   const accepted = input();
   let checks = 0;

@@ -12,7 +12,7 @@ export type NarrativeVerification = {
 };
 
 export const NARRATIVE_TASK_ID = "narrative-consistency" as const;
-export const NARRATIVE_TASK_VERSION = "2026-09-default-fallback-v1" as const;
+export const NARRATIVE_TASK_VERSION = "2026-10-09-final-canon-notes-v2" as const;
 const NARRATIVE_LABELS: readonly NarrativeVerdict[] = ["consistent", "contradicts", "insufficient"];
 /** Консервативные стартовые пороги, не измеренная калибровка. */
 const NARRATIVE_POLICY = { insufficientLabel: "insufficient" as const, acceptLabel: "consistent" as const, rejectLabel: "contradicts" as const, minConfidence: 0.8, minProbability: 0.9 };

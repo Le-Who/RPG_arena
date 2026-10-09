@@ -5,6 +5,7 @@ import { decideJevAnswer, parseJevResponse, replayJevTransport, recordingJevTran
 import { narrativeJevTask, verifyNarrative } from "../src/lib/narrative-verifier";
 import { factVerificationJevTask, verifyTypeSafeFacts } from "../src/lib/typesafe";
 import { buildMechanicsShadowTask, compareMechanicsOutcome, runMechanicsShadow, MECHANICS_TASK_VERSION } from "../src/lib/jev-mechanics";
+import { selectNarrativeChecks } from "../src/lib/narrative-policy";
 
 type Label = "yes" | "no" | "unsure";
 const task = (questions = ["q0"]): JevTask<Label> => ({
@@ -46,6 +47,21 @@ test("replay is bound to task version and request hash, and returns detached res
   assert.equal(wrongVersion.reason, "provider_error");
   const wrongBody = await runJevTask({ ...input, state: { text: "changed" } }, { apiKey: "k", transport: replayJevTransport([recording]) });
   assert.equal(wrongBody.reason, "provider_error");
+});
+
+test("a recorded narrative decision from the old notes scope cannot authorize the expanded final-canon task", async () => {
+  const selection = selectNarrativeChecks({ action: "Напомнить договор", narration: "Анна молчит.", declaration: { mode: "event", referencesPast: false }, hasDice: false, hasStateChanges: true, rejected: [] });
+  const recordedResponse = response(Object.fromEntries(Object.keys(selection.questions).map(id => [id, {
+    type: "choice", choice: "consistent", confidence: .95, probabilities: { consistent: .98, contradicts: .01, insufficient: .01 },
+  }])));
+  // No body hash: this negative isolates the task-version precondition alone.
+  const old = replayJevTransport([{ taskId: "narrative-consistency", taskVersion: "2026-09-default-fallback-v1", provider: "typesafe", response: recordedResponse }]);
+  const denied = await verifyNarrative({ selection, state: { accepted_changes: { world: { commitments: [] } } }, apiKey: "synthetic", transport: old });
+  assert.equal(denied.status, "unavailable");
+  assert.equal(denied.reason, "provider_error");
+  const current = replayJevTransport([{ taskId: "narrative-consistency", taskVersion: "2026-10-09-final-canon-notes-v2", provider: "typesafe", response: recordedResponse }]);
+  const accepted = await verifyNarrative({ selection, state: { accepted_changes: { world: { commitments: [] } } }, apiKey: "synthetic", transport: current });
+  assert.equal(accepted.status, "verified");
 });
 
 test("inherited answer keys cannot satisfy provider coverage", () => {

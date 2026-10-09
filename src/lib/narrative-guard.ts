@@ -5,7 +5,7 @@ import { parseNarrativeReview, type NarrativeReview } from "./narrative-review";
 
 /** Count both proposals and automatic reducer consequences (including free-text flags). */
 export function hasNarrativeStateChanges(
-  payload: Pick<ResolutionPayload, "effects" | "stateChanges">,
+  payload: Pick<ResolutionPayload, "effects" | "stateChanges"> & Partial<Pick<ResolutionPayload, "life" | "agenda" | "social">>,
   derived: Record<string, unknown> = {},
 ): boolean {
   const material = (v: unknown): boolean => {
@@ -13,7 +13,13 @@ export function hasNarrativeStateChanges(
     if (v && typeof v === "object") return Object.values(v).some(material);
     return typeof v === "number" ? v !== 0 : v !== null && v !== undefined && v !== "" && v !== false;
   };
-  const { resources, ...changes } = derived;
+  const { resources, life, interaction, ...changes } = derived;
+  // The default passage of a few minutes and a valid interaction describe turn
+  // bookkeeping. Explicit proposals and material derived consequences still escalate.
+  const lifeChanges = life && typeof life === "object" && !Array.isArray(life)
+    ? { ...(life as Record<string, unknown>), intent: undefined, clock: (life as { clock?: { newDay?: boolean } }).clock?.newDay } : life;
+  const invalidInteraction = interaction && typeof interaction === "object" && !Array.isArray(interaction)
+    ? (interaction as { valid?: boolean }).valid === false : material(interaction);
   // Absolute snapshots describe state even on a descriptive turn. Only differences
   // are consequences; a nonzero HP balance alone must not escalate streamed prose.
   const resourceChanges = resources && typeof resources === "object" && !Array.isArray(resources)
@@ -24,7 +30,8 @@ export function hasNarrativeStateChanges(
       return values.before !== values.after || values.maxBefore !== values.maxAfter;
     }) : material(resources);
   return Object.keys(payload.stateChanges.flags).length > 0
-    || material(payload.effects) || material(payload.stateChanges) || material(changes) || !!resourceChanges;
+    || material(payload.effects) || material(payload.stateChanges) || material(payload.life) || material(payload.agenda) || material(payload.social)
+    || material(changes) || material(lifeChanges) || !!invalidInteraction || !!resourceChanges;
 }
 
 type Draft = { narration: string; choices: string[] };
@@ -32,12 +39,14 @@ type Audit = { selection: NarrativeCheckSelection; checkSelections: NarrativeChe
   reviews: { attempt: number; result: NarrativeReview; model: string; latencyMs: number }[]; repaired: boolean };
 export type NarrativeGuardResult = ({ ok: true } & Draft & Audit) | ({ ok: false; reason: string } & Audit);
 
-/** A repair may change only prose and choices. The resolved state is copied for every call. */
+/** A repair changes prose and choices; evidence-dependent consequences are resolved
+ * again before checking that draft. Provider calls always receive detached snapshots. */
 export async function guardNarrative(input: {
   action: string; narration: string; choices: string[]; declaration: unknown;
   hasDice: boolean; hasStateChanges: boolean; rejected: readonly string[];
   hasProvisionalIndependentAdds?: boolean;
   state: Record<string, unknown>; emittedPrefix: string; remainingMs: () => number;
+  stateForDraft?: (draft: Draft) => Record<string, unknown>;
   verify: (state: Record<string, unknown>, selection: NarrativeCheckSelection) => Promise<NarrativeVerification>;
   review?: (state: Record<string, unknown>, selection: NarrativeCheckSelection) => Promise<{ text: string; model: string; latencyMs: number } | null>;
   repair: (state: Record<string, unknown>, report: NarrativeVerification, emittedPrefix: string, review: NarrativeReview | null) => Promise<Draft | null>;
@@ -51,9 +60,11 @@ export async function guardNarrative(input: {
   if (!selection.required) return { ok: true, ...draft, ...audit };
   // Preserve an independent snapshot even if a provider adapter mutates its argument.
   const fixedState = structuredClone(input.state);
-  const state = () => ({ ...structuredClone(fixedState), draft: draft.narration, draft_choices: [...draft.choices] });
+  let draftState = fixedState;
+  const state = () => ({ ...structuredClone(draftState), draft: draft.narration, draft_choices: [...draft.choices] });
   for (let attempt = 0; attempt < 2; attempt++) {
     if (input.remainingMs() < 3000) return fail("deadline");
+    if (input.stateForDraft) draftState = structuredClone(input.stateForDraft(structuredClone(draft)));
     const currentState = state();
     const currentSelection = scopeNarrativeChecks(selection, currentState);
     let report: NarrativeVerification;

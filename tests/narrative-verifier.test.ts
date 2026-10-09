@@ -21,6 +21,40 @@ test("all atomic checks are batched once and only consistently confident answers
   assert.ok(!JSON.stringify(result).includes("private-test-key"));
 });
 
+test("outgoing accepted-notes question covers final life, agenda and social canon and propagates its verdict", async () => {
+  const state = {
+    draft: "Анна смотрит на воду.", player_action: "Напомнить Анне договор", before_state: { world: { commitments: [], agenda: [], npcAgendas: [], npcSchedules: [], npcBonds: [] } },
+    accepted_changes: { operations: [], flags: {}, world: {
+      commitments: [{ title: "Ужин", note: "Анна обещала его ещё вчера." }],
+      agenda: [{ title: "Встреча", note: "Срок был согласован на прошлом ходу." }],
+      npcAgendas: [{ key: "anna", goal: "Вернуть ранее полученный ключ", routine: "Приходит по старому договору" }],
+      npcSchedules: [{ npcKey: "anna", place: "Причал", note: "Так договорились вчера." }],
+      npcBonds: [{ key: "anna", history: [{ text: "Герой исполнил старое обещание" }], knows: [{ text: "Ключ был передан вчера" }] }],
+    } }, historical_evidence: { sources: [{ role: "player", authority: "intention", text: "Хочу передать ключ" }], agreements: [] },
+  };
+  for (const verdict of ["consistent", "contradicts"] as const) {
+    let outgoing: { state: unknown; questions: Record<string, { instructions: string; criteria: Record<string, string> }> } | undefined;
+    const answers = response();
+    answers.answers.accepted_notes.choice = verdict;
+    answers.answers.accepted_notes.probabilities = verdict === "consistent"
+      ? { consistent: .98, contradicts: .01, insufficient: .01 } : { consistent: .01, contradicts: .98, insufficient: .01 };
+    const result = await verifyNarrative({ ...options(), state, fetchImpl: async (_url, init) => {
+      outgoing = JSON.parse(String(init?.body));
+      return Response.json(answers);
+    } });
+    assert.ok(outgoing, "the real adapter must send the selected notes question");
+    const instructions = outgoing.questions.accepted_notes.instructions;
+    for (const path of ["accepted_changes.operations", "accepted_changes.flags", "accepted_changes.world.commitments", "accepted_changes.world.agenda",
+      "accepted_changes.world.npcAgendas", "accepted_changes.world.npcSchedules", "accepted_changes.world.npcBonds", "before_state.world", "historical_evidence"]) {
+      assert.ok(instructions.includes(path), `the outgoing notes question must cover ${path}`);
+    }
+    assert.deepEqual(outgoing.state, state);
+    assert.deepEqual(Object.keys(outgoing.questions.accepted_notes.criteria), ["consistent", "contradicts", "insufficient"]);
+    assert.equal(result.status, verdict === "consistent" ? "verified" : "rejected");
+    assert.equal(result.answers.accepted_notes.choice, verdict);
+  }
+});
+
 test("contradictions, insufficient evidence and low confidence never pass", async () => {
   for (const variant of ["contradicts", "insufficient", "low-confidence"]) {
     const body = response();

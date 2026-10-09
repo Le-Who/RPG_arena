@@ -59,7 +59,9 @@ export async function listVisuals(sessionId: string) {
     db.select().from(visualIdentities).where(eq(visualIdentities.sessionId, sessionId)),
     readVisualConfig(),
   ]);
-  return { visuals: visuals as VisualView[], identities, config: { enabled: cfg.enabled, provider: cfg.provider.id, model: cfg.model, dailyLimit: cfg.dailyLimit, authenticated: cfg.authenticated, capabilities: cfg.provider.capabilities } };
+  // Old rows may contain provider exception text. Gallery data is user-visible, so expose
+  // the same safe Russian message as render failures without rewriting historical records.
+  return { visuals: visuals.map(visual => ({ ...visual, error: visual.error ? visualFailureMessage : null })) as VisualView[], identities, config: { enabled: cfg.enabled, provider: cfg.provider.id, model: cfg.model, dailyLimit: cfg.dailyLimit, authenticated: cfg.authenticated, capabilities: cfg.provider.capabilities } };
 }
 
 function heroPassport(c: CharacterState) {
@@ -139,6 +141,12 @@ export async function createVisual(sessionId: string, input: { kind: VisualKind;
 }
 
 const inflight = new Map<string, Promise<{ image: Buffer; mimeType: string }>>();
+const visualErrorCodes = new Set(["PROVIDER_ERROR", "PROVIDER_TIMEOUT", "PROVIDER_NOT_IMAGE", "PROVIDER_BAD_SIZE", "POLLINATIONS_KEY_REQUIRED"]);
+function safeVisualError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  return visualErrorCodes.has(message) || /^PROVIDER_HTTP_[45]\d{2}$/.test(message) ? message : "PROVIDER_ERROR";
+}
+const visualFailureMessage = "Провайдер не вернул изображение. Попробуйте повторить генерацию.";
 
 /** Ленивая генерация при первом просмотре: результат сохраняется в БД, повторы идут тем же провайдером/seed. */
 export async function renderVisual(sessionId: string, visualId: string, opts: { retry?: boolean; allowGenerate?: boolean } = {}): Promise<{ image: Buffer; mimeType: string }> {
@@ -146,11 +154,13 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
   if (!row) throw new HttpError(404, "NOT_FOUND", "Изображение не найдено.");
   if (row.status === "ready" && row.image && row.mimeType) return { image: row.image, mimeType: row.mimeType };
   if (opts.allowGenerate === false) throw new HttpError(403, "VISUAL_NOT_READY", "Эта иллюстрация ещё не готова. Только владелец кампании может запустить генерацию.");
-  if (row.status === "failed" && !opts.retry) throw new HttpError(502, "VISUAL_FAILED", row.error ?? "Провайдер не вернул изображение.");
+  const config = visualConfig();
+  if (!config.enabled) throw new HttpError(503, "VISUALS_DISABLED", "Визуализация отключена администратором.");
+  if (row.status === "failed" && !opts.retry) throw new HttpError(502, "VISUAL_FAILED", visualFailureMessage);
   if (row.attempts >= 4) throw new HttpError(502, "VISUAL_FAILED", "Лимит повторов для этого изображения исчерпан.");
   const provider = PROVIDERS[row.provider];
   if (!provider) throw new HttpError(502, "VISUAL_FAILED", `Провайдер ${row.provider} недоступен.`);
-  if (provider.id === "pollinations" && !visualConfig().authenticated) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Для генерации иллюстраций нужен серверный ключ Pollinations.");
+  if (provider.id === "pollinations" && !config.authenticated) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Для генерации иллюстраций нужен серверный ключ Pollinations.");
   let job = inflight.get(visualId);
   if (!job) {
     job = (async () => {
@@ -161,9 +171,9 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
         await db.update(sceneVisuals).set({ status: "ready", image: result.image, mimeType: result.mimeType, error: null, latencyMs: Date.now() - started, updatedAt: new Date() }).where(and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId)));
         return result;
       } catch (error) {
-        const message = error instanceof Error ? error.message.slice(0, 160) : "PROVIDER_ERROR";
+        const message = safeVisualError(error);
         await db.update(sceneVisuals).set({ status: "failed", error: message, latencyMs: Date.now() - started, updatedAt: new Date() }).where(and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId)));
-        throw new HttpError(502, "VISUAL_FAILED", `Провайдер не вернул изображение (${message}).`);
+        throw new HttpError(502, "VISUAL_FAILED", visualFailureMessage);
       }
     })().finally(() => inflight.delete(visualId));
     inflight.set(visualId, job);

@@ -51,8 +51,8 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
     {error && <p className="lx-error" role="alert">{error}</p>}
     <div className="lx-visuals">
       {data.visuals.map((v) => <figure key={v.id} className={`lx-visual is-${v.kind}`}>
-        {failed[v.id] || v.status === "failed" || (v.status !== "ready" && (!isOwner || !data.config.authenticated))
-          ? <div className="lx-visual-fail"><ImageOff size={22} /><small>{!isOwner && v.status !== "ready" ? "Владелец ещё не создал иллюстрацию" : !data.config.authenticated && v.status !== "ready" ? "Создание иллюстраций пока недоступно" : v.error ?? "Сервис иллюстраций не ответил"}</small>{isOwner && data.config.authenticated && <button type="button" className="button secondary" onClick={() => retry(v.id)}><RefreshCw size={13} />Повторить создание</button>}</div>
+        {failed[v.id] || (v.status === "failed" && !retryKey[v.id]) || (v.status !== "ready" && (!isOwner || !data.config.enabled || !data.config.authenticated))
+          ? <div className="lx-visual-fail"><ImageOff size={22} /><small>{!isOwner && v.status !== "ready" ? "Владелец ещё не создал иллюстрацию" : (!data.config.enabled || !data.config.authenticated) && v.status !== "ready" ? "Создание иллюстраций пока недоступно" : v.error ?? "Сервис иллюстраций не ответил"}</small>{isOwner && data.config.enabled && data.config.authenticated && <button type="button" className="button secondary" onClick={() => retry(v.id)}><RefreshCw size={13} />Повторить создание</button>}</div>
           // eslint-disable-next-line @next/next/no-img-element
           : <img src={src(v)} alt={v.caption} loading="lazy" width={v.width} height={v.height} onError={() => setFailed((f) => ({ ...f, [v.id]: true }))} />}
         <figcaption><span>{v.caption}</span>{reference(v) && <small>Эталон внешности</small>}

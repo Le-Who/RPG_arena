@@ -76,6 +76,21 @@ test("parseResolution: нормализует и клампит JSON", () => {
   assert.equal(r.payload.stateChanges.flags.k, "v");
 });
 
+test("resolution proposal arrays ignore null and primitive entries without losing valid changes", () => {
+  const invalid = [null, 7, false, "not a proposal", []];
+  const parsed = parseResolution(JSON.stringify({ stateChanges: {
+    quests: [...invalid.slice(0, 3), { ref: "main", progress: 40 }],
+    npcs: [...invalid.slice(0, 4), { ref: "anna", relationDelta: 5 }],
+    inventory: [...invalid, { op: "consume", ref: "#aaaaaa", quantity: 1 }],
+    sceneObjects: [...invalid.slice(0, 3), { ref: "door", state: "открыта" }],
+  } }));
+  assert.equal(parsed.parsedJson, true);
+  assert.deepEqual(parsed.payload.stateChanges.quests, [{ ref: "main", title: "", status: null, progress: 40, note: "" }]);
+  assert.deepEqual(parsed.payload.stateChanges.npcs, [{ ref: "anna", name: "", role: "", relationDelta: 5, status: null, note: "" }]);
+  assert.deepEqual(parsed.payload.stateChanges.inventory, [{ op: "consume", ref: "aaaaaa", name: "", kind: "misc", quantity: 1, description: "" }]);
+  assert.deepEqual(parsed.payload.stateChanges.sceneObjects, [{ ref: "door", name: "", state: "открыта", note: "" }]);
+});
+
 test("reducer: расходник нельзя использовать дважды (INV-1h)", () => {
   const payload = parseResolution(JSON.stringify({ narration: "x", outcome: "success", choices: ["a", "b", "c"], effects: { hp: 0, xp: 0, gold: 0, danger: 0 }, stateChanges: { inventory: [{ op: "consume", ref: "#aaaaaa", name: "Аптечка", quantity: 1 }, { op: "consume", ref: "#aaaaaa", name: "Аптечка", quantity: 1 }] } })).payload;
   const r = applyResolution(baseInput({ payload }));

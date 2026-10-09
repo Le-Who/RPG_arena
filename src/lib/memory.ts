@@ -238,6 +238,18 @@ export type ExtractedFact = {
   confidence: number;
 };
 
+// Match resource changes or stated balances, not resource names in world lore.
+// Everyday experience («получила опыт ухода за детьми») is not an XP counter.
+const CURRENCY = String.raw`(?:золот(?:о|а|у|ом|е|ых|ые)?|монет(?:а|ы|у|е|ой|ою|ам|ами|ах)?|кредит(?:ы|а|у|ом|е|ов|ам|ами|ах)?)`;
+const NUMBER_WORD = "(?:один|одна|одно|одну|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять|пятнадцать|двадцать|тридцать|сорок|пятьдесят|сто)";
+const RESOURCE_AMOUNT = String.raw`(?:[+-]?\d+(?:[.,]\d+)?|${NUMBER_WORD}(?:\s+${NUMBER_WORD}){0,2})`;
+const SCORE_RESOURCE = String.raw`(?:hp|xp|(?:оч(?:ко|ка|ков)\s+)?опыт(?:а|у|ом|е)?)`;
+const RESOURCE_CHANGE = new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:получил[аио]?|потратил[аио]?|потерял[аио]?|заработал[аио]?|восстановил[аио]?|отдал[аио]?|заплатил[аио]?|gained|received|lost|spent|recovered)\s+(?:(?:(?:${RESOURCE_AMOUNT}|вс[её]|весь|всю|часть|несколько)\s+)?${CURRENCY}|${RESOURCE_AMOUNT}\s+${SCORE_RESOURCE})(?![\p{L}\p{N}_])`, "iu");
+const RESOURCE_HOLDING = new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:у\s+\p{L}+(?:\s+(?:в\s+кошельке|на\s+счету))?|(?:в\s+кошельке|на\s+счету)(?:\s+\p{L}+)?)(?:\s+остал(?:ось|ись|ся|ась))?\s+${RESOURCE_AMOUNT}\s+(?:${CURRENCY}|${SCORE_RESOURCE})(?![\p{L}\p{N}_])`, "iu");
+const SCORE_CHANGE = new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:${SCORE_RESOURCE}\s+(?:[\p{L}-]+\s+){0,3}(?:вырос(?:ла|ло|ли)?|увеличил(?:ся|ась|ось|ись)|снизил(?:ся|ась|ось|ись)|increased|decreased)\s+(?:(?:до|to|by)\s+)?${RESOURCE_AMOUNT}|${RESOURCE_AMOUNT}\s+${SCORE_RESOURCE}\s+(?:получен[оы]?|добавлен[оы]?|потрачен[оы]?|gained|received|lost|spent)|получил[аио]?\s+опыт\s+за\s+\p{L}+)(?![\p{L}\p{N}_])`, "iu");
+const SCORE_BALANCE = new RegExp(String.raw`(?<![\p{L}\p{N}_])(?:(?:hp|xp)(?:\s+[\p{L}-]+){0,3}\s*(?::|=|—|составля(?:ет|ют)|равн(?:о|а|ы|ен))\s*${RESOURCE_AMOUNT}|(?:имеет|имеют|has|have|holds)\s+${RESOURCE_AMOUNT}\s+(?:hp|xp))(?![\p{L}\p{N}_])`, "iu");
+const ITEM_OR_MOVEMENT = /(?<![\p{L}\p{N}_])(?:предмет\s+получ\p{L}*|подобрал(?:а|и|о)?|переш[её]л\s+в|прибыл(?:а|и|о)?\s+в)(?![\p{L}\p{N}_])/iu;
+
 export function normalizeExtractedFacts(raw: unknown, narration: string, playerAction: string): ExtractedFact[] {
   const out: ExtractedFact[] = [];
   const facts = Array.isArray((raw as { facts?: unknown })?.facts) ? ((raw as { facts: unknown[] }).facts as Record<string, unknown>[]) : [];
@@ -255,7 +267,7 @@ export function normalizeExtractedFacts(raw: unknown, narration: string, playerA
     const evOk = evidence.length >= 8 && haystack.includes(evidence.toLowerCase());
     if (!evOk || confidence < 0.55) continue;
     // Не принимаем факты о ресурсах/предметах/локациях — они приходят из состояния (MEM-1c)
-    if (/\b(hp|опыт|xp|золот|монет|кредит|предмет получ|подобрал|перешёл в|прибыл в)\b/i.test(content) && (f.type === "event" || f.type === "world")) continue;
+    if ((f.type === "event" || f.type === "world") && (ITEM_OR_MOVEMENT.test(content) || RESOURCE_CHANGE.test(content) || RESOURCE_HOLDING.test(content) || SCORE_CHANGE.test(content) || SCORE_BALANCE.test(content))) continue;
     out.push({
       type: typeof f.type === "string" ? f.type : "world",
       entityKey: typeof f.entityKey === "string" ? f.entityKey.trim().slice(0, 80) : "",

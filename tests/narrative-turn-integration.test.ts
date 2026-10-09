@@ -101,7 +101,84 @@ test("performTurn narrative guard persists only canonical, verified narration", 
         assert.ok(logs.some(row => row.model === `${provider}:vendor/story` && row.quota_reserved));
       } finally { fetchMock.mock.restore(); }
     });
-    for (const mode of ["short", "recovery", "repair"] as const) await t.test(`condition recovery evidence is gated before verification: ${mode}`, async () => {
+    await t.test("final verifier snapshot includes accepted transfer, elapsed clock and expired condition", async () => {
+      const sessionId = randomUUID(), itemId = randomUUID();
+      const beforeWorld = { ...world, clock: { day: 1, minute: 540 }, conditionTimers: { напуган: { expiresAt: { day: 1, minute: 545 }, sinceTurn: 1 } } };
+      await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Final state','free','narrative',$2,$3,1,'final-state-owner')", [sessionId, JSON.stringify({ ...character, conditions: ["Напуган"] }), JSON.stringify(beforeWorld)]);
+      await pg.query("INSERT INTO inventory_items(id,session_id,name,kind,quantity) VALUES ($1,$2,'Книга','misc',1)", [itemId, sessionId]);
+      await pg.query("INSERT INTO npcs(session_id,key,name,status,last_location) VALUES ($1,'anna','Анна','alive','Причал')", [sessionId]);
+      const narration = "Ты передал книгу Анне. Страх прошёл.";
+      const choices = ["Поговорить с Анной"];
+      const draft = { continuity: { mode: "event", referencesPast: false }, outcome: "neutral", effects: { hp: 0, xp: 0, gold: 0, danger: 0 },
+        stateChanges: { ...emptyChanges(), time: { advanceMinutes: 5 }, transfers: [{ ref: itemId, to: "anna", quantity: 1, accepted: true }] }, choices, narration };
+      const checked: Record<string, unknown>[] = [];
+      const fetchMock = mock.method(globalThis, "fetch", async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(draft) }] }, finishReason: "STOP" }] }));
+      try {
+        const result = await performTurn({ sessionId, requestId: randomUUID(), expectedTurn: 1, isFree: true, action: "Передать книгу Анне" }, {
+          loadAIConfig: async () => cfg, loadNarrativeConfig: async () => ({ enabled: true, provider: "openrouter", apiKey: "fake-key" }), schedule() {},
+          verifyNarrative: async input => { checked.push(structuredClone(input.state)); return { status: "verified", provider: "openrouter", model: "typesafe/jev-1.13", answers: {}, latencyMs: 1 }; },
+        });
+        assert.ok(result.ok, JSON.stringify(result));
+        assert.equal(checked.length, 1);
+        const accepted = checked[0].accepted_changes as { character: typeof character; world: typeof beforeWorld; life: { transfers: unknown[] }; operations: { t: string; id?: string }[] };
+        assert.deepEqual(accepted.character.conditions, []);
+        assert.deepEqual(accepted.world.clock, { day: 1, minute: 545 });
+        assert.deepEqual(accepted.life.transfers, [{ name: "Книга", to: "Анна", quantity: 1, ok: true }]);
+        assert.ok(accepted.operations.some(op => op.t === "inv.delete" && op.id === itemId));
+        assert.deepEqual((checked[0].requested_changes as { life: { transfers: unknown[] } }).life.transfers, [{ ref: itemId, to: "anna", quantity: 1, accepted: true }]);
+        assert.deepEqual(result.state, { character: accepted.character, worldState: accepted.world });
+        assert.equal(result.narration, narration); assert.deepEqual(result.choices, choices);
+        const saved = (await pg.query<{ character: unknown; world_state: unknown }>("SELECT character,world_state FROM game_sessions WHERE id=$1", [sessionId])).rows[0];
+        assert.deepEqual(saved, { character: accepted.character, world_state: accepted.world });
+        assert.equal((await pg.query("SELECT id FROM inventory_items WHERE session_id=$1", [sessionId])).rows.length, 0);
+        const turn = (await pg.query<{ content: string; choices: string[] }>("SELECT content,choices FROM game_turns WHERE session_id=$1 AND role='narrator'", [sessionId])).rows[0];
+        assert.deepEqual(turn, { content: narration, choices });
+        const memory = (await pg.query<{ entity_key: string; content: string }>("SELECT entity_key,content FROM memory_nodes WHERE session_id=$1", [sessionId])).rows;
+        assert.match(memory.find(m => m.entity_key === "holding:книга")?.content ?? "", /у Анна/);
+        assert.match(memory.find(m => m.entity_key === "character:conditions")?.content ?? "", /нет активных состояний/);
+        assert.equal((await pg.query<{ payload: { narration: string } }>("SELECT payload FROM memory_jobs WHERE session_id=$1", [sessionId])).rows[0].payload.narration, narration);
+      } finally { fetchMock.mock.restore(); }
+    });
+    await t.test("repair recomputes agenda and social consequences before its final check and memory commit", async () => {
+      const sessionId = randomUUID();
+      await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Repair plan','free','narrative',$2,$3,1,'repair-plan-owner')", [sessionId, JSON.stringify(character), JSON.stringify(world)]);
+      await pg.query("INSERT INTO npcs(session_id,key,name,status,last_location) VALUES ($1,'anna','Анна','alive','Причал')", [sessionId]);
+      const draft = { continuity: { mode: "event", referencesPast: false }, outcome: "neutral", effects: { hp: 0, xp: 0, gold: 0, danger: 0 }, stateChanges: {
+        ...emptyChanges(), time: { advanceMinutes: 5 },
+        events: [{ title: "Ужин", kind: "npc", npc: "anna", inMinutes: 60, evidence: "Анна назначила ужин через час." }],
+        npcGoals: [{ npc: "anna", goal: "открыть кафе", evidence: "Анна мечтает открыть кафе." }],
+        npcSchedule: [{ npc: "anna", place: "Причал", from: "09:00", to: "15:00", evidence: "Анна работает на причале с девяти до трёх." }],
+        npcKnowledge: [{ npc: "anna", fact: "герой ищет брата", evidence: "Анна узнала, что ты ищешь брата." }],
+      }, choices: ["Пойти на ужин"], narration: "Анна назначила ужин через час. Анна мечтает открыть кафе. Анна работает на причале с девяти до трёх. Анна узнала, что ты ищешь брата." };
+      const repaired = { narration: "Анна молча смотрит на воду.", choices: ["Осмотреться"] };
+      const checked: Record<string, unknown>[] = [];
+      let generations = 0;
+      const fetchMock = mock.method(globalThis, "fetch", async () => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(++generations === 1 ? draft : repaired) }] }, finishReason: "STOP" }] }));
+      try {
+        const result = await performTurn({ sessionId, requestId: randomUUID(), expectedTurn: 1, isFree: true, action: "Поговорить с Анной" }, {
+          loadAIConfig: async () => cfg, loadNarrativeConfig: async () => ({ enabled: true, provider: "openrouter", apiKey: "fake-key" }), schedule() {},
+          verifyNarrative: async input => { checked.push(structuredClone(input.state)); return { status: checked.length === 1 ? "rejected" : "verified", provider: "openrouter", model: "typesafe/jev-1.13", answers: {}, latencyMs: 1 }; },
+        });
+        assert.ok(result.ok, JSON.stringify(result)); assert.equal(checked.length, 2);
+        const first = checked[0].accepted_changes as { agenda: { scheduled: unknown[]; npcGoals: unknown[] }; social: { schedules: unknown[]; knowledge: unknown[] } };
+        assert.ok(first.agenda, "the verifier must see the accepted agenda plan");
+        assert.ok(first.social, "the verifier must see the accepted social plan");
+        assert.equal(first.agenda.scheduled.length, 1); assert.equal(first.agenda.npcGoals.length, 1);
+        assert.equal(first.social.schedules.length, 1); assert.equal(first.social.knowledge.length, 1);
+        const final = checked[1].accepted_changes as typeof first & { character: typeof character; world: typeof world };
+        assert.deepEqual(final.agenda, { scheduled: [], fired: [], cancelled: [], npcGoals: [] });
+        assert.deepEqual(final.social, { bonds: [], schedules: [], knowledge: [], missed: [], overdue: [] });
+        assert.deepEqual(result.state, { character: final.character, worldState: final.world });
+        assert.equal(result.narration, repaired.narration); assert.deepEqual(result.choices, repaired.choices);
+        assert.deepEqual(result.applied.agenda, final.agenda); assert.deepEqual(result.applied.social, final.social);
+        const memory = (await pg.query<{ entity_key: string }>("SELECT entity_key FROM memory_nodes WHERE session_id=$1", [sessionId])).rows;
+        assert.deepEqual(memory, []);
+        const turn = (await pg.query<{ content: string; choices: string[] }>("SELECT content,choices FROM game_turns WHERE session_id=$1 AND role='narrator'", [sessionId])).rows[0];
+        assert.deepEqual(turn, { content: repaired.narration, choices: repaired.choices });
+        assert.equal((await pg.query<{ payload: { narration: string } }>("SELECT payload FROM memory_jobs WHERE session_id=$1", [sessionId])).rows[0].payload.narration, repaired.narration);
+      } finally { fetchMock.mock.restore(); }
+    });
+    for (const mode of ["short", "recovery", "repair"] as const) await t.test(`condition recovery evidence is recomputed before verification: ${mode}`, async () => {
       const sessionId = randomUUID();
       await pg.query("INSERT INTO game_sessions(id,title,campaign_mode,rules_profile,character,world_state,turn_count,owner_id) VALUES ($1,'Recovery','free','narrative',$2,$3,1,'recovery-owner')", [sessionId, JSON.stringify({ ...character, conditions: ["Усталость"] }), JSON.stringify(world)]);
       const changes = { ...emptyChanges(), conditions: { add: [], remove: ["Усталость"] }, time: { advanceMinutes: mode === "short" ? 5 : 120 } };
@@ -126,18 +203,19 @@ test("performTurn narrative guard persists only canonical, verified narration", 
         assert.deepEqual(accepted.character.conditions, mode === "short" ? ["Усталость"] : []);
         assert.deepEqual(accepted.conditions.removed, mode === "short" ? [] : ["Усталость"]);
         if (mode === "short") assert.ok(accepted.rejected.some(reason => reason.startsWith("CONDITION:")));
-        assert.equal(result.ok, mode !== "repair", JSON.stringify(result));
+        if (mode === "repair") {
+          const repairedState = states[1].accepted_changes as typeof accepted;
+          assert.deepEqual(repairedState.character.conditions, ["Усталость"]);
+          assert.deepEqual(repairedState.conditions.removed, []);
+        }
+        assert.equal(result.ok, true, JSON.stringify(result));
         const persisted = (await pg.query<{ character: { conditions: string[] }; turn_count: number }>("SELECT character,turn_count FROM game_sessions WHERE id=$1", [sessionId])).rows[0];
         assert.deepEqual(persisted.character.conditions, mode === "recovery" ? [] : ["Усталость"]);
-        assert.equal(persisted.turn_count, mode === "repair" ? 1 : 2);
+        assert.equal(persisted.turn_count, 2);
         if (mode === "short") {
           const memory = (await pg.query<{ content: string }>("SELECT content FROM memory_nodes WHERE session_id=$1 AND entity_key='character:conditions'", [sessionId])).rows;
           assert.equal(memory.length, 1);
           assert.match(memory[0].content, /Усталость/);
-        }
-        if (mode === "repair") {
-          assert.equal((await pg.query("SELECT id FROM game_turns WHERE session_id=$1", [sessionId])).rows.length, 0);
-          assert.equal((await pg.query("SELECT id FROM memory_jobs WHERE session_id=$1", [sessionId])).rows.length, 0);
         }
       } finally { fetchMock.mock.restore(); }
     });

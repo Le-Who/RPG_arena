@@ -299,6 +299,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
     .filter((route) => route.from && route.to);
 
   const quests: QuestChange[] = arr<Record<string, unknown>>(sc.quests, 4)
+    .filter(isRecord)
     .map((q) => ({
       ref: str(q.ref, 64) || null,
       title: str(q.title, 120),
@@ -309,6 +310,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
     .filter((q) => q.title || q.ref);
 
   const npcs: NpcChange[] = arr<Record<string, unknown>>(sc.npcs, 5)
+    .filter(isRecord)
     .map((n) => ({
       ref: str(n.ref, 64) || null,
       name: str(n.name, 80),
@@ -320,6 +322,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
     .filter((n) => n.name || n.ref);
 
   const inventory: InventoryOp[] = arr<Record<string, unknown>>(sc.inventory, 6)
+    .filter(isRecord)
     .map((i) => ({
       op: (["add", "consume", "remove", "equip", "unequip"] as const).includes(i.op as InventoryOp["op"]) ? (i.op as InventoryOp["op"]) : "add",
       ref: str(i.ref, 64).replace(/^#/, "") || null,
@@ -332,6 +335,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
     .filter((i) => i.name || i.ref);
 
   const sceneObjects: SceneObjectChange[] = arr<Record<string, unknown>>(sc.sceneObjects, 4)
+    .filter(isRecord)
     .map((o) => ({ ref: str(o.ref, 64) || null, name: str(o.name, 80), state: str(o.state, 60, "intact") || "intact", note: str(o.note, 240) }))
     .filter((o) => o.name || o.ref);
 
