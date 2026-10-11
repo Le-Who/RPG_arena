@@ -22,8 +22,8 @@ export const dynamic = "force-dynamic";
 async function handlePATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
-    const ownerId = await currentProfileId();
     const edit = parseCommitmentEdit(await readJsonObject(req));
+    const ownerId = await currentProfileId();
     if (!edit) return NextResponse.json({ error: "Некорректная отметка договорённости" }, { status: 400 });
     const outcome = await db.transaction(async (tx) => {
       await lockSession(tx, id);

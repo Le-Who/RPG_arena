@@ -719,7 +719,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
         content: `[Итог главы ${world.chapter}] ${payload!.narration.slice(0, 460)}`, importance: 90, source: "compaction", sourceTurn: nextTurn,
         entityKey: `chapter:${world.chapter}`, mode: "upsert", turnFrom: Math.max(1, nextTurn - 11), turnTo: nextTurn,
       }] : [] });
-      if (cfg.canUseLive && cfg.semanticExtractionEnabled && !modelUsed.startsWith("offline-engine")) await enqueueSemanticJob(tx, { sessionId, turnNumber: nextTurn, payload: { narration: payload!.narration, playerAction, profileCanon: spec.promptCanon, knownDigest: memoryDigest.slice(0, 3000) } });
+      if (cfg.canUseLive && cfg.semanticExtractionEnabled && !modelUsed.startsWith("offline-engine")) await enqueueSemanticJob(tx, { sessionId, turnNumber: nextTurn, payload: { narration: narrationOut, playerAction, profileCanon: spec.promptCanon, knownDigest: memoryDigest.slice(0, 3000) } });
       timings.writesMs = Math.round(performance.now() - writesStarted);
       await completeTurnRequest(tx, lease, response);
     });

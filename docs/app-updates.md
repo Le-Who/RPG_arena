@@ -30,6 +30,8 @@ HTML приложения, RSC, API, приватные данные, query-ва
 
 ## Проверка
 
+Дополнение10.10.2026: [свежий P1 rollout](p1-continuation-2026-10-10.md) повторил две production-сборки A/B, installed worker activation при pending/draft, guarded update, старый build-specific chunk offline, genuine API/HTML/RSC offline refusal и public fallback/online return. Script exit0; source/dependency hashes равны. PWA campaign APIs synthetic, actual lost-response ledger отдельно в browser/native bridge.
+
 Дополнение 09.10.2026: actual Next loader parent/child и persisted-server identity получили RED/GREEN регрессии; отдельно выполнены настоящая автоматическая production-сборка и два start, второй с конфликтующими `CHRONICLE_BUILD_ID`/`NEXT_PUBLIC_CHRONICLE_BUILD_ID`. Artifact/HTML/API/SW ID совпали, client comparison показал уведомление на чужом ID и убрал его на настоящем; page errors пусты. Это start/restart parity одного артефакта, не повтор исторического two-build rollout. [Текущий аудит и границы](test-coverage-audit-2026-10-09.md).
 
 `tests/build-version.test.ts`, `tests/pwa-cache.test.ts` и `tests/update-draft.test.ts` проверяют контракты версии, политику кэша, миграцию, ограничения и сохранение черновика. `scripts/app-updates-browser.ts` строит два настоящих production-выпуска и переключает сервер под двумя открытыми вкладками одного origin. API кампаний заменены синтетическими ответами; тестовый reverse proxy убирает cookies, а сервер использует недоступную loopback БД. Скрипт проверяет разные версии worker, отсутствие самовольной перезагрузки, сохранение старого чанка, обновление одной вкладки, восстановление текста и привязки предмета, мобильную ширину и отсутствие приватных записей в CacheStorage. Логи и снимки — `output/playwright/app-updates/`.

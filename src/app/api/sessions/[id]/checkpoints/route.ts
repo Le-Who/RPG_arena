@@ -1,4 +1,4 @@
-import { withCampaignAccess } from "@/lib/campaign-access";
+import { requireCampaignAccess, withCampaignAccess } from "@/lib/campaign-access";
 import { randomUUID } from "node:crypto";
 import { createCheckpoint, listCheckpoints } from "@/lib/checkpoints";
 import { CHECKPOINT_LIMIT } from "@/lib/checkpoint-types";
@@ -9,7 +9,7 @@ async function handleGET(_: Request, { params }: { params: Promise<{ id: string 
   catch (error) { return httpError(error); }
 }
 async function handlePOST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  try { const { id } = await params; const body = await readJsonObject(req); const result = await createCheckpoint({ sessionId: requireUuid(id), title: requiredText(body.title, "Название точки"), expectedTurn: expectedTurn(body.expectedTurn), requestId: requestKey(body.requestId) ?? randomUUID() }); return Response.json({ ok: true, ...result }, { status: result.replay ? 200 : 201 }); }
+  try { const { id } = await params; const body = await readJsonObject(req); await requireCampaignAccess(id, "owner"); const result = await createCheckpoint({ sessionId: requireUuid(id), title: requiredText(body.title, "Название точки"), expectedTurn: expectedTurn(body.expectedTurn), requestId: requestKey(body.requestId) ?? randomUUID() }); return Response.json({ ok: true, ...result }, { status: result.replay ? 200 : 201 }); }
   catch (error) { return httpError(error); }
 }
 

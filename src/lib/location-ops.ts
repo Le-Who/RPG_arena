@@ -1,4 +1,5 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, exists, inArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/db";
 import { worldLocations } from "@/db/schema";
 import type { DbOp } from "./resolution";
@@ -13,10 +14,17 @@ export async function executeLocationOp(tx: Tx, sessionId: string, op: LocationD
       if (op.row.current) await tx.update(worldLocations).set({ current: false }).where(eq(worldLocations.sessionId, sessionId));
       await tx.insert(worldLocations).values({ sessionId, connectedTo: [], ...op.row });
       return;
-    case "loc.setCurrent":
-      await tx.update(worldLocations).set({ current: false }).where(eq(worldLocations.sessionId, sessionId));
-      await tx.update(worldLocations).set({ current: true, discovered: true }).where(and(eq(worldLocations.id, op.id), eq(worldLocations.sessionId, sessionId)));
+    case "loc.setCurrent": {
+      const target = alias(worldLocations, "current_location_target");
+      await tx.update(worldLocations).set({
+        current: sql<boolean>`${worldLocations.id} = ${op.id}`,
+        discovered: sql<boolean>`case when ${worldLocations.id} = ${op.id} then true else ${worldLocations.discovered} end`,
+      }).where(and(
+        eq(worldLocations.sessionId, sessionId),
+        exists(tx.select({ id: target.id }).from(target).where(and(eq(target.id, op.id), eq(target.sessionId, sessionId)))),
+      ));
       return;
+    }
     case "loc.discover":
       await tx.update(worldLocations).set({ discovered: true }).where(and(eq(worldLocations.id, op.id), eq(worldLocations.sessionId, sessionId)));
       return;

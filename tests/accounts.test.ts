@@ -120,6 +120,23 @@ test("expired sessions and a deleted account never revive a consumed guest crede
   } finally { await pg.close(); }
 });
 
+test("single-session logout removes expired credentials idempotently and preserves another device", async () => {
+  const { pg, auth } = await fixture();
+  try {
+    const account = await auth.register(guest, "alice", "correct horse battery staple");
+    const otherDevice = await auth.login(secondGuest, "alice", "correct horse battery staple");
+    const { tokenHash } = await import("../src/lib/auth-policy");
+    await pg.query("UPDATE account_sessions SET expires_at=now()-interval '1 second' WHERE token_hash=$1", [tokenHash(account.sessionToken)]);
+    await auth.logout(account.sessionToken);
+    await auth.logout(account.sessionToken);
+    await auth.logout("invalid");
+    await auth.logout("0".repeat(64));
+    assert.equal((await pg.query<{ n: number }>("SELECT count(*)::int n FROM account_sessions")).rows[0].n, 1);
+    assert.equal((await auth.resolve(secondGuest, otherDevice.sessionToken)).kind, "account");
+    assert.equal((await auth.resolve(secondGuest, account.sessionToken)).kind, "guest");
+  } finally { await pg.close(); }
+});
+
 test("login with an old password cannot create a session after a concurrent password change", async () => {
   const { pg, auth, database } = await fixture();
   try {

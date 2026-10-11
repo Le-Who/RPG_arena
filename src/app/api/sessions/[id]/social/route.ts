@@ -20,8 +20,8 @@ export const dynamic = "force-dynamic";
 async function handlePATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
-    const ownerId = await currentProfileId();
     const body = await readJsonObject(req);
+    const ownerId = await currentProfileId();
     const edit = parseSocialEdit(body);
     if (!edit) return NextResponse.json({ error: "Некорректная правка" }, { status: 400 });
     const outcome = await db.transaction(async (tx) => {

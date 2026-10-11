@@ -2,7 +2,7 @@ import { HttpError } from "@/lib/http";
 import { continueStory, normalizeStoryShape } from "@/lib/world-life";
 import { normalizeNarratorPreferences, writeNarratorPreferences } from "@/lib/narrator-preferences";
 import type { WorldState } from "@/db/schema";
-import { withCampaignAccess } from "@/lib/campaign-access";
+import { requireCampaignAccess, withCampaignAccess } from "@/lib/campaign-access";
 import { after, NextResponse } from "next/server";
 import { prewarmSessionChoices } from "@/lib/choice-prewarm";
 import { db } from "@/db";
@@ -66,6 +66,7 @@ async function handlePATCH(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   try {
   const body = await readJsonObject(req);
+  await requireCampaignAccess(id, "owner");
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
   const patch: { title?: string; status?: string; visibility?: "private" | "public"; updatedAt: Date } = { updatedAt: new Date() };
   if (body.visibility !== undefined) {

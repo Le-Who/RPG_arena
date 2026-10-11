@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { withCampaignAccess } from "@/lib/campaign-access";
+import { requireCampaignAccess, withCampaignAccess } from "@/lib/campaign-access";
 import { HttpError, httpError, readJsonObject } from "@/lib/http";
 import { updateIdentity } from "@/lib/visuals";
 
@@ -10,6 +10,7 @@ async function handlePATCH(req: Request, { params }: { params: Promise<{ id: str
   try {
     const { id } = await params;
     const body = await readJsonObject(req);
+    await requireCampaignAccess(id, "owner");
     if (typeof body.subjectKey !== "string" || !body.subjectKey) throw new HttpError(400, "INVALID_INPUT", "Укажите subjectKey.");
     const identity = await updateIdentity(id, body.subjectKey.slice(0, 120), {
       ...(typeof body.passport === "string" ? { passport: body.passport } : {}),

@@ -19,15 +19,16 @@ async function handleGET() {
 
 async function handlePATCH(req: Request) {
   try {
-    const admin = await requireAdmin();
     assertAuthOrigin(req);
     const body = await readJsonObject(req, 2048);
+    await requireAdmin();
     const model = body.model;
     if (typeof model !== "string" || !/^[a-z0-9][a-z0-9._:/-]{1,100}$/i.test(model)) throw new HttpError(400, "INVALID_MODEL", "Выберите модель из каталога Pollinations.");
     let models: Awaited<ReturnType<typeof fetchPollinationsImageModels>>;
     try { models = await fetchPollinationsImageModels(); }
     catch { throw new HttpError(503, "MODEL_CATALOG_UNAVAILABLE", "Не удалось проверить модель по каталогу Pollinations. Повторите позже."); }
     if (!models.some((choice) => choice.id === model)) throw new HttpError(400, "INVALID_MODEL", "Эта модель недоступна для генерации изображений через выбранный API.");
+    const admin = await requireAdmin();
     await saveVisualModel(model, admin.account!.id);
     return Response.json({ ok: true, model }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return httpError(error); }

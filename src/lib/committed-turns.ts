@@ -6,7 +6,7 @@ export async function publishCommittedTurn(result: TurnResponse, publish: (resul
   retirePreview();
 }
 export function applyCommittedSnapshot(snapshot: Snapshot | null, result: TurnResponse): Snapshot | null {
-  if (!snapshot || !result.state || snapshot.session.turnCount > result.turnNumber) return snapshot;
+  if (!snapshot || !result.state || snapshot.session.turnCount >= result.turnNumber) return snapshot;
   return { ...snapshot, session: { ...snapshot.session, ...result.state, turnCount: result.turnNumber, updatedAt: new Date() }, turns: withCommittedTurn(snapshot.turns, result, snapshot.session.id) };
 }
 /** These rows come only from a committed response, never a generation preview. */

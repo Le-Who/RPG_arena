@@ -1,6 +1,6 @@
 # Chronicle Engine — Roadmap
 
-> Актуальный срез: **аудит кодовой базы и тестов, 9 октября 2026**.
+> Актуальный срез: **проверка оставшихся P1 и исправления, 10 октября 2026**.
 > Этот файл — единый список текущих статусов и приоритетов. Планы отдельных версий ниже — исторические документы, а не параллельные актуальные roadmap.
 > «Реализовано» означает наличие в коде; успешное развёртывание и качество реального AI требуют отдельных проверок. Сроки будущих этапов не назначены.
 
@@ -9,6 +9,26 @@
 Дополнение после выборочной интеграции 2.9: [следующие шаги и приоритет JEV-3](../../development-roadmap-2026-09-27.md). **JEV-3 — универсальное применение Jev для задач проекта — важный приоритет P1 ближайшего цикла.** Общий слой Choice и адаптеры реализованы; следующий шаг — размеченная оценка механик и отдельный допуск наблюдения. [Дополнения поставки и границы](../../revision-29-addendum-review.md).
 
 ## Продуктовые решения
+
+### Остальные названные P1 — 10.10.2026
+
+После auth проверены реальные память/compaction/queue/telemetry/HTTP/browser/image/process/PWA boundaries. Исправлены accepted narrator outbox mismatch, delayed OAuth/body/catalogue authorization, import retry cleanup, equal-turn overwrite, distributed image duplication и unhandled PG events. Correct existing contracts получили tests+negative controls. Full ordinary **824/824**,10-fixture native **38/38 без skip**, type/lint/docs, actual browser/native retry и2production Next/PWA builds прошли; source equality и independent review сохранены. [Контракты, genuine RED, source restoration и limits](../../p1-continuation-2026-10-10.md).
+
+Подготовлен12-case AI-reviewed temporal corpus с blind annotation и group-heldout6/6; это не human gold/live-model score. Named P1 gaps матрицы закрыты в своих scopes; public deployment/cluster failover/native vector/full replay, live semantic evaluation и measurement limits не превращены в production-readiness claim. Существующие MEM/NARR/SEC/ECO/UX/PERF IDs сохраняются.
+
+### Гонки смены пароля и claim — 10.10.2026
+
+Проверен identity P1 на независимых PostgreSQL соединениях. Исправлены два воспроизведённых дефекта: обычный logout теперь сериализован с защищённым claim через account lock; expiry использует текущее время БД вместо времени BEGIN. Old-hash guard уже работал, новый native-тест доказывает отказ устаревшего входа и успешный вход по новому паролю. Revocation-first и authorized-claim-first имеют отдельные controls; гостевой владелец/settings/consumed mapping не меняются при отказе. Ordinary **757/757**, aggregate пяти native fixtures **17/17 без skip**, build/type/lint/docs и независимое review прошли. [Контракт, RED/повторные проверки и пределы](../../auth-races-2026-10-10.md). Relational19/20 не заменяет pgvector/full replay; остальные P1 и существующие MEM/NARR/SEC/ECO/UX/PERF task IDs сохраняются.
+
+### Защита текущей локации —10.10.2026
+
+Закрыт оставшийся direct-executor риск: чужой/отсутствующий UUID больше не снимает current flags кампании. Один scoped UPDATE с aliased EXISTS меняет карту только при local target; discovery других мест сохраняется. Три регрессии имеют intended RED→GREEN; focused19 и full **756/756** прошли, isolated production build/type/lint/docs —exit0, review —PASS. [Контракт, доказательства и пределы](../../location-current-fix-2026-10-10.md). Native8 предыдущего этапа остаётся историческим09.10 evidence; concurrency при удалении карты этим этапом не проверена. Существующие MEM/NARR/SEC/ECO/UX/PERF task IDs и остальные P1 сохраняются.
+
+### Приоритетное расширение покрытия P1 — 09.10.2026
+
+Добавлены actual route authority60 и map SQL/consumer6 scenarios; ordinary suite **753/753**. Новый native full-turn fixture проверяет six-way contention, replacement/expired lease, independent commit lock и completion rollback всех canonical/outbox writes; aggregate с existing auth/quota/portable — **8/8 без skip**. Exact durable replay получил независимый oracle и corruption control. В CI добавлен opt-in turn gate. [Результаты и границы](../../test-priority-coverage-2026-10-09.md).
+
+Исправлен timestamp parser общего PGlite test adapter, production приложение и исторические миграции не изменены. Это закрывает конкретные gaps1/4 и scoped route matrix12; native pgvector/full replay, identity password races, mixed-owner fairness, browser retry и two-build PWA остаются P1. Существующие MEM/NARR/SEC/ECO/UX/PERF IDs сохраняются.
 
 ### Дополнение к аудиту — 09.10.2026
 

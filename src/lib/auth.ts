@@ -36,7 +36,7 @@ export function createAuthService(database: AuthDatabase) {
   }
   async function accountForToken(token?: string, tx: AuthQuery = database): Promise<AccountRow | null> {
     if (!validSessionToken(token)) return null;
-    const { rows } = await tx.query<AccountRow>("SELECT a.* FROM accounts a JOIN account_sessions s ON s.account_id=a.id WHERE s.token_hash=$1 AND s.expires_at > now()", [tokenHash(token)]);
+    const { rows } = await tx.query<AccountRow>("SELECT a.* FROM accounts a JOIN account_sessions s ON s.account_id=a.id WHERE s.token_hash=$1 AND s.expires_at > clock_timestamp()", [tokenHash(token)]);
     return rows[0] ?? null;
   }
   async function resolve(guestToken?: string, sessionToken?: string): Promise<Identity> {
@@ -107,7 +107,16 @@ export function createAuthService(database: AuthDatabase) {
       return { sessionToken, guestToken: usableGuest, identity: await resolve(usableGuest, sessionToken) };
     },
     async logout(token?: string) {
-      if (validSessionToken(token)) await database.query("DELETE FROM account_sessions WHERE token_hash=$1", [tokenHash(token)]);
+      if (!validSessionToken(token)) return;
+      await database.transaction(async tx => {
+        const hash = tokenHash(token);
+        // Include expired sessions: logout must stay idempotent and remove them too.
+        const { rows } = await tx.query<{ account_id: string }>("SELECT account_id FROM account_sessions WHERE token_hash=$1", [hash]);
+        if (!rows[0]) return;
+        // All revocations share the account-before-session order with authorized claims.
+        await tx.query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE", [rows[0].account_id]);
+        await tx.query("DELETE FROM account_sessions WHERE token_hash=$1", [hash]);
+      });
     },
     async logoutAll(token: string) {
       await database.transaction(async tx => { const row = await requireAccount(token, tx); await tx.query("DELETE FROM account_sessions WHERE account_id=$1", [row.id]); });

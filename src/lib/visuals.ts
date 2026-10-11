@@ -141,6 +141,8 @@ export async function createVisual(sessionId: string, input: { kind: VisualKind;
 }
 
 const inflight = new Map<string, Promise<{ image: Buffer; mimeType: string }>>();
+const visualLeaseMs = 105_000; // Provider timeout is 90s; leave time for persistence.
+const visualWaitMs = 95_000;
 const visualErrorCodes = new Set(["PROVIDER_ERROR", "PROVIDER_TIMEOUT", "PROVIDER_NOT_IMAGE", "PROVIDER_BAD_SIZE", "POLLINATIONS_KEY_REQUIRED"]);
 function safeVisualError(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
@@ -157,22 +159,41 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
   const config = visualConfig();
   if (!config.enabled) throw new HttpError(503, "VISUALS_DISABLED", "Визуализация отключена администратором.");
   if (row.status === "failed" && !opts.retry) throw new HttpError(502, "VISUAL_FAILED", visualFailureMessage);
-  if (row.attempts >= 4) throw new HttpError(502, "VISUAL_FAILED", "Лимит повторов для этого изображения исчерпан.");
   const provider = PROVIDERS[row.provider];
   if (!provider) throw new HttpError(502, "VISUAL_FAILED", `Провайдер ${row.provider} недоступен.`);
   if (provider.id === "pollinations" && !config.authenticated) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Для генерации иллюстраций нужен серверный ключ Pollinations.");
   let job = inflight.get(visualId);
   if (!job) {
     job = (async () => {
+      const waitUntil = Date.now() + visualWaitMs;
+      let claimed: typeof row;
+      while (true) {
+        const [current] = await db.select().from(sceneVisuals).where(and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId)));
+        if (!current) throw new HttpError(404, "NOT_FOUND", "Изображение не найдено.");
+        if (current.status === "ready" && current.image && current.mimeType) return { image: current.image, mimeType: current.mimeType };
+        // A committed attempt is a bounded lease shared by all web instances.
+        // Neither a connection nor a transaction remains open during provider IO.
+        if (current.status === "pending" && current.attempts > 0 && current.updatedAt.getTime() + visualLeaseMs > Date.now()) {
+          if (Date.now() >= waitUntil) throw new HttpError(503, "VISUAL_BUSY", "Изображение ещё создаётся. Повторите просмотр позже.", { retryAfter: 1 });
+          await new Promise(resolve => setTimeout(resolve, 100));
+          continue;
+        }
+        if (current.status === "failed" && !opts.retry) throw new HttpError(502, "VISUAL_FAILED", visualFailureMessage);
+        if (current.attempts >= 4) throw new HttpError(502, "VISUAL_FAILED", "Лимит повторов для этого изображения исчерпан.");
+        // The attempt counter is monotonic, so CAS both reserves and fences work.
+        const [reservation] = await db.update(sceneVisuals).set({ attempts: current.attempts + 1, status: "pending", updatedAt: new Date() })
+          .where(and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId), eq(sceneVisuals.attempts, current.attempts), eq(sceneVisuals.status, current.status))).returning();
+        if (reservation) { claimed = reservation; break; }
+      }
       const started = Date.now();
-      await db.update(sceneVisuals).set({ attempts: sql`${sceneVisuals.attempts} + 1`, status: "pending", updatedAt: new Date() }).where(and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId)));
+      const fence = and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId), eq(sceneVisuals.attempts, claimed.attempts), eq(sceneVisuals.status, "pending"));
       try {
-        const result = await fetchFromProvider(provider, { prompt: row.prompt, seed: row.seed, width: row.width, height: row.height, model: row.model });
-        await db.update(sceneVisuals).set({ status: "ready", image: result.image, mimeType: result.mimeType, error: null, latencyMs: Date.now() - started, updatedAt: new Date() }).where(and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId)));
+        const result = await fetchFromProvider(provider, { prompt: claimed.prompt, seed: claimed.seed, width: claimed.width, height: claimed.height, model: claimed.model });
+        await db.update(sceneVisuals).set({ status: "ready", image: result.image, mimeType: result.mimeType, error: null, latencyMs: Date.now() - started, updatedAt: new Date() }).where(fence);
         return result;
       } catch (error) {
         const message = safeVisualError(error);
-        await db.update(sceneVisuals).set({ status: "failed", error: message, latencyMs: Date.now() - started, updatedAt: new Date() }).where(and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId)));
+        await db.update(sceneVisuals).set({ status: "failed", error: message, latencyMs: Date.now() - started, updatedAt: new Date() }).where(fence);
         throw new HttpError(502, "VISUAL_FAILED", visualFailureMessage);
       }
     })().finally(() => inflight.delete(visualId));

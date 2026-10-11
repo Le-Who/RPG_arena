@@ -59,6 +59,11 @@ jobs:
           CHRONICLE_RUN_AUTH_POSTGRES: "1"
           PGPASSWORD: fixture-only
         run: node --import tsx --import ./tests/helpers/test-environment.ts --test tests/integration/auth-postgres.integration.ts
+      - name: Isolated PostgreSQL password and revoked-principal claim races
+        env:
+          CHRONICLE_RUN_AUTH_RACES_POSTGRES: "1"
+          PGPASSWORD: fixture-only
+        run: node --import tsx --import ./tests/helpers/test-environment.ts --test tests/integration/auth-races-postgres.integration.ts
       - name: Isolated PostgreSQL quota contention and provider admission
         env:
           CHRONICLE_RUN_QUOTA_POSTGRES: "1"
@@ -69,6 +74,20 @@ jobs:
           CHRONICLE_RUN_PORTABLE_POSTGRES: "1"
           PGPASSWORD: fixture-only
         run: node --import tsx --import ./tests/helpers/test-environment.ts --test tests/integration/campaign-portable-postgres.integration.ts
+      - name: Isolated PostgreSQL turn contention, fencing and rollback
+        env:
+          CHRONICLE_RUN_TURN_POSTGRES: "1"
+          PGPASSWORD: fixture-only
+        run: node --import tsx --import ./tests/helpers/test-environment.ts --test tests/integration/turn-postgres.integration.ts
+      - name: Isolated PostgreSQL memory, queue, telemetry, image and process recovery
+        env:
+          CHRONICLE_RUN_MEMORY_POSTGRES: "1"
+          CHRONICLE_RUN_QUEUE_POSTGRES: "1"
+          CHRONICLE_RUN_PERFORMANCE_POSTGRES: "1"
+          CHRONICLE_RUN_VISUAL_POSTGRES: "1"
+          CHRONICLE_RUN_TURN_RECOVERY_POSTGRES: "1"
+          PGPASSWORD: fixture-only
+        run: node --import tsx --import ./tests/helpers/test-environment.ts --test --test-concurrency=1 tests/integration/memory-postgres.integration.ts tests/integration/queue-postgres.integration.ts tests/integration/performance-postgres.integration.ts tests/integration/visual-postgres.integration.ts tests/integration/turn-recovery-postgres.integration.ts
       - run: npm run check:docs
       - name: Fresh schema and replay
         run: |
@@ -76,6 +95,13 @@ jobs:
           npm run migrate
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      - name: Actual handler browser retry and two-build service worker rollout
+        env:
+          CHRONICLE_RUN_BROWSER_RETRY_POSTGRES: "1"
+          PGPASSWORD: fixture-only
+        run: |
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/browser-retry-p1.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/app-updates-browser.ts
       - name: Isolated image retry and update guards in production React
         run: |
           npm run verify:visual-gallery-ui

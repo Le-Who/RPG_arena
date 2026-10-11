@@ -16,6 +16,8 @@ export const GET = withIdentityWork(async (request: Request) => {
     if (query.has("error")) throw new Error("declined");
     const owner = await currentProfileId();
     const result = await finishPollinationsConnect(owner, cfg, cookie, query.get("state") ?? "", query.get("code") ?? "");
+    // Token exchange can outlive the session that admitted this callback.
+    if (await currentProfileId() !== owner) throw new Error("identity_changed");
     await attachPollinationsKey(owner, result.key, result.expiresAt);
     destination.searchParams.set("pollinations", "connected");
   } catch {

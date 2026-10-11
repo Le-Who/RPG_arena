@@ -12,12 +12,18 @@ export async function accountsDb() {
   const pg = new PGlite({ extensions: { vector, pgcrypto } });
   await pg.exec("SET TIME ZONE 'UTC'");
   for (const file of (await readdir("drizzle")).filter(x => /^\d{4}_.*\.sql$/.test(x)).sort()) await pg.exec(await readFile(`drizzle/${file}`, "utf8"));
-  const run = async (query: string | { text: string; values?: unknown[]; rowMode?: string }, values?: unknown[]) => {
+  const run = async (query: string | { text: string; values?: unknown[]; rowMode?: string; types?: { getTypeParser: (oid: number, format: "text") => (value: string) => unknown } }, values?: unknown[]) => {
     const config = typeof query === "string" ? { text: query, values } : { ...query, values: values ?? query.values };
     if (config.text.startsWith("BEGIN;")) { await pg.exec(config.text); return { rows: [] }; }
-    const result = await pg.query<Record<string, unknown>>(config.text, config.values);
-    const normalize = (v: unknown) => v instanceof Date ? v.toISOString() : v;
-    return { ...result, rows: result.rows.map(row => config.rowMode === "array" ? result.fields.map(f => normalize(row[f.name])) : Object.fromEntries(Object.entries(row).map(([k, v]) => [k, normalize(v)]))) };
+    // Drizzle asks node-postgres for timestamp wire text and applies UTC itself.
+    // Let it do the same here: PGlite's default timestamp Date parser uses the
+    // host timezone, while converting that Date to ISO also breaks ORM parsing.
+    const parsers = config.types ? {
+      1114: config.types.getTypeParser(1114, "text"),
+      1184: config.types.getTypeParser(1184, "text"),
+    } : undefined;
+    const result = await pg.query<Record<string, unknown>>(config.text, config.values, { parsers });
+    return { ...result, rows: result.rows.map(row => config.rowMode === "array" ? result.fields.map(f => row[f.name]) : row) };
   };
   let tail = Promise.resolve();
   const queryMock = mock.method(pool, "query", run as never);

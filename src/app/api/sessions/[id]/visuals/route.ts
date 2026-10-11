@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { withCampaignAccess } from "@/lib/campaign-access";
+import { requireCampaignAccess, withCampaignAccess } from "@/lib/campaign-access";
 import { HttpError, httpError, readJsonObject } from "@/lib/http";
 import { createVisual, listVisuals } from "@/lib/visuals";
 import type { VisualKind } from "@/db/schema";
@@ -19,6 +19,7 @@ async function handlePOST(req: Request, { params }: { params: Promise<{ id: stri
   try {
     const { id } = await params;
     const body = await readJsonObject(req);
+    await requireCampaignAccess(id, "owner");
     const kind = body.kind as VisualKind;
     if (!["scene", "portrait", "location"].includes(kind)) throw new HttpError(400, "INVALID_INPUT", "Укажите тип иллюстрации: scene, portrait или location.");
     const subject = typeof body.subject === "string" ? body.subject.slice(0, 120) : null;
