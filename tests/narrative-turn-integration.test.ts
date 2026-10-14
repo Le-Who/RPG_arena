@@ -281,6 +281,8 @@ test("performTurn narrative guard persists only canonical, verified narration", 
           assert.equal(diagnostics.length, 1);
           assert.equal(diagnostics[0].outcome, "completed");
           if (mode === "unavailable") assert.equal(diagnostics[0].payload.decision, "bypassed_unavailable");
+          assert.equal(result.verificationUnavailable === true, mode === "unavailable");
+          assert.equal(replay.verificationUnavailable, result.verificationUnavailable, "idempotent replay preserves the availability hint");
           if (mode === "repair") {
             assert.equal(turns.rows[0].context_meta.narrativeVerification?.repaired, true);
             assert.equal(checkedStates[0].draft, original); assert.equal(checkedStates[1].draft, canonical);

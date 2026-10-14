@@ -385,3 +385,6 @@ button.gx-map-pin:focus-visible .gx-map-dot{box-shadow:0 0 0 3px var(--accent)}
 .gx-recap-section ul { margin: 0; padding-left: 1.1rem; font-size: .92rem; line-height: 1.45; }
 .gx-recap-section li + li { margin-top: .2rem; }
 .gx-tag small { font-weight: 600; opacity: .8; margin-left: .15rem; }
+
+/* Nonblocking per-turn status; no toast, animation or live announcement. */
+.gx-verification-note{margin:var(--sp-3) 0 0;font-size:var(--t-2xs);color:var(--ink-3)}

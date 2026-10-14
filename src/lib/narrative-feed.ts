@@ -1,7 +1,7 @@
 import type { Snapshot } from "./ui-data";
 
-type FeedTurn = Pick<Snapshot["turns"][number], "sessionId" | "turnNumber" | "role" | "content" | "modelUsed" | "dice" | "stateChanges">;
-export type NarrativeFeedRow = FeedTurn & { key: string; pending: boolean };
+type FeedTurn = Pick<Snapshot["turns"][number], "sessionId" | "turnNumber" | "role" | "content" | "modelUsed" | "dice" | "stateChanges"> & Partial<Pick<Snapshot["turns"][number], "contextMeta" | "verificationUnavailable">>;
+export type NarrativeFeedRow = FeedTurn & { key: string; pending: boolean; verificationUnavailable: boolean };
 type PendingFeedTurn = { sessionId: string; expectedTurn: number; action: string };
 
 /** Identity belongs to the story position, not a temporary or database row ID. */
@@ -9,7 +9,10 @@ export function buildNarrativeFeed(turns: FeedTurn[], pending: PendingFeedTurn |
   const rows = new Map<string, NarrativeFeedRow>();
   const add = (turn: FeedTurn, isPending: boolean) => {
     const key = `${turn.sessionId.length}:${turn.sessionId}:${turn.turnNumber}:${turn.role}`;
-    if (!rows.has(key)) rows.set(key, { ...turn, key, pending: isPending });
+    if (!rows.has(key)) rows.set(key, { ...turn, key, pending: isPending,
+      verificationUnavailable: !isPending && turn.role === "narrator" && (turn.verificationUnavailable === true
+        || turn.contextMeta?.narrativeVerification?.checks?.at(-1)?.status === "unavailable"),
+    });
   };
   for (const turn of turns) add(turn, false);
   if (pending) {

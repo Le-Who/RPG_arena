@@ -49,3 +49,18 @@ test("polling cannot move streamed progress backward or reopen a completed reque
   assert.equal(advanceTurnStage("completed", "failed"), "completed");
   assert.equal(advanceTurnStage("generation", "failed"), "failed");
 });
+
+test("Jev unavailable note survives commit, replay and refreshed history without marking previews or unchecked turns", () => {
+  const bypassed = { ...result, verificationUnavailable: true };
+  const committed = withCommittedTurn([], bypassed, "session");
+  assert.equal(feed.buildNarrativeFeed(committed, null, "")[1].verificationUnavailable, true);
+  assert.equal(feed.buildNarrativeFeed(committed, null, "")[0].verificationUnavailable, false);
+  const refreshed = committed.map(turn => ({ ...turn, verificationUnavailable: undefined, contextMeta: turn.role === "narrator" ? {
+    model: "model", rulesProfile: "narrative" as const, digestChars: 0, retrievedIds: [],
+    narrativeVerification: { checks: [{ status: "unavailable" }] },
+  } as unknown as NonNullable<typeof turn.contextMeta> : null }));
+  assert.equal(feed.buildNarrativeFeed(refreshed, null, "")[1].verificationUnavailable, true);
+  assert.equal(feed.buildNarrativeFeed(withCommittedTurn([], result, "session"), null, "")[1].verificationUnavailable, false);
+  assert.equal(feed.buildNarrativeFeed([], pending, "Рассказ")[1].verificationUnavailable, false);
+  assert.equal(feed.buildNarrativeFeed(withCommittedTurn([], { ...bypassed, replay: true }, "session"), null, "")[1].verificationUnavailable, true);
+});
