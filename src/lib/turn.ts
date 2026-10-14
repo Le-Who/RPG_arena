@@ -661,7 +661,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
 
   const needsCompaction = shouldCompact((playerCount[0]?.c ?? 0) + 1, 0, estimateTokens(recentTurns), tier === "flash" ? 8000 : LAYER_INFO.working.budget);
   const committedWorld = result.world;
-  const response: TurnResponse = { ok: true, playerAction, timings, state: { character: result.character, worldState: committedWorld }, requestId, turnNumber: nextTurn, narration: narrationOut, choices: payload.choices, dice, outcome: result.outcome, applied: result.applied, modelUsed, taskType, needsCompaction, dead: result.applied.dead, retrieved: retrieved.map((r) => ({ id: r.id, title: r.title, why: r.why })), skippedModels: skipped, warnings };
+  const response: TurnResponse = { ok: true, ...(narrativeAudit?.checks.at(-1)?.status === "unavailable" ? { verificationUnavailable: true } : {}), playerAction, timings, state: { character: result.character, worldState: committedWorld }, requestId, turnNumber: nextTurn, narration: narrationOut, choices: payload.choices, dice, outcome: result.outcome, applied: result.applied, modelUsed, taskType, needsCompaction, dead: result.applied.dead, retrieved: retrieved.map((r) => ({ id: r.id, title: r.title, why: r.why })), skippedModels: skipped, warnings };
   timings.validationMs = Math.round(performance.now() - validationStarted);
   await setTurnStage(lease, "applying");
   emit?.({ type: "stage", stage: "applying" });

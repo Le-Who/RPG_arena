@@ -4,6 +4,8 @@ export type TurnResponse = {
   ok: true; turnNumber: number; narration: string; choices: string[]; dice: DiceResult | null;
   outcome: string; applied: AppliedChanges; modelUsed: string; taskType: TaskType; needsCompaction: boolean;
   dead: boolean; retrieved: { id: string; title: string; why: string }[]; skippedModels: string[]; warnings: string[];
+  /** The committed turn continued after Jev was unavailable; no claim about the failure cause. */
+  verificationUnavailable?: boolean;
   replay?: boolean; requestId?: string;
   playerAction?: string; timings?: TurnTimings;
   state?: { character: CharacterState; worldState: WorldState };

@@ -69,6 +69,7 @@ const FeedTurns = memo(function FeedTurns({ turns, heroName }: { turns: FeedTurn
               {turn.role !== "player" && (turn.pending || turn.modelUsed?.includes("intro")) && <span className="gx-turn-tag">{turn.pending ? "Продолжение формируется" : "Пролог"}</span>}
             </div>
             <div className="gx-prose">{turn.content}</div>
+            {turn.verificationUnavailable && <p className="gx-verification-note" title="Jev временно недоступен. Ход сохранён без дополнительной проверки повествования; можно продолжать игру.">Без проверки Jev</p>}
             {turn.dice && <div className={`gx-dice ${turn.dice.success ? "is-success" : "is-failure"} ${turn.dice.band === "cost" ? "is-cost" : ""}`}>
               <span className="gx-dice-value"><Dices size={18} /><strong>{turn.dice.total}</strong></span>
               <div className="gx-dice-body"><strong>{turn.dice.skill || turn.dice.label}</strong><small>{turn.dice.kind === "2d6" ? "Проверка риска · 2d6" : `d20 · сложность ${turn.dice.dc}`}</small></div>

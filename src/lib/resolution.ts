@@ -229,19 +229,27 @@ export function stripChoicesLine(text: string) {
 }
 
 export function extractJsonObject(text: string): unknown | null {
-  let t = text.trim();
-  if (t.startsWith("```")) t = t.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  if (!t.startsWith("{")) {
-    const a = t.indexOf("{");
-    const b = t.lastIndexOf("}");
-    if (a === -1 || b <= a) return null;
-    t = t.slice(a, b + 1);
+  // Find one complete outer object. Braces inside JSON strings and escaped
+  // quotes are data; trailing provider prose must not become part of the JSON.
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0, quoted = false, escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const char = text[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') quoted = true;
+    else if (char === "{") depth++;
+    else if (char === "}" && --depth === 0) {
+      try { return JSON.parse(text.slice(start, i + 1)); }
+      catch { return null; }
+    }
   }
-  try {
-    return JSON.parse(t);
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────

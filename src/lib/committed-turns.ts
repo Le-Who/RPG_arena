@@ -15,6 +15,6 @@ export function withCommittedTurn(turns: Snapshot["turns"], result: TurnResponse
   const base = { sessionId, turnNumber: result.turnNumber, promptTokens: 0, completionTokens: 0, contextMeta: null, createdAt: new Date(), requestId: null, taskType: result.taskType };
   return [...turns,
     ...(result.playerAction && !turns.some(t => t.role === "player" && t.turnNumber === result.turnNumber) ? [{ ...base, id: `committed:${result.requestId}:player`, role: "player", content: result.playerAction, choices: [], dice: null, modelUsed: "player", stateChanges: null }] : []),
-    { ...base, id: `committed:${result.requestId}:narrator`, role: "narrator", content: result.narration, choices: result.choices, dice: result.dice, modelUsed: result.modelUsed, stateChanges: result.applied },
+    { ...base, id: `committed:${result.requestId}:narrator`, role: "narrator", verificationUnavailable: result.verificationUnavailable, content: result.narration, choices: result.choices, dice: result.dice, modelUsed: result.modelUsed, stateChanges: result.applied },
   ];
 }
