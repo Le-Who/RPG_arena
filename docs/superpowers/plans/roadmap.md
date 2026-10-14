@@ -10,6 +10,10 @@
 
 ## Продуктовые решения
 
+### Источники памяти после поиска — 14.10.2026
+
+В рамках MEM/NARR исправлена доставка исходных ходов semantic retrieval в общий evidence snapshot генератора, guard и audit. Источники найденных узлов приоритетны внутри прежних лимитов; известная потеря источника помечается как неполнота. Схема saves, JEV policy, механики и внешние вызовы не расширены. [Исследование, контракт, воспроизводимость и ограничения](../../memory-evidence-delivery-2026-10-14.md). Версии фактов, эпистемическая структура, мировые часы и живое matched-budget испытание остаются отдельными задачами, а не закрытым результатом этого изменения.
+
 ### Остальные названные P1 — 10.10.2026
 
 После auth проверены реальные память/compaction/queue/telemetry/HTTP/browser/image/process/PWA boundaries. Исправлены accepted narrator outbox mismatch, delayed OAuth/body/catalogue authorization, import retry cleanup, equal-turn overwrite, distributed image duplication и unhandled PG events. Correct existing contracts получили tests+negative controls. Full ordinary **824/824**,10-fixture native **38/38 без skip**, type/lint/docs, actual browser/native retry и2production Next/PWA builds прошли; source equality и independent review сохранены. [Контракты, genuine RED, source restoration и limits](../../p1-continuation-2026-10-10.md).

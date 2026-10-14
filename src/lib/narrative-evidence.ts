@@ -9,10 +9,14 @@ export type NarrativeEvidence = {
   }[];
 };
 
-export function buildNarrativeEvidenceQuery(input: { sessionId: string; beforeTurn: number; action: string; sourceTurns: number[] }) {
+export function buildNarrativeEvidenceQuery(input: { sessionId: string; beforeTurn: number; action: string; sourceTurns: number[]; prioritySourceTurns?: number[] }) {
   if (!Number.isSafeInteger(input.beforeTurn) || input.beforeTurn < 1) throw new Error("INVALID_EVIDENCE_TURN");
   const terms = [...new Set((input.action.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []))].slice(0, 20);
-  const sourceTurns = [...new Set(input.sourceTurns.filter(n => Number.isSafeInteger(n) && n > 0 && n < input.beforeTurn))].slice(0, 16);
+  // Retrieved provenance gets the existing slots before globally salient memories.
+  // Priority affects delivery only: it never promotes a source's authority.
+  const sourceTurns = [...new Set([...(input.prioritySourceTurns ?? []), ...input.sourceTurns]
+    .filter(n => Number.isSafeInteger(n) && n > 0 && n < input.beforeTurn))].slice(0, 16);
+  const prioritySourceTurns = [...new Set(input.prioritySourceTurns ?? [])].filter(n => sourceTurns.includes(n));
   return {
     text: `WITH candidates AS (
       SELECT turn_number,
@@ -27,18 +31,20 @@ export function buildNarrativeEvidenceQuery(input: { sessionId: string; beforeTu
     ), chosen AS (
       SELECT turn_number, max(relevance) AS relevance, bool_or(referenced) AS referenced
       FROM candidates GROUP BY turn_number
-      ORDER BY bool_or(referenced) DESC, max(relevance) DESC, turn_number DESC LIMIT 20
+      ORDER BY array_position($5::integer[], turn_number) ASC NULLS LAST,
+        bool_or(referenced) DESC, max(relevance) DESC, turn_number DESC LIMIT 20
     )
     SELECT s.id, s.turn_number, s.role, s.content, s.state_changes,
       (s.context_meta->'narrativeVerification') - 'evidence' AS verification
     FROM game_turns s JOIN chosen c USING(turn_number)
     WHERE s.session_id = $1 AND s.turn_number < $2 AND s.role IN ('player','narrator')
-    ORDER BY c.referenced DESC, c.relevance DESC, s.turn_number ASC, s.role ASC LIMIT 40`,
-    values: [input.sessionId, input.beforeTurn, terms.join(" OR "), sourceTurns],
+    ORDER BY array_position($5::integer[], s.turn_number) ASC NULLS LAST,
+      c.referenced DESC, c.relevance DESC, s.turn_number ASC, s.role ASC LIMIT 40`,
+    values: [input.sessionId, input.beforeTurn, terms.join(" OR "), sourceTurns, prioritySourceTurns],
   };
 }
 
-export function snapshotNarrativeEvidence(rows: unknown[]): NarrativeEvidence {
+export function snapshotNarrativeEvidence(rows: unknown[], requestedSourceTurns: readonly number[] = []): NarrativeEvidence {
   const sources: NarrativeEvidence["sources"] = [];
   let remaining = 32000, truncated = rows.length > 40;
   for (const value of rows.slice(0, 40)) {
@@ -67,5 +73,9 @@ export function snapshotNarrativeEvidence(rows: unknown[]): NarrativeEvidence {
       sha256: hash, truncated: clipped,
       authority: row.role === "player" ? "intention" : verified ? "verified_narration" : disputed ? "disputed_narration" : "legacy_narration", acceptedChanges });
   }
+  // A short SQL result may still omit a requested source (missing row or reference cap).
+  // This reports known delivery loss, not semantic sufficiency or complete role coverage.
+  const deliveredTurns = new Set(sources.map(source => source.turn));
+  truncated ||= requestedSourceTurns.some(turn => !deliveredTurns.has(turn));
   return { completeHistory: false, truncated, sources };
 }
