@@ -242,12 +242,6 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   if (narrativeConfig.enabled && cfg.canUseLive) {
     try { agreements = await loadAgreementHistory(db, sessionId, nextTurn); }
     catch { return { ok: false, code: "AI_FAILED", message: "Не удалось загрузить историю договорённостей. Ход не сохранён; повторите попытку." }; }
-    try {
-      evidence = snapshotNarrativeEvidence(await runSearchQuery(pool, buildNarrativeEvidenceQuery({
-        sessionId, beforeTurn: nextTurn, action: playerAction,
-        sourceTurns: mems.flatMap(m => [m.turnFrom, m.turnTo].filter((n): n is number => typeof n === "number")),
-      }), Date.now() + Math.min(2000, remainingMs())));
-    } catch { evidence.truncated = true; }
   }
   const agreementContext = agreements.map(({ source, ...revision }) => ({ ...revision,
     source: { kind: source.kind, originTurnId: source.originTurnId, textSha256: source.textSha256 }, authority: "confirmed_event" }));
@@ -284,6 +278,20 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     }
   }
   timings.retrievalMs = Math.round(performance.now() - retrievalStarted);
+  // Assemble once, after retrieval: generation, guard and audit share the same originals.
+  // Retrieval failures still use the previous global/lexical/recent-history fallback.
+  const evidenceStarted = performance.now();
+  if (narrativeConfig.enabled && cfg.canUseLive) {
+    const validSourceTurn = (n: number | null): n is number => Number.isSafeInteger(n) && n !== null && n > 0 && n < nextTurn;
+    const prioritySourceTurns = retrieved.flatMap(node => [node.sourceTurn, node.turnTo]).filter(validSourceTurn);
+    const sourceTurns = [...prioritySourceTurns, ...mems.flatMap(node => [node.turnFrom, node.turnTo]).filter(validSourceTurn)];
+    try {
+      evidence = snapshotNarrativeEvidence(await runSearchQuery(pool, buildNarrativeEvidenceQuery({
+        sessionId, beforeTurn: nextTurn, action: playerAction, sourceTurns, prioritySourceTurns,
+      }), Date.now() + Math.min(2000, remainingMs())), sourceTurns);
+    } catch { evidence.truncated = true; }
+  }
+  timings.contextMs += Math.round(performance.now() - evidenceStarted);
   const retrievedIds = new Set(retrieved.map((r) => r.id));
   const memoryDigest = assembleMemoryDigest(
     mems.map((m) => ({ id: m.id, layer: m.layer, title: m.title, content: m.content, importance: m.importance, salience: m.salience, turnTo: m.turnTo ?? undefined })),
