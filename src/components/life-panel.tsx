@@ -75,7 +75,7 @@ export function LifePanel({ sessionId, world, canEdit, disabled, interactionStat
         <small>{[c.parties.join(", "), c.place, c.due ? formatClock(c.due) : ""].filter(Boolean).join(" · ") || "Без срока"}</small>
         {(overdue || soon) && <small className="lx-alert"><CalendarClock size={12} />{overdue ? "Срок прошёл — мир может отреагировать" : "Скоро срок"}</small>}
         <CommitmentHistory commitment={c} />
-        {canEdit && <CommitmentControls key={JSON.stringify(c)} sessionId={sessionId} commitment={c} currentDay={life.clock.day} disabled={disabled} onSaved={onSaved} />}
+        {canEdit && <CommitmentControls sessionId={sessionId} commitment={c} currentDay={life.clock.day} disabled={disabled} onSaved={onSaved} />}
       </div>;
     }) : <p className="gx-side-hint">Встречи, обещания и сделки появятся, когда вы договоритесь с кем-то в истории. Предложение не равно согласию: статус меняется только после ответа другой стороны.</p>}
     {!!closed.length && <details className="lx-closed"><summary>Закрытые · {closed.length}</summary>{closed.map((c) => <div key={c.id} className="cx-closed"><p>{c.title} — {COMMITMENT_LABELS[c.status].toLowerCase()}</p><CommitmentHistory commitment={c} />{canEdit && <CommitmentControls key={JSON.stringify(c)} sessionId={sessionId} commitment={c} currentDay={life.clock.day} disabled={disabled} onSaved={onSaved} />}</div>)}</details>}

@@ -39,6 +39,10 @@ POLLINATIONS_REDIRECT_URI=https://your-domain.example/api/settings/pollinations/
 
 Структурированный JSON и стрим проходят существующие parser/guard/reducer/lease/atomic commit. Указание JSON schema провайдеру само по себе не означает принятие результата сервером. Пакеты SSE, оборванный поток, ошибка провайдера, отмена и лимит ответа проверяются транспортом. Ключи и сырые ответы ошибок не включаются в диагностику.
 
+Для external transport лимит assembled SSE frame учитывает newline между data-строками. Wire bytes считаются также для ignored fields; ограничения content/frame/wire проверяются отдельно. Исключение synchronous start/text callback или sync/async telemetry callback заканчивает попытку безопасным CALLBACK_ERROR и не вызывает новый provider request. Уже переданная successful telemetry не переотправляется как ошибка провайдера. Это не расширяет обработку async void callbacks или deadline зависшего callback. [Локальные регрессии и границы](p2-boundary-test-coverage-2026-10-15.md).
+
+Публичный каталог разделяет незавершённый fetch между одновременными вызовами одного provider, возвращает отдельные копии записей и сохраняет успешный результат на 60 секунд с момента завершения загрузки. На точной границе TTL выполняется новая загрузка; ошибка не отравляет pending/cache и позволяет немедленный повтор. Кэш остаётся внутри процесса и не гарантирует upstream доступность.
+
 ## API
 
 - `GET/POST /api/settings/text-provider`: чтение безопасного представления и изменение настройки текущего владельца.
@@ -49,6 +53,8 @@ POLLINATIONS_REDIRECT_URI=https://your-domain.example/api/settings/pollinations/
 - `GET /api/settings/pollinations/callback`: owner/state-bound обмен одноразового кода.
 
 ## Проверка и границы
+
+Поздний ответ сохранения общих настроек сохраняет новые правки, внесённые после отправки: canonical значения принимаются только для полей, которые пользователь с тех пор не менял. Новый введённый ключ остаётся в форме. Если такие правки появились во время «Сохранить и вернуться», форма остаётся открытой с сообщением, что отправленный вариант сохранён, а новые изменения ещё ожидают сохранения. Ошибки503/409 настройки рассказчика также оставляют draft/key для повтора. Actual handler round trip и отдельные Chromium fixtures описаны в [локальном отчёте](p2-ui-persistence-test-coverage-2026-10-15.md); synthetic browser API не заменяют проверку production handler.
 
 Общий transport deadline Gemini распространяется также на чтение JSON/SSE и callbacks; read/cancel, игнорирующий AbortSignal, не удерживает application promise бесконечно. Explicit usage `0` сохраняется, unknown usage не выдаётся за достоверный ноль. Ошибки и terminal telemetry используют безопасные коды. Нулевые персональные Flash/Lite/embedding limits сохраняются через settings API и прекращают новые вызовы до fetch; это допустимый запрет расхода, а не автоматический minimum 1. [Текущие регрессии и ограничения](test-coverage-audit-2026-10-09.md).
 

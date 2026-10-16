@@ -8,8 +8,10 @@ async function main() {
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
     await installUiMock(page);
+    // Prefetched server pages require a database; this fixture owns only mocked API data.
+    await page.route(url => url.searchParams.has("_rsc"), route => route.abort());
     let unavailable = true;
-    await page.route(`**/api/sessions/${mockSessionId}`, route => route.fulfill({ json: { ...mockSnapshot,
+    await page.route(url => url.pathname === `/api/sessions/${mockSessionId}`, route => route.fulfill({ json: { ...mockSnapshot,
       turns: mockSnapshot.turns.map(turn => turn.role === "narrator" && turn.turnNumber === 3 ? { ...turn, modelUsed: "fixture-model", contextMeta: {
         narrativeVerification: { checks: [{ status: unavailable ? "unavailable" : "verified" }] },
       } } : turn),
@@ -34,9 +36,12 @@ async function main() {
     await expect(note).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: "output/playwright/security-indicator/mobile.png" });
+    // Identity is mocked above; do not send the server-issued guest cookie into DB validation.
+    await page.context().clearCookies();
     await page.reload();
     await expect(note).toHaveCount(1);
     unavailable = false;
+    await page.context().clearCookies();
     await page.reload();
     await expect(note).toHaveCount(0);
     expect(errors).toEqual([]);

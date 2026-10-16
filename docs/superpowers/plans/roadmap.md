@@ -1,6 +1,6 @@
 # Chronicle Engine — Roadmap
 
-> Актуальный срез: **проверка оставшихся P1 и исправления, 10 октября 2026**.
+> Актуальный срез: **карта и диалоги в Firefox/WebKit, 16 октября 2026**.
 > Этот файл — единый список текущих статусов и приоритетов. Планы отдельных версий ниже — исторические документы, а не параллельные актуальные roadmap.
 > «Реализовано» означает наличие в коде; успешное развёртывание и качество реального AI требуют отдельных проверок. Сроки будущих этапов не назначены.
 
@@ -9,6 +9,48 @@
 Дополнение после выборочной интеграции 2.9: [следующие шаги и приоритет JEV-3](../../development-roadmap-2026-09-27.md). **JEV-3 — универсальное применение Jev для задач проекта — важный приоритет P1 ближайшего цикла.** Общий слой Choice и адаптеры реализованы; следующий шаг — размеченная оценка механик и отдельный допуск наблюдения. [Дополнения поставки и границы](../../revision-29-addendum-review.md).
 
 ## Продуктовые решения
+
+### Карта и диалоги в Firefox/WebKit — 15–16.10.2026
+
+Исправлены четыре воспроизведённые причины: Firefox implicit scrollport Tab stops и частично скрытые focused cards, WebKit pointer opener и выход увеличенного inline scrollport за короткий viewport. Read-only native scrolling, Enter/Space, Escape, nested/suspended/inert lifecycle и русские accessible names сохраняются. [Причины, регрессии и границы доказательств](../../map-dialog-cross-browser-2026-10-15.md).
+
+Итоговые174/174 executions прошли:20 dense,16 keyboard и22 Dialog cases на каждом из Chromium/Firefox/WebKit; четыре новых activation guards дополняют прежние18 Dialog cases. Owner18/settings22, focused graph/discovery32, type/lint/docs и штатный isolated Turbopack build также прошли. Заморожены450 code/test/script/config inputs. Добавлена отдельная Ubuntu CI matrix без БД и provider environments; её точные команды проверены локально. Локальный engine run на Windows не заменяет ручные NVDA/VoiceOver, системный Safari/iOS, hosted Linux CI или app-wide WCAG conformance. Ordinary1026 остаётся предыдущим full run; browser executions учитываются отдельно. Independent review и доставка фиксируются в отчёте и inventory; прежние task IDs сохранены.
+
+### Читаемость плотной карты и a11y — 15.10.2026
+
+Номерной обзор с группировкой соседних точек и единственный список полных названий устраняют absolute-label overlap и line-clamp. Видимые маршруты, current/danger/read-only semantics, native keyboard/touch targets и forced-colors outline сохранены или дополнены. Общий Dialog изолирует фон через inert с поддержкой nested/suspended/StrictMode lifecycle; read-only карта получает именованную область для клавиатурной прокрутки. [Регрессионные проверки и пределы](../../dense-map-accessibility-2026-10-15.md).
+
+Итоговые20 map и18 modal cases, существующие16 keyboard/18 owner/22 settings, focused graph/discovery32, typecheck/lint и штатный isolated Turbopack build прошли. Независимый review повторил20/18/16 и не оставил открытых scoped findings;449 code/test/script/config files проверены по hashes. Предыдущий ordinary1026 остаётся отдельным run; browser evidence не прибавляется к ordinary count. Ручной screen reader, cross-browser и app-wide WCAG conformance остаются отдельными проверками; прежние task IDs сохранены.
+
+### P2 world-graph, клавиатурная карта и WebVitals — 15.10.2026
+
+Добавлено22 ordinary registrations для current graph: thresholds/finite geometry/NaN/empty/single/purity, genuine9RED исправлены независимыми конечными bounds и center fallback. Actual WorldMap/Dialog16 desktop/mobile keyboard cases originalGREEN, компоненты без изменений. Actual WebVitals25 privacy/lifecycle cases и отдельные genuine RED/fixes описаны в [отчёте](../../p2-map-vitals-test-coverage-2026-10-15.md); [план](2026-10-15-p2-map-vitals-coverage.md).
+
+Full ordinary **1026/1026**, type/lint/docs/default isolated Turbopack build прошли; independent graph36/map16/vitals25 без открытых findings. Freeze447files, historical LCOV сохранены; доставка фиксируется в отчёте. Dense mobile map label overlap/truncation остаётся наблюдаемым visual gap; keyboard coverage не establishes visual legibility. Vitals fixtures не field-performance или full Next deployment measurement. Independent semantic/live evaluation и прежние task IDs сохранены.
+
+### P2 settings, UI и populated legacy migrations — 15.10.2026
+
+Добавлено7 ordinary registrations: actual provider POST→GET5 и populated pre0000 journal upgrade/replay/rollback2 — original GREEN без изменений handlers/schema/journal. Actual React Chromium: settings22 named checks и PlayRoom18 desktop/mobile cases. Genuine stale-response RED исправлен сохранением нового draft/key и запретом преждевременного save-and-close; social/commitment/arc focus6RED исправлены,8 delayed controls сохраняют намеренно перемещённый фокус. Keyboard item retain/remove4 исходно GREEN. [Контракты, raw evidence и пределы](../../p2-ui-persistence-test-coverage-2026-10-15.md), [план](2026-10-15-p2-ui-persistence-coverage.md).
+
+Full ordinary **1004/1004**, type/lint/docs и штатный isolated Turbopack build прошли; independent review10node/22settings/18owner без открытых findings. Freeze444files; доставка записывается в отчёт. Browser synthetic APIs не доказывают accepted turn, owner SQL или Next hydration; PGlite supported legacy shape не native deployment readiness. Следующие named local P2: current world-graph thresholds/coordinates/keyboard и WebVitals privacy/lifecycle; independent semantic/live evaluation остаётся отдельным scope. Прежние task IDs сохранены.
+
+### P2 batches, social evidence и providers — 15.10.2026
+
+Добавлено86runtime registrations для строк4/7/20: parser/reducer24, social/time/persisted verdict47, provider/cache15. Исправлены воспроизведённые numeric coercion exceptions, recurring overnight day1 overlap и external SSE newline/callback error boundaries. Sequential inventory semantics и quantity default1 сохранены. Public catalog уже корректен: pending/clone/provider/TTL/failure/recovery получили tests без production изменения. [Контракты, genuine RED и пределы](../../p2-boundary-test-coverage-2026-10-15.md), [план](2026-10-15-p2-boundary-test-coverage.md).
+
+Full ordinary **997/997**, type/lint/docs и штатный isolated Turbopack build прошли. Independent review86/86 без открытых findings; source freeze440files, runtime/type corrections завершены до него. Доставка фиксируется в отчёте. Quote provenance и authored verifier refusal остаются разными доказательствами; semantic entailment/live quality не объявляются решёнными. Остальные settings/UI/map/reporter/legacy migration/evaluation P2 и прежние task IDs сохраняются. Схема, миграции и зависимости не менялись.
+
+### P2 ресурсы, transfers/intent и таймеры — 15.10.2026
+
+Добавлено 58 runtime registrations в трёх ordinary файлах для строк 3/5/6 матрицы. Literal HP/XP/DC/risk и failure rewards уже работали корректно. Genuine RED воспроизвёл claim-передачу последнего предмета, ошибочное лекарственное/пациентское основание и неограниченное чтение таймеров; transfer gate теперь требует act, а лекарственный гейт получает transient resolved consume identity и сохраняет patient boundary. Timer parser согласован с существующими portable bounds; midnight refresh/exact expiry/orphan и supported give/partial/full return получили проверки. [Контракт, доказательства и пределы](../../p2-state-test-coverage-2026-10-15.md), [план](2026-10-15-p2-state-test-coverage.md).
+
+Full ordinary **911/911**, type/lint/docs и штатный isolated Turbopack production build прошли. Независимое review:96/96 focused, без открытых замечаний. Type-only fixture correction имеет одинаковый transpiled JS и fresh8/8/typecheck; исходный production стабилен на всём full run. Доставка фиксируется в связанном отчёте. Существующие proposed commitments и XP за провал сохранены; SQL-схема, миграции и portable allowlist не менялись. Ограниченная русская эвристика не является семантическим доказательством; single-holder return не закрывает same-name multi-holder ambiguity. Оставшиеся P2 batch/social/provider/UI/map/legacy migration/evaluation и прежние task IDs сохраняются.
+
+### P2 checkpoints/forks, поиск памяти и evidence —11.10.2026
+
+Проверены названные локальные P2 строки9/14/16. Исправлен завышенный source.end договора; усилена внутренняя runtime verifier envelope граница, а legacy поиск получил тот же UUID tie order, что SQL. Checkpoint production не менялся: новые actual-service/PGlite tests подтверждают cap/conflicts/delete/rollback. Добавлено29runtime registrations в3ordinary файлах; девять mutation controls восстановлены побайтно. [Контракты, genuine RED и пределы](../../p2-persistence-memory-evidence-2026-10-11.md), [план](2026-10-11-p2-persistence-memory-evidence.md).
+
+Full ordinary **853/853**, type/lint/docs и isolated production build прошли; независимое review не нашло новых production defects. После type-only fixture correction affected9/9/typecheck прошли и transpiled output идентичен. Подлинная цитата доказывает источник; authored semantic verdict проверяет propagation. Jev snapshotVersion остаётся localmetadata, replay проверяет body binding; новый wire protocol не вводится. PGlite не native contention/readiness; предыдущие native38 остаются историческим10.10 evidence. Остальные P2 арифметики/transfers/timers/social/providers/UI/maps/legacy migrations/evaluation и существующие task IDs сохраняются.
 
 ### Остальные названные P1 — 10.10.2026
 

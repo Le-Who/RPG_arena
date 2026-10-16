@@ -8,6 +8,36 @@ concurrency:
   group: chronicle-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  map-dialog-browsers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    env:
+      CHRONICLE_AUTO_MIGRATE: "0"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Map labels, keyboard navigation and modal lifecycle
+        run: |
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/world-map-dense-a11y-browser.ts --browser=${{ matrix.browser }} --final
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/world-map-keyboard-p2-browser.ts --browser=${{ matrix.browser }} --final
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/dialog-inert-a11y-browser.ts --browser=${{ matrix.browser }} --final
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: map-dialog-${{ matrix.browser }}
+          path: |
+            output/playwright/map-cross-browser/${{ matrix.browser }}
+            output/p2-map-cross-browser/${{ matrix.browser }}-*
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25

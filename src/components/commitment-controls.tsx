@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarClock, Check, CircleSlash, RotateCcw, X } from "lucide-react";
 import { api } from "@/lib/api-client";
 import type { Commitment } from "@/lib/world-life";
@@ -20,10 +20,18 @@ export function CommitmentControls({ sessionId, commitment, currentDay, disabled
   const [rescheduling, setRescheduling] = useState(false);
   const [day, setDay] = useState(Math.max(commitment.due?.day ?? currentDay, currentDay));
   const [time, setTime] = useState(commitment.due ? formatMinute(commitment.due.minute) : "12:00");
+  const rescheduleRef = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (busy || rescheduling || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    if (document.activeElement === document.body) rescheduleRef.current?.focus();
+  }, [busy, rescheduling]);
   const send = async (action: CommitmentAction, extra: { day?: number; time?: string } = {}) => {
     setBusy(true); setError("");
     try {
       await api(`/api/sessions/${sessionId}/commitments`, { method: "PATCH", body: JSON.stringify({ id: commitment.id, version: await commitmentVersion(commitment), action, ...extra }) });
+      restoreFocus.current = action === "reschedule";
       setRescheduling(false);
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось сохранить отметку"); }
@@ -38,7 +46,10 @@ export function CommitmentControls({ sessionId, commitment, currentDay, disabled
   return <div className="cx-actions" role="group" aria-label={`Исход договорённости «${commitment.title}»`}>
     <button type="button" className="cx-button" disabled={locked} onClick={() => void send("fulfilled")}><Check size={12} aria-hidden="true" />{OWNER_ACTION_LABELS.fulfilled}</button>
     <button type="button" className="cx-button" disabled={locked} onClick={() => void send("missed")}><CircleSlash size={12} aria-hidden="true" />{OWNER_ACTION_LABELS.missed}</button>
-    <button type="button" className="cx-button" disabled={locked} aria-expanded={rescheduling} onClick={() => setRescheduling((value) => !value)}><CalendarClock size={12} aria-hidden="true" />{OWNER_ACTION_LABELS.reschedule}</button>
+    <button ref={rescheduleRef} type="button" className="cx-button" disabled={locked} aria-expanded={rescheduling} onClick={() => {
+      if (!rescheduling) { setDay(Math.max(commitment.due?.day ?? currentDay, currentDay)); setTime(commitment.due ? formatMinute(commitment.due.minute) : "12:00"); }
+      setRescheduling((value) => !value);
+    }}><CalendarClock size={12} aria-hidden="true" />{OWNER_ACTION_LABELS.reschedule}</button>
     <button type="button" className="cx-button" disabled={locked} onClick={() => void send("cancelled")}><X size={12} aria-hidden="true" />{OWNER_ACTION_LABELS.cancelled}</button>
     {rescheduling && <form className="cx-reschedule" onSubmit={(event) => { event.preventDefault(); void send("reschedule", { day, time }); }}>
       <label>День<input type="number" min={currentDay} max={100000} step={1} value={day} onChange={(event) => setDay(Number(event.target.value) || currentDay)} required /></label>

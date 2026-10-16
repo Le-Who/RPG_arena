@@ -36,17 +36,18 @@ export function mapEdges<T extends GraphNode>(nodes: T[]): GraphEdge<T>[] {
  * `spread` не даёт двум-трём точкам растянуться по углам.
  */
 export function projector(nodes: GraphNode[], inset = 14, spread = 0.62) {
-  const xs = nodes.map((n) => n.x), ys = nodes.map((n) => n.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  // Невалидная координата не портит диапазон остальных точек или другую ось.
+  const xs = nodes.map((n) => n.x).filter(Number.isFinite), ys = nodes.map((n) => n.y).filter(Number.isFinite);
+  const minX = xs.length ? Math.min(...xs) : 0, maxX = xs.length ? Math.max(...xs) : 0;
+  const minY = ys.length ? Math.min(...ys) : 0, maxY = ys.length ? Math.max(...ys) : 0;
   const rangeX = maxX - minX, rangeY = maxY - minY;
   const usable = 100 - inset * 2;
   // Мало точек или вырожденный диапазон — сжимаем к центру, а не к краям.
   const factorX = rangeX === 0 ? 0 : Math.min(1, nodes.length > 3 ? 1 : spread);
   const factorY = rangeY === 0 ? 0 : Math.min(1, nodes.length > 3 ? 1 : spread);
   return (x: number, y: number) => {
-    const nx = rangeX === 0 ? 0.5 : (x - minX) / rangeX;
-    const ny = rangeY === 0 ? 0.5 : (y - minY) / rangeY;
+    const nx = rangeX === 0 || !Number.isFinite(x) ? 0.5 : (x - minX) / rangeX;
+    const ny = rangeY === 0 || !Number.isFinite(y) ? 0.5 : (y - minY) / rangeY;
     const centeredX = 0.5 + (nx - 0.5) * factorX;
     const centeredY = 0.5 + (ny - 0.5) * factorY;
     return { left: inset + centeredX * usable, top: inset + centeredY * usable };

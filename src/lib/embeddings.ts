@@ -211,7 +211,7 @@ async function searchMemoryLegacy(opts: SearchOptions): Promise<{ results: Retri
     const score = similarity * 0.55 + n.importance / 100 * 0.2 + Math.max(0, 1 - age / 60) * 0.1 + n.salience / 100 * 0.05 + provenance * 0.1;
     scored.push({ id: n.id, layer: n.layer, category: n.category, title: n.title, content: n.content, importance: n.importance, salience: n.salience, source: n.source, sourceTurn: n.sourceTurn, turnTo: n.turnTo, evidence: n.evidence, similarity, score, why: `Сходство ${Math.round(similarity * 100)}% · ${n.source} · ход ${n.sourceTurn ?? 1}` });
   }
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const perLayer: Record<string, number> = {};
   const results: RetrievedNode[] = [];
   for (const n of scored) {

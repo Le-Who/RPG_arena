@@ -24,6 +24,11 @@ function compatibleSchema(value: unknown): unknown {
 type Usage = { prompt_tokens?: number; completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number }; prompt_tokens_details?: { cached_tokens?: number } };
 type Completion = { error?: unknown; choices?: { index?: number; delta?: { content?: unknown }; message?: { content?: unknown; refusal?: unknown }; finish_reason?: string | null }[]; usage?: Usage };
 
+class CallbackFailure extends Error { constructor() { super("CALLBACK_ERROR"); } }
+function callback(operation: () => void) {
+  try { operation(); } catch { throw new CallbackFailure(); }
+}
+
 /** Reads stay cancellable after headers, even for a synthetic or stalled stream. */
 async function readCompletion(response: Response, signal: AbortSignal, onText?: (delta: string) => void) {
   if (!response.body) throw new Error("EMPTY_RESPONSE");
@@ -39,7 +44,7 @@ async function readCompletion(response: Response, signal: AbortSignal, onText?: 
     if (typeof delta === "string") {
       text += delta;
       if (text.length > 200_000) throw new Error("RESPONSE_TOO_LARGE");
-      if (delta) onText?.(delta);
+      if (delta) callback(() => onText?.(delta));
     }
     if (choice?.finish_reason) finish = choice.finish_reason;
     if (data.usage) usage = data.usage;
@@ -48,7 +53,7 @@ async function readCompletion(response: Response, signal: AbortSignal, onText?: 
   const line = (value: string) => {
     if (value.startsWith("data:")) {
       const payload = value.slice(5).trimStart();
-      frameSize += payload.length;
+      frameSize += payload.length + (lines.length ? 1 : 0);
       if (frameSize > 250_000) throw new Error("STREAM_FRAME_TOO_LARGE");
       lines.push(payload);
     } else if (!value && lines.length) {
@@ -124,10 +129,14 @@ export async function callTextWithConfig(cfg: TextConfig, opts: GeminiCallOption
     if (opts.signal?.aborted) throw new QuotaAdmissionError("QUOTA_ADMISSION_CANCELLED", attempts);
     if (signal.aborted) throw new QuotaAdmissionError("QUOTA_ADMISSION_TIMEOUT", attempts);
     const started = Date.now();
-    let retryable = true;
-    opts.onAttemptStart?.();
+    let retryable = true, fetched = false, reported = false;
+    const report = async (info: Parameters<NonNullable<GeminiCallOptions["onAttempt"]>>[0]) => {
+      reported = true;
+      try { await opts.onAttempt?.(info); } catch { throw new CallbackFailure(); }
+    };
     try {
-      attempts++;
+      callback(() => opts.onAttemptStart?.());
+      attempts++; fetched = true;
       const response = await fetch(ENDPOINTS[provider], {
         method: "POST", redirect: "error", signal,
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
@@ -151,13 +160,21 @@ export async function callTextWithConfig(cfg: TextConfig, opts: GeminiCallOption
       const tokens = (value: unknown, fallback: number) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
       const promptTokens = tokens(usage?.prompt_tokens, Math.ceil((opts.system.length + opts.user.length) / 3.5));
       const completionTokens = tokens(usage?.completion_tokens, Math.ceil(text.length / 3.5));
-      await opts.onAttempt?.({ model, keyIndex: 0, ok: true, latencyMs, promptTokens, completionTokens });
+      await report({ model, keyIndex: 0, ok: true, latencyMs, promptTokens, completionTokens });
       return { text, model, keyIndex: 0, latencyMs, promptTokens, completionTokens,
         thoughtTokens: tokens(usage?.completion_tokens_details?.reasoning_tokens, 0), cachedTokens: tokens(usage?.prompt_tokens_details?.cached_tokens, 0) };
     } catch (error) {
       if (opts.signal?.aborted) throw opts.signal.reason;
+      if (error instanceof CallbackFailure) {
+        if (fetched && !reported) {
+          try { await report({ model, keyIndex: 0, ok: false, latencyMs: Date.now() - started, error: "CALLBACK_ERROR" }); }
+          catch { /* A failed logger must not replace the safe callback error or trigger a retry. */ }
+        }
+        throw new Error("CALLBACK_ERROR");
+      }
       lastError = error instanceof Error && /^HTTP \d{3}: провайдер текста недоступен$/.test(error.message) ? error.message : safeError(error, signal);
-      await opts.onAttempt?.({ model, keyIndex: 0, ok: false, latencyMs: Date.now() - started, error: lastError });
+      try { await report({ model, keyIndex: 0, ok: false, latencyMs: Date.now() - started, error: lastError }); }
+      catch { throw new Error("CALLBACK_ERROR"); }
       if (!retryable || round === 1) break;
     }
     if (deadline - Date.now() <= retryAfterMs + 250) throw new Error(`AI_DEADLINE:${lastError}`);

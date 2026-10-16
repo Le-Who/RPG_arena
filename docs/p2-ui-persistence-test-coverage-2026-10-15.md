@@ -1,0 +1,33 @@
+# P2 настройки, UI и заполненная legacy-база — 15.10.2026
+
+Этап продолжает [матрицу](testing/coverage-matrix-2026-10-09.md), строки 20/22/24, после [997 ordinary registrations](p2-boundary-test-coverage-2026-10-15.md). [План](superpowers/plans/2026-10-15-p2-ui-persistence-coverage.md) задаёт отдельные области ответственности: production settings handlers, реальные React-компоненты в Chromium и production migration runner поверх заполненных legacy-таблиц.
+
+Работа идёт в ранее подключённом worktree. До изменений сохранены 568 main preimages и предыдущий LCOV с SHA-256 `016b6161668d2b0b2734f08207f99263ac02a055a2b77dd9d86d6224319dbdf9`. Предыдущие изменения сохраняются. Сабагенты: gpt-6.1-sol, high reasoning для integration задач и независимого review.
+
+## Контракты и доказательства
+
+`tests/provider-settings-roundtrip-p2.test.ts`: пять новых ordinary registrations вызывают actual POST/GET через identity cookies и disposable PGlite. Проверяются выбранные OpenRouter/Pollinations model/live config, sealed owner credentials, сохранение отсутствующего в запросе ключа, очистка только выбранного ключа, guest/account isolation, неизменность всей строки при rejected input и отсутствие заимствования ключа другого провайдера. Initial GREEN5/5: production settings handler/library не менялись.
+
+`scripts/settings-draft-p2-browser.ts`: actual TextProviderSettings и SettingsPanel в isolated Chromium. По 11 named checks на desktop1280/mobile390: provider503/409 оставляют draft/key, keyboard retry отображает canonical safe response, reopen/reload и clearKey проходят с точными payloads. Для SettingsPanel retained genuine RED: сохранение A=30 и keyA, новое редактирование B=41/keyB во время запроса, поздний ответ A возвращал поле к30. Теперь canonical response обновляет только поля, не изменившиеся после отправки; keyB сохраняется. Revision guard возвращает false и оставляет save-and-close открытым с сообщением о новых несохранённых изменениях. Затем503 сохраняет B и keyboard retry отправляет именно B. Первый setup timeout сохранён отдельно от behavioral RED. Browser fixtures не вызывают actual SQL handlers.
+
+`tests/legacy-migration-replay-p2.test.ts`: две новые ordinary registrations реконструируют один поддерживаемый pre0000/v1 shape без ledger. Заполнены две кампании, связанные player/narrator turns, inventory, parent/child memory/link/vector, settings, preferences и telemetry. Actual applyMigrations исполняет полный journal; literal значения, ID, timestamps, defaults, Russian search backfill, FK и exact ledger сохраняются. Повторный запуск возвращает0 и не меняет ни одной строки всех public/Drizzle tables. Поздняя synthetic ошибка после полного journal откатывает также обновление прежней кампании и удаление memory link; retry полного journal проходит. Initial GREEN2/2 и adjacent deploy5/5: historical SQL, meta и runner не менялись. Independent fresh review5/5 подтвердил отсутствие findings и byte equality всех23 migration/meta/runner files с main.
+
+`scripts/owner-composer-p2-browser.ts`: actual PlayRoom, ActionEntityInput, item binding state, useTurnRequest, owner editors и canonical GET refresh. Original keyboard retention/removal4/4 GREEN: точный text и itemIds проходят через реальный parent и POST, удалённая ссылка на предмет снимает ID. Explicit synthetic422 после capture проверяет отправку, а не принятие turn сервером. Original social/commitment/arc6/6 focus RED: literal PATCH и изменённый canon уже верны, но editor close оставляет BODY. Исправления затрагивают social-panel/commitment-controls, stable open commitment identity в LifePanel и finale refresh completion в PlayRoom. Final18/18 включает8 delayed-response cases: пользовательский переход к другому элементу сохраняется, в том числе к ссылке внутри social details; reopened commitment draft принимает canonical day5/16:45. ActionEntityInput и ArcFinale production не менялись. Setup failures, overly broad selector и fixture caret race сохранены отдельно и не объявляются product RED.
+
+Сводные отчёты областей: `settings-report.md`, `owner-report.md`, `migration-report.md`; independent review и его fresh logs — `review.md` и `review-*` в каталоге evidence. Новые7 ordinary registrations и browser22/18 — разные единицы измерения; browser assertions не добавлены к ordinary runtime count или LCOV.
+
+## Общая проверка и доставка
+
+Завершён full ordinary coverage: **1004/1004**, fail/cancelled/skipped/todo0, exit0, 659345.4649ms; было997, добавлено7 registrations в2 файлах. Current LCOV SHA-256: `eb821db6953211e6b760ef35ee9019efd4f8fa4fa9c38f2bd52ca75bc0366aa5`. 176 loaded/52 not-loaded source records — raw V8/tsx transformed subset, не процент исходного TypeScript или всего приложения.
+
+Typecheck и global lint прошли. Default Next16.3.8 Turbopack build exit0 выполнен с physical dependencies в ранее созданной owned temporary copy после проверки440 прежних hashes; все444 frozen inputs совпадают. Build config/dependencies не менялись, .env отсутствовали. Safe runner передаёт OS allowlist/fake loopback DB без provider credentials. Browser coordinator22/18 exit0 и source freeze проверены; visually inspected mobile social focus/canonical fields и mobile saved settings layout.
+
+Independent reviewer gpt-6.1-sol/high не нашёл actionable findings; fresh10node checks,22settings/18owner Chromium. Это separate layers, не суммарное число ordinary tests. Матрица, roadmap и реестр обновлены; documentation checker80 files/324 links exit0, current/history LCOV и log hashes проверены. Membership228source/148tests без пропусков и дублей; ordinary127files/714ASTcallsites и1004runtime registrations остаются разными единицами. Логи, manifests, исходные RED и отчёты областей сохраняются в `output/p2-ui-persistence-coverage/`; browser screenshots — в `output/playwright/`. Generated artifacts локальные, не обязательные tracked файлы проекта.
+
+## Пределы
+
+Локальные тесты не устанавливают качество live моделей, доступность upstream, native PostgreSQL contention или deployment readiness. PGlite проверяет исполняемые SQL и journal replay в одном процессе. Browser fixture сохраняет production компоненты, но использует явные ответы API и минимальные environment stubs. Historical migrations и зависимости сохраняются.
+
+
+
+В main перенесены только 16 файлов этапа после проверки всех 568 исходных preimages. Все 444 source/test/script/config files совпадают побайтно с проверенным freeze; fresh main 7/7 новых ordinary tests, typecheck и lint прошли. Full 1004 и isolated build на идентичных исходниках не дублировались. Main logs, source proof и delivery manifest сохранены рядом. Прежние изменения сохранены; commit/push не выполнялись.

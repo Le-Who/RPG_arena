@@ -68,7 +68,14 @@ export async function guardNarrative(input: {
     const currentState = state();
     const currentSelection = scopeNarrativeChecks(selection, currentState);
     let report: NarrativeVerification;
-    try { report = await input.verify(currentState, structuredClone(currentSelection)); }
+    try {
+      report = await input.verify(currentState, structuredClone(currentSelection));
+      // A custom runtime adapter must still return the typed outer envelope.
+      // Detailed question coverage and probabilities belong to the provider adapter.
+      if (!report || typeof report !== "object" || Array.isArray(report)
+        || !["verified", "rejected", "uncertain", "unavailable", "skipped"].includes(report.status)
+        || !report.answers || typeof report.answers !== "object" || Array.isArray(report.answers)) return fail("verification_failed");
+    }
     catch { return fail("verification_failed"); }
     checks.push(report);
     audit.checkSelections.push(currentSelection);

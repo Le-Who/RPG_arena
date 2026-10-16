@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarClock, Link2, MapPin, Plus, Trash2, Pencil } from "lucide-react";
 import { api, ApiError } from "@/lib/api-client";
 import { readLife } from "@/lib/world-life";
@@ -35,17 +35,24 @@ export function NpcBondDetails({ world, npcKey, sessionId, canEdit = false, disa
   const [slotForm, setSlotForm] = useState({ place: "", from: "09:00", to: "18:00", repeat: "daily" as "daily" | "once", day: String(readLife(world).clock.day), note: "" });
   const [editingSlot, setEditingSlot] = useState<{ id: string; expected: string } | null>(null);
   const [knowText, setKnowText] = useState("");
+  const summaryRef = useRef<HTMLElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (pending || mode !== "none" || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    if (document.activeElement === document.body) summaryRef.current?.focus();
+  }, [pending, mode]);
   if (!bond?.history.length && !bond?.knows.length && !slots.length && !editable) return null;
   const send = async (edit: Record<string, unknown>) => {
     if (!sessionId || disabled || pending) return;
     setPending(true); setError(null);
-    try { await api(`/api/sessions/${sessionId}/social`, { method: "PATCH", body: JSON.stringify(edit) }); setMode("none"); setEditingSlot(null); setKnowText(""); onSaved?.(); }
+    try { await api(`/api/sessions/${sessionId}/social`, { method: "PATCH", body: JSON.stringify(edit) }); restoreFocus.current = mode !== "none"; setMode("none"); setEditingSlot(null); setKnowText(""); onSaved?.(); }
     catch (e) { if (e instanceof ApiError && e.status === 409) { setMode("none"); setEditingSlot(null); onSaved?.(); } setError(e instanceof Error ? e.message : "Не удалось сохранить правку"); }
     finally { setPending(false); }
   };
   const busy = disabled || pending;
   return <details className="sx-bond">
-    <summary>Связь и распорядок</summary>
+    <summary ref={summaryRef}>Связь и распорядок</summary>
     {slots.length > 0 && <ul className="sx-slots">{slots.map((s) => <li key={s.id}><CalendarClock size={11} aria-hidden="true" /> «{s.place}», {formatWindow(s)}{s.note ? ` — ${s.note}` : ""}{s.source === "owner" && <span className="sx-owner" title="Уточнено владельцем кампании"> · владелец</span>}
       {editable && <button type="button" className="sx-remove" aria-label={`Изменить окно «${s.place}», ${formatWindow(s)}`} disabled={busy} onClick={() => { setEditingSlot({ id: s.id, expected: scheduleVersion(s) }); setSlotForm({ place: s.place, from: formatMinute(s.from), to: formatMinute(s.to), repeat: s.repeat, day: String(s.day ?? readLife(world).clock.day), note: s.note }); setMode("slot"); }}><Pencil size={11} aria-hidden="true" /></button>}
       {editable && <button type="button" className="sx-remove" aria-label={`Убрать окно «${s.place}», ${formatWindow(s)}`} title="Убрать окно распорядка" disabled={busy} onClick={() => { void send({ op: "schedule.remove", id: s.id, expected: scheduleVersion(s) }); }}><Trash2 size={11} aria-hidden="true" /></button>}</li>)}</ul>}

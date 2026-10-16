@@ -146,6 +146,12 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     }).catch(() => setSyncError(result.state ? "Ход сохранён. Дополнительные сведения пока не обновились; вы можете продолжать историю." : "Ход сохранён. Не удалось обновить состояние мира — обновите сцену перед следующим действием."));
     if (!suppressScroll) setTimeout(() => { if (!document.querySelector('[role="dialog"]')) document.getElementById(`turn-${result.turnNumber}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
   }, [reload, refresh]);
+  const reloadAfterFinale = useCallback(() => {
+    const shouldRestore = document.activeElement === document.body || !!document.activeElement?.closest(".ax-finale form");
+    void reload().then(() => requestAnimationFrame(() => {
+      if (shouldRestore && document.activeElement === document.body) composerRef.current?.focus();
+    })).catch(() => {});
+  }, [reload]);
   const turnRequest = useTurnRequest(sessionId, onCommitted);
   const isUpdateSafe = turnRequest.isUpdateSafe;
   const draftReady = !!identity && restoredDraft === `${identity.profileId}:${sessionId}`;
@@ -382,7 +388,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
           {(recapState === "open" || recapState === "auto") && <RecapCard sessionId={sessionId} onClose={() => setRecapState("closed")} onNotify={notify} />}
           {turns[0]?.turnNumber > 1 && <button className="gx-load-earlier" onClick={() => void loadEarlier()} disabled={loadingOlder}>{loadingOlder ? <LoaderCircle size={14} className="spin" /> : <ChevronUp size={14} />}Предыдущие главы</button>}
           <FeedTurns turns={turns} heroName={character.name} />
-          <ArcFinale sessionId={sessionId} world={world} turnCount={session.turnCount} canEdit={isOwner} disabled={busy || compacting} onSaved={() => { void reload().catch(() => {}); }} onBranch={() => setShowCheckpoints(true)} />
+          <ArcFinale sessionId={sessionId} world={world} turnCount={session.turnCount} canEdit={isOwner} disabled={busy || compacting} onSaved={reloadAfterFinale} onBranch={() => setShowCheckpoints(true)} />
           <ArcChronicle world={world} />
           {syncError && <div className="notice" role="alert"><p>{syncError}</p><button className="text-button" onClick={() => void reload().catch(() => setSyncError("Связь пока не восстановлена. Ход сохранён; попробуйте обновить сцену ещё раз."))}>Обновить сцену</button></div>}
           {busy && <div className="gx-thinking" aria-live="polite"><span className="gx-thinking-orb"><Sparkles size={18} /></span><div><strong>{currentCommit ? "Ход сохранён · обновляем мир" : TURN_STAGE_LABELS[turnRequest.stage]}</strong><small>Запрос сохранён. Перезагрузка страницы не создаст двойной ход.</small></div><span className="gx-thinking-dots"><i /><i /><i /></span></div>}

@@ -61,7 +61,7 @@
 .gx-change-details ul{list-style:none;padding:0;display:grid;gap:6px}
 .gx-change-details li,.gx-change-details a{display:flex;align-items:center;gap:8px}
 .map-dialog>.dialog-body{padding:16px 24px}
-.map-dialog .gx-map-canvas.is-large{height:min(60dvh,560px);min-height:180px;aspect-ratio:auto}
+.map-dialog .gx-map-canvas.is-large{height:auto;aspect-ratio:auto}
 @media(max-width:860px){
   .creator-dialog>.dialog-body{grid-template-columns:minmax(0,1fr)}
   .creator-art{display:none}

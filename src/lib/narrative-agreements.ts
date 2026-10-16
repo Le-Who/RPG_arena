@@ -69,7 +69,8 @@ export function reduceAgreementProposals(input: {
     else if (p.source?.kind === "player_intent" && (p.status !== "proposed" || !!prior)) reason = "PLAYER_INTENT_IS_NOT_ACCEPTANCE";
     if (p.source?.quote !== undefined) {
       const sourceText = p.source.kind === "player_intent" ? input.playerAction : input.currentNarration;
-      if (p.source.start! < 0 || p.source.end! <= p.source.start! || sourceText.slice(p.source.start, p.source.end) !== p.source.quote) reason = "AGREEMENT_SOURCE_MISMATCH";
+      if (p.source.start! < 0 || p.source.end! <= p.source.start! || p.source.end! > sourceText.length
+        || sourceText.slice(p.source.start, p.source.end) !== p.source.quote) reason = "AGREEMENT_SOURCE_MISMATCH";
     }
     if (reason) { rejected.push({ index, reason }); return; }
     const agreementId = p.agreementId ?? makeId();

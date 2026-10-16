@@ -147,8 +147,6 @@ export function removalCheck(rule: ConditionRule, evidence: RemovalEvidence): { 
   // Deliberately narrow, genre-independent evidence gate. This is a heuristic,
   // not a semantic verifier: a completed hero event AND a relevant action are required.
   const sentences = evidence.narration.split(/[.!?;\n]/).map(normName).filter(s => s && !/(^|\s)(не|нет|без|отказ|отказался|отказалась|если|хотел|хотела|будет|попытался|попыталась)(\s|$)/.test(s));
-  const hero = (s: string) => /(^|\s)(ты|тебя|тебе|твою|твои|твое|твоя|вы|вам|вашу|ваши|герой|героиня)(\s|$)/.test(s)
-    || !!evidence.heroName && (` ${s} `).includes(` ${normName(evidence.heroName)} `);
   const escapedName = normName(evidence.heroName ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const subject = `(?:ты|вы|герой|героиня${escapedName ? "|" + escapedName : ""})`;
   const completedByHero = (verbs: string) => sentences.some(s => new RegExp(`(?:^|\\s)${subject} (?:наконец |хорошо |успешно )?(?:${verbs})(?:\\s|$)`).test(s));
@@ -159,7 +157,8 @@ export function removalCheck(rule: ConditionRule, evidence: RemovalEvidence): { 
     && completedByHero("поел|поела|пообедал|пообедала|поужинал|поужинала|позавтракал|позавтракала|перекусил|перекусила|съел|съела");
   const selfTreatment = /(^|\s)(себя|себе|свою|свои|свое|мне|меня|мою|мои)(\s|$)/.test(action);
   const ingestion = /(^|\s)(выпив|приним|выпью|приму)/.test(action) && completedByHero("выпил|выпила|принял|приняла");
-  const patientConfirmed = sentences.some(s => hero(s) && /(^|\s)(перевязал[аи]?|зашил[аи]?|обработал[аи]?) (твою|вашу|свою) (рану|руку|ногу|плечо)(\s|$)|(^|\s)(вылечил[аи]?|исцелил[аи]?) (тебя|вас|себя)(\s|$)/.test(s));
+  const patientConfirmed = sentences.some(s => /(^|\s)(перевязал[аи]?|зашил[аи]?|обработал[аи]?) (твою|вашу) (рану|руку|ногу|плечо)(\s|$)|(^|\s)(вылечил[аи]?|исцелил[аи]?) (тебя|вас)(\s|$)/.test(s))
+    || completedByHero("(?:перевязал[аи]?|зашил[аи]?|обработал[аи]?) свою (?:рану|руку|ногу|плечо)|(?:вылечил[аи]?|исцелил[аи]?) себя");
   const treated = positiveAction && /(^|\s)(леч|вылеч|перевяз|перевяж|врач|лекар|целит|медиц|противояд|выпив|выпью|прин|приму|бинт|обрабат|обработ|исцел|зелье)/.test(action)
     && ((selfTreatment && patientConfirmed) || ingestion);
   const failedMedical = evidence.dice && !evidence.dice.success && MEDICAL_SKILL.test(normName(evidence.dice.skill ?? ""));
@@ -167,7 +166,7 @@ export function removalCheck(rule: ConditionRule, evidence: RemovalEvidence): { 
   for (const trigger of rule.cure) {
     if (trigger === "time" || trigger === "scene") return { ok: true, reason: "" };
     if ((trigger === "rest" || trigger === "sleep") && rest && evidence.minutes >= (rule.restMinutes ?? 120)) return { ok: true, reason: "" };
-    if (trigger === "medicine" && treated && !failedMedical && item(medicine)) return { ok: true, reason: "" };
+    if (trigger === "medicine" && treated && !failedMedical && evidence.consumed.some(i => (!i.kind || i.kind === "consumable") && medicine.test(normName(i.name)))) return { ok: true, reason: "" };
     if (trigger === "food" && meal && (item(FOOD) || evidence.goldSpent > 0)) return { ok: true, reason: "" };
     if (trigger === "treatment" && treated && !failedMedical && ((evidence.dice?.success && MEDICAL_SKILL.test(normName(evidence.dice.skill ?? ""))) || evidence.goldSpent > 0 || evidence.minutes >= 30)) return { ok: true, reason: "" };
   }
@@ -206,11 +205,17 @@ export function readConditionTimers(world: WorldState): ConditionTimers {
   const raw = (world as WorldState & { conditionTimers?: unknown }).conditionTimers;
   if (!isRecord(raw)) return {};
   const out: ConditionTimers = {};
-  for (const [key, value] of Object.entries(raw)) {
+  let count = 0;
+  // Match the portable-state limits, preserving legacy numeric coercion/defaults.
+  for (const key in raw) {
+    if (!Object.hasOwn(raw, key) || !key || key.length > 100 || ["__proto__", "prototype", "constructor"].includes(key)) continue;
+    const value = raw[key];
     if (!isRecord(value) || !isRecord(value.expiresAt)) continue;
     const day = Number(value.expiresAt.day), minute = Number(value.expiresAt.minute);
     if (!Number.isFinite(day) || !Number.isFinite(minute)) continue;
-    out[key] = { expiresAt: { day: Math.max(1, Math.floor(day)), minute: Math.max(0, Math.min(24 * 60 - 1, Math.floor(minute))) }, sinceTurn: Number(value.sinceTurn) || 0 };
+    const sinceTurn = Number(value.sinceTurn);
+    out[key] = { expiresAt: { day: Math.max(1, Math.min(1_000_000, Math.floor(day))), minute: Math.max(0, Math.min(24 * 60 - 1, Math.floor(minute))) }, sinceTurn: Number.isFinite(sinceTurn) ? Math.max(0, Math.min(1_000_000_000, Math.floor(sinceTurn))) : 0 };
+    if (++count >= 100) break;
   }
   return out;
 }

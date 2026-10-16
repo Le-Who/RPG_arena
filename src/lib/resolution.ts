@@ -204,8 +204,10 @@ export function slugify(s: string): string {
     .slice(0, 48) || "x";
 }
 
+// Numeric fields may arrive as malformed JSON objects; never invoke their coercion hooks.
+const numericValue = (v: unknown) => v !== null && typeof v === "object" ? Number.NaN : Number(v);
 const clampInt = (v: unknown, lo: number, hi: number, dflt = 0) => {
-  const n = typeof v === "number" ? v : Number(v);
+  const n = numericValue(v);
   if (!Number.isFinite(n)) return dflt;
   return Math.max(lo, Math.min(hi, Math.round(n)));
 };
@@ -312,7 +314,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
       ref: str(q.ref, 64) || null,
       title: str(q.title, 120),
       status: QUEST_STATUSES.includes(q.status as QuestStatus) ? (q.status as QuestStatus) : null,
-      progress: q.progress == null || Number(q.progress) < 0 ? null : clampInt(q.progress, 0, 100),
+      progress: q.progress == null || !Number.isFinite(numericValue(q.progress)) || numericValue(q.progress) < 0 ? null : clampInt(q.progress, 0, 100),
       note: str(q.note, 300),
     }))
     .filter((q) => q.title || q.ref);
@@ -453,6 +455,8 @@ export type ApplyInput = {
 
 export type ApplyResult = {
   provisionalIndependentAdds: InventoryOp[];
+  /** Transient evidence from resolved consume operations; never persisted as applied changes. */
+  consumedItems: { id: string; name: string; kind: string }[];
   character: CharacterState;
   world: WorldState;
   applied: AppliedChanges;
@@ -759,6 +763,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
   // ── Инвентарь (INV-1c/d): владение и количество проверяет сервер ──
   const invApplied: AppliedChanges["inventory"] = [];
   const provisionalIndependentAdds: InventoryOp[] = [];
+  const consumedItems: ApplyResult["consumedItems"] = [];
   const invState = input.inventory.map((i) => ({ ...i }));
   let adds = 0;
   for (const op of payload.stateChanges.inventory) {
@@ -816,6 +821,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         invState.splice(invState.indexOf(found), 1);
       } else ops.push({ t: "inv.update", id: found.id, patch: { quantity: found.quantity } });
       invApplied.push({ op: op.op, name: found.name, quantity: qty, ok: true });
+      if (op.op === "consume") consumedItems.push({ id: found.id, name: found.name, kind: found.kind });
       // расходник — лечение по power только для профилей с HP
       if (op.op === "consume" && spec.resources.hp && found.kind === "consumable" && found.power > 0) {
         const heal = Math.min(found.power, character.maxHp - character.hp);
@@ -921,6 +927,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
     character,
     world,
     provisionalIndependentAdds,
+    consumedItems,
     outcome,
     ops,
     events,

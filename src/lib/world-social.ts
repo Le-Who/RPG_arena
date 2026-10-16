@@ -182,7 +182,9 @@ export function schedulesOverlap(a: ScheduleSlot, b: ScheduleSlot): boolean {
   const overlaps = (x: number, y: number) => x < y + duration(b) && y < x + duration(a);
   if (a.repeat === "once" && b.repeat === "once") return overlaps(((a.day ?? 1) - 1) * DAY + a.from, ((b.day ?? 1) - 1) * DAY + b.from);
   const anchor = a.repeat === "once" ? (a.day ?? 1) : b.repeat === "once" ? (b.day ?? 1) : 2;
-  const starts = (s: ScheduleSlot) => (s.repeat === "once" ? [s.day ?? 1] : [anchor - 1, anchor, anchor + 1]).filter(d => d >= 1).map(d => (d - 1) * DAY + s.from);
+  // Daily overnight windows also cover the morning of day 1 (see slotActive).
+  // Keep their virtual day-0 start when comparing against a once window that morning.
+  const starts = (s: ScheduleSlot) => (s.repeat === "once" ? [s.day ?? 1] : [anchor - 1, anchor, anchor + 1]).map(d => (d - 1) * DAY + s.from);
   return starts(a).some(x => starts(b).some(y => overlaps(x, y)));
 }
 

@@ -10,6 +10,9 @@ type Pending = { metric: SampleMetric; value: number; route: string; device: "mo
 const queue: Pending[] = [];
 const reportedResources = new Set<string>();
 const reportedVitals = new Set<string>();
+// Buffered observers replay the same entries after remount. Weak identity tracking
+// preserves distinct equal-timed measures without retaining the document's history.
+const reportedMeasures = new WeakSet<PerformanceEntry>();
 let flushTimer: number | undefined;
 
 function allowed(): boolean {
@@ -20,6 +23,8 @@ function allowed(): boolean {
 
 function flush() {
   if (flushTimer !== undefined) { window.clearTimeout(flushTimer); flushTimer = undefined; }
+  // Privacy may change after enqueue and before any lifecycle/timer drain.
+  if (!allowed()) { queue.length = 0; return; }
   while (queue.length) {
     const samples = queue.splice(0, MAX_BATCH);
     try {
@@ -29,10 +34,11 @@ function flush() {
 }
 
 function enqueue(metric: SampleMetric, value: number, navigationType = "", route = routeTemplate(window.location.pathname)) {
-  if (!allowed() || !Number.isFinite(value) || value < 0) return;
+  if (!allowed() || !Number.isFinite(value) || value < 0) return false;
   queue.push({ metric, value, route, device: window.matchMedia("(max-width:780px)").matches ? "mobile" : "desktop", navigationType });
   if (queue.length >= MAX_BATCH) flush();
   else if (flushTimer === undefined) flushTimer = window.setTimeout(flush, 15_000);
+  return true;
 }
 
 // Web Vitals describe a document lifecycle, not whichever SPA route happens to be
@@ -40,11 +46,10 @@ function enqueue(metric: SampleMetric, value: number, navigationType = "", route
 const reportVital: Parameters<typeof useReportWebVitals>[0] = (metric) => {
   if (!allowed() || !(VITAL_METRICS as string[]).includes(metric.name) || reportedVitals.has(metric.id)) return;
   if (reportedVitals.size >= 1000) return;
-  reportedVitals.add(metric.id);
   const navigation = performance.getEntriesByType("navigation")[0];
   let route = "other";
   try { route = routeTemplate(new URL(navigation?.name ?? window.location.href).pathname); } catch { /* no raw URL fallback */ }
-  enqueue(metric.name as SampleMetric, metric.value, typeof metric.navigationType === "string" ? metric.navigationType : "", route);
+  if (enqueue(metric.name as SampleMetric, metric.value, typeof metric.navigationType === "string" ? metric.navigationType : "", route)) reportedVitals.add(metric.id);
 };
 
 export function WebVitalsReporter() {
@@ -57,8 +62,7 @@ export function WebVitalsReporter() {
         try { url = new URL(entry.name); } catch { continue; }
         const metric = url.origin === window.location.origin ? API_RESOURCE_METRICS[url.pathname] : undefined;
         if (!metric || reportedResources.has(metric)) continue;
-        reportedResources.add(metric);
-        enqueue(metric, entry.duration);
+        if (enqueue(metric, entry.duration)) reportedResources.add(metric);
       }
     };
     let resourceObserver: PerformanceObserver | undefined;
@@ -69,7 +73,10 @@ export function WebVitalsReporter() {
     let observer: PerformanceObserver | undefined;
     try {
       observer = new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) { const metric = TURN_MEASURE_METRICS[entry.name]; if (metric) enqueue(metric, entry.duration); }
+        for (const entry of list.getEntries()) {
+          const metric = TURN_MEASURE_METRICS[entry.name];
+          if (metric && !reportedMeasures.has(entry) && enqueue(metric, entry.duration)) reportedMeasures.add(entry);
+        }
       });
       observer.observe({ type: "measure", buffered: true });
     } catch { observer = undefined; }

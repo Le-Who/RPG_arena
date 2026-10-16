@@ -6,7 +6,7 @@ Migration `0006_database_memory_search` enables `vector` (pgvector) and `pgcrypt
 
 SQL preserves campaign, model, dimension, ready-status and current-content-hash checks. Both sides of the memory/embedding join must belong to the requested campaign. Invalid, empty, zero, non-finite, wrongly sized and multidimensional vectors are excluded. Embedding hashes reproduce the existing JS document formatting, including UTF-16 truncation. Query vectors and other inputs are bound parameters.
 
-The score remains `similarity * .55 + importance / 100 * .2 + freshness * .1 + salience / 100 * .05 + provenance * .1`. The similarity threshold is applied before ranking; layer limits are applied after the weighted ranking, before the final result limit. UUID is now the deterministic tie-breaker for equal scores (the old query did not guarantee ties). Only up to 20 selected nodes, their scores and the matching candidate count leave the database. The game requests 8.
+The score remains `similarity * .55 + importance / 100 * .2 + freshness * .1 + salience / 100 * .05 + provenance * .1`. The similarity threshold is applied before ranking; layer limits are applied after the weighted ranking, before the final result limit. UUID is now the deterministic tie-breaker for equal scores (the old query did not guarantee ties). The rolling-deployment legacy reader also uses ascending UUID for equal scores before layer and final limits. Only up to 20 selected nodes, their scores and the matching candidate count leave the database. The game requests 8.
 
 This is exact search, not an approximate nearest-neighbor index. Database scanning and hash verification remain O(N * dimensions); sorting is also required. HNSW would change candidate recall and must be evaluated separately against the weighted ranking and campaign filtering. Its index dimension limits also differ from the dimensions supported by exact vector operations; do not assume a standard 3072-dimensional vector HNSW index is supported.
 
@@ -54,5 +54,7 @@ These measurements demonstrate removal of unbounded vector transfer, not that ex
 ## Tests
 
 `npm test` includes isolated PostgreSQL tests at 768/1536/3072, weighted relevance beating raw similarity, layer diversity, cross-campaign/model/dimension exclusion, stale hashes, invalid arrays, Unicode, empty results, full migration replay, legacy/new reader switching, no fallback after SQL failure, and connection deadline cleanup. No production database is contacted.
+
+P2 tests also call actual searchMemory repeatedly with one cached query vector while database metadata/content changes; stale document hashes are excluded until refreshed. SQL and legacy ties are compared through literal UUID expectations. [Scope, regressions and limits](p2-persistence-memory-evidence-2026-10-11.md).
 
 References: [pgvector exact search and indexing](https://github.com/pgvector/pgvector), [PGlite extensions](https://pglite.dev/extensions/).

@@ -493,9 +493,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       addedItems: result.applied.inventory.filter((entry) => entry.op === "add" && entry.ok).map((entry) => ({ name: entry.name, quantity: entry.quantity })), makeId: idsFor("life") });
   };
   const enforceConditionRemovals = (narration = payload.narration) => {
-    const consumedItems = result.applied.inventory.filter((entry) => entry.ok && entry.op === "consume")
-      .map((entry) => ({ name: entry.name, kind: inventory.find((item) => normName(item.name) === normName(entry.name))?.kind ?? "" }));
-    const conditionGate = gateConditionRemovals(result.applied.conditions.removed, { intent, minutes: previewLife().applied.clock?.minutes ?? 0, consumed: consumedItems,
+    const conditionGate = gateConditionRemovals(result.applied.conditions.removed, { intent, minutes: previewLife().applied.clock?.minutes ?? 0, consumed: result.consumedItems,
       action: opts.action, heroName: character.name, goldSpent: Math.max(0, -result.applied.gold), narration, dice: dice ? { success: dice.success, skill: dice.skill } : null });
     if (conditionGate.restored.length) {
       const restored = new Set(conditionGate.restored);

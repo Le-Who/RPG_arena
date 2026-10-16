@@ -342,28 +342,35 @@
 .gx-onboarding-examples button:hover:not(:disabled){border-color:var(--accent-line);background:var(--hover);color:var(--ink);transform:translateX(3px)}
 .gx-onboarding-foot{font-size:var(--t-2xs);color:var(--ink-4)}
 
-/* ── World map: SVG geometry with readable HTML labels ───────────────── */
+/* ── World map: numbered overview and full-name location controls ─────── */
 .gx-map-block{margin-bottom:var(--sp-4)}
-.gx-map-canvas{position:relative;width:100%;aspect-ratio:1/1;border:1px solid var(--line);border-radius:var(--r-sm);background:radial-gradient(circle at 30% 25%,oklch(28% .04 296/.35),transparent 55%),radial-gradient(circle at 75% 70%,oklch(26% .05 250/.3),transparent 55%),var(--sunken);overflow:hidden}
-.gx-map-canvas.is-large{aspect-ratio:16/10;border-radius:var(--r-md)}
-.gx-map-svg{position:absolute;inset:0;width:100%;height:100%}
-.gx-map-nodes{position:absolute;inset:0}
-.gx-map-pin{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:3px;padding:0;background:none;border:0;font:inherit;color:inherit;max-width:44%}
-.gx-map-dot{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;border:2px solid var(--pin);background:var(--raised);font-size:16px;line-height:1;transition:transform var(--d2) var(--spring),box-shadow var(--d2) var(--ease)}
-.gx-map-pin.is-current .gx-map-dot{width:42px;height:42px;font-size:19px;background:color-mix(in oklch,var(--pin) 24%,var(--raised));box-shadow:0 0 0 4px color-mix(in oklch,var(--pin) 22%,transparent),0 0 18px color-mix(in oklch,var(--pin) 40%,transparent)}
-.gx-map-name{font-size:var(--t-2xs);font-weight:600;color:var(--ink-2);text-align:center;line-height:1.3;max-width:120px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-shadow:0 1px 4px oklch(12% .01 288/.9),0 0 8px oklch(12% .01 288/.7)}
+.gx-map-canvas{position:relative;width:100%;max-height:min(32rem,60dvh);overflow-y:auto;overscroll-behavior:contain;scroll-padding:8px;border:1px solid var(--line);border-radius:var(--r-sm);background:radial-gradient(circle at 30% 25%,oklch(28% .04 296/.35),transparent 55%),radial-gradient(circle at 75% 70%,oklch(26% .05 250/.3),transparent 55%),var(--sunken)}
+.gx-map-canvas.is-large{max-height:none;overflow:visible;border-radius:var(--r-md)}
+.gx-map-canvas>.sr-only{top:0;left:0}
+.gx-map-svg{display:block;width:100%;height:auto;max-height:13rem;aspect-ratio:8/5}
+.gx-map-svg text{fill:var(--ink);font-size:11px;font-weight:700;font-family:var(--font)}
+.gx-map-hint{padding:0 12px 8px;font-size:var(--t-2xs);line-height:1.5;color:var(--ink-3)}
+.gx-map-nodes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr));gap:8px;list-style:none;margin:0;padding:8px}
+.gx-map-nodes>li{min-width:0}
+.gx-map-pin{display:flex;align-items:center;gap:8px;width:100%;min-width:0;min-height:44px;padding:10px 8px;background:var(--raised);border:1px solid var(--line-2);border-radius:var(--r-xs);font:inherit;color:inherit;text-align:left;scroll-margin:8px}
+.gx-map-number{flex:none;min-width:1.5em;font-size:var(--t-2xs);font-weight:700;color:var(--ink-3);text-align:center;font-variant-numeric:tabular-nums}
+.gx-map-dot{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;border:2px solid var(--pin);background:var(--sunken);font-size:14px;line-height:1}
+.gx-map-pin.is-current{border-color:var(--pin)}
+.gx-map-label{display:block;min-width:0;flex:1}
+.gx-map-name{display:block;font-size:var(--t-xs);font-weight:600;color:var(--ink-2);line-height:1.5;overflow-wrap:anywhere}
 .gx-map-pin.is-current .gx-map-name{color:var(--ink);font-weight:700}
-.gx-map-dot-wrap{position:relative;display:block;line-height:0}
-.gx-map-danger{position:absolute;top:-5px;right:-11px;min-width:20px;height:20px;padding:0 4px;display:grid;place-items:center;border-radius:var(--r-full);background:var(--pin);color:oklch(18% .02 288);font-size:var(--t-2xs);font-weight:700;line-height:1}
+.gx-map-details{display:block;margin-top:2px;font-size:var(--t-2xs);line-height:1.5;color:var(--ink-3);overflow-wrap:anywhere}
+.gx-map-current{font-weight:700;color:var(--ink)}
+.gx-map-routes{padding:8px 12px 12px;font-size:var(--t-2xs);line-height:1.5;color:var(--ink-3);overflow-wrap:anywhere}
+.gx-map-routes strong,.gx-map-routes span{display:block}
 button.gx-map-pin{cursor:pointer}
-button.gx-map-pin:hover .gx-map-dot{transform:scale(1.12)}
-button.gx-map-pin:focus-visible{outline:none}
-button.gx-map-pin:focus-visible .gx-map-dot{box-shadow:0 0 0 3px var(--accent)}
+button.gx-map-pin:hover{border-color:var(--accent-line);background:var(--hover)}
+button.gx-map-pin:focus-visible,.gx-map-expand:focus-visible,.gx-map-canvas:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .gx-map-footer{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-top:var(--sp-2);flex-wrap:wrap}
 .gx-map-legend{display:flex;gap:var(--sp-3);flex-wrap:wrap}
 .gx-map-legend span{display:inline-flex;align-items:center;gap:5px;font-size:var(--t-2xs);color:var(--ink-3)}
 .gx-map-legend i{width:9px;height:9px;border-radius:50%;flex-shrink:0}
-.gx-map-expand{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border:1px solid var(--line-2);border-radius:var(--r-xs);background:var(--raised);color:var(--ink-3);font-size:var(--t-2xs);font-weight:600;transition:background var(--d2) var(--ease),border-color var(--d2) var(--ease),color var(--d2) var(--ease)}
+.gx-map-expand{display:inline-flex;align-items:center;gap:5px;min-height:44px;padding:5px 9px;border:1px solid var(--line-2);border-radius:var(--r-xs);background:var(--raised);color:var(--ink-3);font-size:var(--t-2xs);font-weight:600;transition:background var(--d2) var(--ease),border-color var(--d2) var(--ease),color var(--d2) var(--ease)}
 .gx-map-expand:hover{border-color:var(--accent-line);color:var(--accent-ink)}
 .gx-map-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-2);min-height:150px;margin-bottom:var(--sp-4);border:1px dashed var(--line-2);border-radius:var(--r-sm);color:var(--ink-4);font-size:var(--t-xs)}
 .gx-map-overlay{position:fixed;inset:0;z-index:110;display:flex;align-items:center;justify-content:center;padding:var(--sp-5);background:oklch(8% .01 288/.78);backdrop-filter:blur(10px);animation:fade var(--d2) var(--ease)}
@@ -371,7 +378,8 @@ button.gx-map-pin:focus-visible .gx-map-dot{box-shadow:0 0 0 3px var(--accent)}
 .gx-map-modal header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);margin-bottom:var(--sp-4)}
 .gx-map-modal strong{display:block;font-size:var(--t-xl);color:var(--ink)}
 .gx-map-modal header span{display:block;margin-top:3px;font-size:var(--t-xs);color:var(--ink-3)}
-@media(max-width:780px){.gx-map-canvas.is-large{aspect-ratio:1/1}.gx-map-modal{padding:var(--sp-4)}}
+@media(max-width:780px){.gx-map-modal{padding:var(--sp-4)}}
+@media(forced-colors:active){button.gx-map-pin:focus-visible,.gx-map-expand:focus-visible,.gx-map-canvas:focus-visible{outline-color:Highlight}.gx-map-pin.is-current{border:2px solid Highlight}.gx-map-svg circle{stroke:CanvasText;fill:Canvas}.gx-map-svg text{fill:CanvasText}.gx-map-svg line{stroke:CanvasText}}
 
 /* ── 2.8: «Ранее в истории» (NARR-9) ── */
 .gx-recap { margin: 0 0 var(--space-4, 1rem); padding: var(--space-4, 1rem) var(--space-5, 1.25rem); border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: var(--radius-lg, 16px); background: var(--surface-2, color-mix(in srgb, var(--surface, #fff) 92%, var(--accent, #8b6cff) 8%)); }

@@ -392,7 +392,7 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
     const toName = t.to;
     const reject = (reason: string) => { applied.transfers.push({ name: item?.name ?? t.ref, to: toName, quantity: t.quantity, ok: false, reason }); rejected.push(`TRANSFER: ${reason}`); };
     if (!item) { reject(identity.error ?? "предмета нет в инвентаре героя"); continue; }
-    if (input.intent === "intend" || input.intent === "ask") { reject(`«${item.name}»: это намерение, а не совершённая передача`); continue; }
+    if (input.intent !== "act") { reject(`«${item.name}»: передача требует действия героя`); continue; }
     if (!t.accepted) { reject(`«${item.name}»: получатель не принял предмет`); continue; }
     if (touchedItemIds.has(item.id)) { reject(`«${item.name}»: предмет уже изменён в этом ходе`); continue; }
     const left = qtyLeft.get(item.id) ?? 0;

@@ -1,0 +1,206 @@
+/** Real settings components in isolated Chromium; literal API contracts, no Next server/DB/provider/.env. */
+import { chromium, expect, type Page } from "@playwright/test";
+import { build } from "esbuild";
+import { createServer } from "node:http";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import type { Settings } from "../src/lib/ui-data";
+
+const initialSettings: Settings = {
+  keysMasked: [], keysCount: 0, envKeysCount: 0, useLiveAI: false, canUseLive: false,
+  textProvider: "gemini", textModel: "", routingProfile: "balanced",
+  narrationModel: "gemini-3.5-flash-lite", customActionModel: "gemini-3.8-flash",
+  compactionModel: "gemini-3.8-flash", fastTaskModel: "gemini-3.5-flash-lite",
+  keysSharedProject: true, dailyEmbeddingLimit: 500, dailyFlashLimit: 20, dailyLiteLimit: 500,
+  enforceLimits: true, embeddingsEnabled: true, embeddingModel: "gemini-embedding-2",
+  embeddingDims: 768, semanticExtractionEnabled: true,
+};
+const emptyProvider = { provider: "gemini", model: "", openrouterConfigured: false, pollinationsConfigured: false, useLiveAI: false };
+function gate() { let open!: () => void; const promise = new Promise<void>(resolve => { open = resolve; }); return { promise, open }; }
+
+async function main() {
+  const output = resolve("output/playwright/settings-draft-p2");
+  await mkdir(output, { recursive: true });
+  const appStub = `
+    import React,{createContext,useContext,useState,useCallback} from "react";
+    const Context=createContext(null);
+    export function useApp(){return useContext(Context)}
+    export function FixtureApp({children}){
+      const [settings,setSettings]=useState(${JSON.stringify(initialSettings)});
+      const [notices,setNotices]=useState([]);
+      const refresh=useCallback(async()=>{const r=await fetch('/api/settings');setSettings(await r.json())},[]);
+      const notify=useCallback((message,error=false)=>setNotices(old=>[...old,{message,error}]),[]);
+      const value={settings,workspace:{displayName:'Гость',favorites:[],reading:{textScale:'normal',measure:'normal',theme:'midnight',motion:'reduced'}},identity:null,administration:false,loading:false,hasOpenDraft:false,refresh,notify,updateReading:async()=>{}};
+      return <Context.Provider value={value}>{children}<aside aria-label="Уведомления фикстуры">{notices.map((n,i)=><p key={i} data-error={n.error}>{n.message}</p>)}</aside></Context.Provider>
+    }`;
+  const bundle = await build({ stdin: { contents: `
+    import React,{useCallback,useState} from "react";import {createRoot} from "react-dom/client";
+    import {FixtureApp} from "fixture:app";import {TextProviderSettings} from "./src/components/text-provider-settings";
+    import {SettingsPanel} from "./src/components/settings-panel";
+    function ProviderFixture(){const [dirty,setDirty]=useState(false);const [saved,setSaved]=useState([]);const ready=useCallback(()=>{},[]);return <><TextProviderSettings onDirtyChange={setDirty} onSaveReady={ready} onSaved={value=>setSaved(old=>[...old,value])}/><output aria-label="Черновик">{dirty?'изменён':'сохранён'}</output><output aria-label="События сохранения">{JSON.stringify(saved)}</output></>}
+    createRoot(document.getElementById('root')).render(location.pathname==='/provider'?<ProviderFixture/>:<FixtureApp><SettingsPanel onClose={()=>{document.body.dataset.closed='yes'}} returnLabel="Вернуться в историю"/></FixtureApp>);
+  `, resolveDir: process.cwd(), loader: "tsx" }, bundle: true, write: false, outfile: "fixture.js", platform: "browser", jsx: "automatic", tsconfig: "tsconfig.json", define: { "process.env.NODE_ENV": '"production"' }, plugins: [{ name: "settings-environment", setup(build) {
+    build.onResolve({ filter: /(?:^|\/)app-shell$|^fixture:app$/ }, () => ({ path: "app-shell", namespace: "fixture" }));
+    build.onResolve({ filter: /^next\/(navigation|link)$/ }, args => ({ path: args.path, namespace: "fixture" }));
+    // NarrativeSettings uses only this server module's client-safe catalog. Crypto never runs here.
+    build.onResolve({ filter: /^node:crypto$/ }, () => ({ path: "crypto", namespace: "fixture" }));
+    build.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: args.path === "app-shell" ? appStub : args.path === "crypto" ? 'export function createHash(){throw new Error("Server crypto must not execute in settings fixture")}' : args.path === "next/navigation" ? 'const router={push:url=>{document.body.dataset.navigation=url}};export function useRouter(){return router}' : 'import React from "react";export default function Link({href,children,...props}){return <a href={href} {...props}>{children}</a>}', loader: "tsx", resolveDir: process.cwd() }));
+  } }] });
+  const css = (await Promise.all(["globals", "pages", "preferences", "dialogs"].map(name => readFile(`src/app/${name}.css`, "utf8")))).join("\n").replace('@import "tailwindcss";', "");
+  const html = '<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><body><main id="root" style="max-width:1200px;margin:auto;padding:16px"></main><script src="/fixture.js"></script></body></html>';
+  const server = createServer((req, res) => { res.setHeader("Content-Type", req.url === "/fixture.js" ? "text/javascript" : req.url === "/fixture.css" ? "text/css" : "text/html"); res.end(req.url === "/fixture.js" ? bundle.outputFiles[0].text : req.url === "/fixture.css" ? css : html); });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const browser = await chromium.launch();
+  const checks: string[] = [], errors: string[] = [];
+  let active: Page | undefined;
+  const watch = (page: Page) => page.on("pageerror", error => errors.push(error.message));
+  try {
+    for (const viewport of [{ name: "desktop", width: 1280, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
+      const page = await browser.newPage({ viewport, reducedMotion: "reduce" }); active = page; watch(page);
+      let providerState: Record<string, unknown> = emptyProvider;
+      const providerWrites: unknown[] = [];
+      const unexpected: string[] = [];
+      await page.route("**/api/**", async route => {
+        const url = new URL(route.request().url());
+        let body: unknown = {}, status = 200;
+        if (url.pathname === "/api/settings/pollinations/connect") body = { available: false };
+        else if (url.pathname === "/api/settings/text-provider/models") body = { models: [{ id: url.searchParams.get("provider") === "openrouter" ? "vendor/draft" : "openai", name: "Модель фикстуры", structuredOutput: true, streaming: true }] };
+        else if (url.pathname === "/api/settings/text-provider") {
+          if (route.request().method() === "GET") body = providerState;
+          else {
+            providerWrites.push(route.request().postDataJSON());
+            if (providerWrites.length === 1) { status = 503; body = { code: "UNAVAILABLE", message: "Сохранение временно недоступно" }; }
+            else if (providerWrites.length === 2) { status = 409; body = { code: "STALE_SETTINGS", message: "Настройки изменились в другой вкладке" }; }
+            else if (providerWrites.length === 3) body = providerState = { provider: "openrouter", model: "vendor/canonical", openrouterConfigured: true, pollinationsConfigured: false, useLiveAI: false };
+            else if (providerWrites.length === 4) body = providerState = { provider: "pollinations", model: "openai", openrouterConfigured: true, pollinationsConfigured: true, useLiveAI: true };
+            else if (providerWrites.length === 5) { status = 503; body = { code: "UNAVAILABLE", message: "Удаление ключа временно недоступно" }; }
+            else if (providerWrites.length === 6) body = providerState = { provider: "pollinations", model: "openai", openrouterConfigured: true, pollinationsConfigured: false, useLiveAI: false };
+            else { unexpected.push("extra provider write"); status = 500; }
+          }
+        } else { unexpected.push(url.pathname); status = 500; }
+        await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+      });
+      await page.goto(`${base}/provider`);
+      const provider = page.getByRole("combobox", { name: "Провайдер рассказчика" });
+      await expect(provider).toHaveValue("gemini");
+      await provider.focus(); await page.keyboard.press("Home"); await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
+      await expect(provider).toHaveValue("openrouter");
+      const model = page.getByLabel("Идентификатор модели рассказчика", { exact: true });
+      const key = page.getByLabel("Новый API-ключ", { exact: false });
+      await model.fill(" vendor/draft "); await key.fill("synthetic-browser-router");
+      await page.getByRole("switch", { name: "Живой рассказчик" }).click();
+      const save = page.getByRole("button", { name: "Сохранить рассказчика", exact: true });
+      for (const message of ["Сохранение временно недоступно", "Настройки изменились в другой вкладке"]) {
+        await save.focus(); await page.keyboard.press("Enter");
+        await expect(page.getByRole("alert")).toHaveText(message);
+        await expect(model).toHaveValue(" vendor/draft "); await expect(key).toHaveValue("synthetic-browser-router");
+        await expect(provider).toHaveValue("openrouter"); await expect(page.getByRole("switch", { name: "Живой рассказчик" })).toHaveAttribute("aria-checked", "true");
+        await expect(page.getByLabel("Черновик", { exact: true })).toHaveText("изменён");
+        await expect(page.getByLabel("События сохранения")).toHaveText("[]");
+        await expect(page.getByText("Настройки рассказчика сохранены.", { exact: true })).toHaveCount(0);
+        await page.screenshot({ path: `${output}/${viewport.name}-${providerWrites.length === 1 ? "provider-failed" : "provider-conflict"}.png`, fullPage: true });
+      }
+      await save.click();
+      await expect(model).toHaveValue("vendor/canonical"); await expect(key).toHaveValue("");
+      await expect(page.getByRole("switch", { name: "Живой рассказчик" })).toHaveAttribute("aria-checked", "false");
+      await expect(page.getByLabel("Черновик", { exact: true })).toHaveText("сохранён");
+      await expect(page.getByLabel("События сохранения")).toHaveText("[false]");
+      const expectedRouter = { provider: "openrouter", model: "vendor/draft", apiKey: "synthetic-browser-router", useLiveAI: true };
+      expect(providerWrites).toEqual([expectedRouter, expectedRouter, expectedRouter]);
+      await page.reload(); await expect(provider).toHaveValue("openrouter"); await expect(model).toHaveValue("vendor/canonical");
+      await provider.selectOption("pollinations"); await model.fill("openai"); await key.fill("synthetic-browser-pollen");
+      await page.getByRole("switch", { name: "Живой рассказчик" }).click(); await save.click();
+      await expect(page.getByText("Ключ настроен", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Удалить ключ рассказчика" }).click(); await save.click();
+      await expect(page.getByRole("alert")).toHaveText("Удаление ключа временно недоступно");
+      await expect(page.getByRole("button", { name: "Отменить удаление ключа" })).toBeVisible();
+      await expect(page.getByLabel("Черновик", { exact: true })).toHaveText("изменён");
+      await save.click(); await expect(page.getByText("Ключ не настроен", { exact: true })).toBeVisible();
+      await expect(page.getByRole("switch", { name: "Живой рассказчик" })).toHaveAttribute("aria-checked", "false");
+      expect(providerWrites.slice(3)).toEqual([
+        { provider: "pollinations", model: "openai", apiKey: "synthetic-browser-pollen", useLiveAI: true },
+        { provider: "pollinations", model: "openai", clearKey: true, useLiveAI: true },
+        { provider: "pollinations", model: "openai", clearKey: true, useLiveAI: true },
+      ]);
+      expect(unexpected).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: `${output}/${viewport.name}-provider-saved.png`, fullPage: true });
+      checks.push(`${viewport.name}:provider-503-retains`, `${viewport.name}:provider-409-retains`, `${viewport.name}:provider-keyboard-retry-canonical`, `${viewport.name}:provider-reload`, `${viewport.name}:provider-clear-retry`, `${viewport.name}:provider-no-overflow`);
+      console.log(`${viewport.name} TextProviderSettings: 6 checks passed, 6 exact POST payloads`);
+      await page.close();
+
+      const panel = await browser.newPage({ viewport, reducedMotion: "reduce" }); active = panel; watch(panel);
+      const firstSave = gate();
+      let settingsState = { ...initialSettings };
+      const settingsWrites: Record<string, unknown>[] = [];
+      await panel.route("**/api/**", async route => {
+        const url = new URL(route.request().url()); let body: unknown; let status = 200;
+        if (url.pathname === "/api/settings/text-provider") body = emptyProvider;
+        else if (url.pathname === "/api/settings/pollinations/connect") body = { available: false };
+        else if (url.pathname === "/api/settings/narrative") body = { enabled: false, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "typesafe/jev-1.13", credentialSource: "none", administratorAvailable: false };
+        else if (url.pathname === "/api/tokens/stats") body = { today: { totalReq: 0, totalTokens: 0, errors: 0, embeddingReq: 0 }, quotas: { note: "Фикстура" } };
+        else if (url.pathname === "/api/settings") {
+          if (route.request().method() === "GET") body = settingsState;
+          else {
+            settingsWrites.push(route.request().postDataJSON());
+            if (settingsWrites.length === 1) {
+              await firstSave.promise;
+              settingsState = { ...initialSettings, dailyFlashLimit: 30, keysCount: 1, keysMasked: ["••••draft-a"] };
+              body = { ok: true };
+            } else if (settingsWrites.length === 2) { status = 503; body = { code: "UNAVAILABLE", message: "Общие настройки временно недоступны" }; }
+            else if (settingsWrites.length === 3) {
+              settingsState = { ...initialSettings, dailyFlashLimit: 41, keysCount: 2, keysMasked: ["••••draft-a", "••••draft-b"] };
+              body = { ok: true };
+            } else { unexpected.push("extra settings write"); status = 500; body = {}; }
+          }
+        } else { unexpected.push(url.pathname); status = 500; body = {}; }
+        await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+      });
+      await panel.goto(`${base}/panel`);
+      await expect(panel.getByRole("combobox", { name: "Провайдер рассказчика" })).toHaveValue("gemini");
+      const limit = panel.getByRole("spinbutton", { name: "Flash · на модель в сутки", exact: true });
+      const gemini = panel.getByLabel("API-ключ Gemini", { exact: true });
+      await limit.fill("30"); await gemini.fill("synthetic-gemini-draft-a");
+      const saveAll = panel.getByRole("button", { name: "Сохранить настройки", exact: true });
+      await panel.getByRole("button", { name: "Вернуться в историю", exact: true }).click();
+      await expect(panel.getByRole("alert")).toContainText("Есть несохранённые изменения");
+      await panel.getByRole("button", { name: "Сохранить и вернуться", exact: true }).focus(); await panel.keyboard.press("Enter");
+      await expect.poll(() => settingsWrites.length).toBe(1);
+      await expect(saveAll).toBeDisabled();
+      await limit.fill("41"); await gemini.fill("synthetic-gemini-draft-b");
+      await panel.screenshot({ path: `${output}/${viewport.name}-panel-newer-draft.png`, fullPage: true });
+      firstSave.open(); await expect(saveAll).toBeEnabled();
+      await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("synthetic-gemini-draft-b");
+      await expect(panel.getByText("••••draft-a", { exact: true })).toBeVisible();
+      await expect(panel.getByText("Сохранён отправленный вариант. Новые изменения ещё не сохранены.", { exact: true })).toBeVisible();
+      await expect(panel.getByText("Настройки сохранены. Ваш мир готов к новым историям.", { exact: true })).toHaveCount(0);
+      await expect(panel.getByRole("alert")).toContainText("Есть несохранённые изменения");
+      expect(await panel.getAttribute("body", "data-closed")).toBeNull();
+      await panel.getByRole("button", { name: "Продолжить редактирование" }).click();
+      await saveAll.click();
+      await expect(panel.getByText("Общие настройки временно недоступны", { exact: true })).toBeVisible();
+      await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("synthetic-gemini-draft-b");
+      await saveAll.focus(); await panel.keyboard.press("Enter");
+      await expect(panel.getByText("••••draft-b", { exact: true })).toBeVisible();
+      await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("");
+      const submittedA = { ...initialSettings, dailyFlashLimit: 30, keysText: "synthetic-gemini-draft-a", append: true };
+      const submittedB = { ...initialSettings, dailyFlashLimit: 41, keysCount: 1, keysMasked: ["••••draft-a"], keysText: "synthetic-gemini-draft-b", append: true };
+      expect(settingsWrites).toEqual([submittedA, submittedB, submittedB]);
+      expect(unexpected).toEqual([]);
+      expect(await panel.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await panel.screenshot({ path: `${output}/${viewport.name}-panel-saved.png`, fullPage: true });
+      checks.push(`${viewport.name}:panel-stale-success-retains`, `${viewport.name}:panel-dirty-close-guard`, `${viewport.name}:panel-503-retains`, `${viewport.name}:panel-keyboard-retry-canonical`, `${viewport.name}:panel-no-overflow`);
+      console.log(`${viewport.name} SettingsPanel: 5 checks passed, 3 exact POST payloads`);
+      await panel.close();
+    }
+    expect(errors).toEqual([]);
+    await writeFile(`${output}/result.json`, JSON.stringify({ checks, checkCount: checks.length, errors, scope: "actual TextProviderSettings + SettingsPanel; app context, Next navigation/link and unused server crypto stubbed; literal HTTP responses" }, null, 2));
+    console.log(`Settings draft Chromium checks passed: ${checks.length}; ${output}`);
+  } catch (error) {
+    if (active && !active.isClosed()) await active.screenshot({ path: `${output}/failure.png`, fullPage: true });
+    await writeFile(`${output}/failure.json`, JSON.stringify({ checks, errors, error: String(error) }, null, 2));
+    throw error;
+  } finally { await browser.close(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+}
+void main().catch(error => { console.error(error); process.exitCode = 1; });
