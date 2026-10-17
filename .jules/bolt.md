@@ -1,0 +1,3 @@
+## 2025-02-23 - Optimize Array Lookup
+**Learning:** In TypeScript environments targeting older ES versions (like ES2017) where `Array.prototype.findLast` is unavailable, using `[...array].reverse().find(...)` is a major performance anti-pattern. It forces O(N) memory allocation and an immediate O(N) full traversal to reverse before any search begins. In large arrays like narrative turn histories, this creates significant garbage collection and execution time overhead.
+**Action:** Always prefer a simple backwards `for` loop (`for (let i = array.length - 1; i >= 0; i--)`) to achieve O(1) memory usage and O(N) early-exit runtime characteristics for last-element lookups when `findLast` is inaccessible.
