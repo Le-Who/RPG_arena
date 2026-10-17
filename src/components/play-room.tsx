@@ -52,8 +52,14 @@ const FIRST_ACTIONS: Record<StoryShapeKind, string[]> = {
 
 function lastNarratorChoices(snapshot: Snapshot | null): string[] {
   if (!snapshot) return [];
-  const last = [...snapshot.turns].reverse().find((turn) => turn.role === "narrator");
-  return last?.choices ?? [];
+  // ⚡ Bolt: Replaced [...array].reverse().find() with a backwards loop to avoid O(N) memory copy
+  // and full traversal overhead on the large turns array, improving time to interaction.
+  for (let i = snapshot.turns.length - 1; i >= 0; i--) {
+    if (snapshot.turns[i].role === "narrator") {
+      return snapshot.turns[i].choices ?? [];
+    }
+  }
+  return [];
 }
 
 type FeedTurn = ReturnType<typeof buildNarrativeFeed>[number];
@@ -335,7 +341,17 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const world = session.worldState;
   const live = canUseLiveNarrator(settings);
   const turns = feedTurns;
-  const lastNarrator = [...snapshot.turns].reverse().find((turn) => turn.role === "narrator");
+
+  // ⚡ Bolt: Using backwards loop instead of [...turns].reverse().find() saves memory allocation
+  // and allows O(1) early exit when finding the last narrator turn, preventing render stutter.
+  let lastNarrator = undefined;
+  for (let i = snapshot.turns.length - 1; i >= 0; i--) {
+    if (snapshot.turns[i].role === "narrator") {
+      lastNarrator = snapshot.turns[i];
+      break;
+    }
+  }
+
   const isOwner = snapshot.isOwner !== false;
   const active = isOwner && session.status === "active";
   // INTERACT-1: то же состояние, по которому сервер проверяет доступность действий.
