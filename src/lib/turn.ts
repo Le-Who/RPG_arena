@@ -415,7 +415,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     if (campaignMode === "free" || externalNarrator) {
       return { ok: false, code: "AI_FAILED", message: "Все модели исчерпали дневной лимит. Отключите enforceLimits в настройках или подождите до завтра.", details: `skipped: ${skipped.join(", ")}` };
     }
-    warnings.push("все модели исчерпали лимит — офлайн-движок пресета");
+    warnings.push("лимит моделей исчерпан — продолжение в базовом режиме пресета");
   }
 
   if (!payload) {

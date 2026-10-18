@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { createWriteStream, readdirSync, readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { installUiMock, mockSessionId, mockSnapshot } from "./ui-mock";
+import { PRODUCT_INFO, PRODUCT_REVIEWED_LABEL } from "../src/lib/product-info";
 
 async function main() {
   const output = "output/playwright/game-copy";
@@ -38,6 +39,16 @@ async function main() {
     const goto = async (path: string) => { await page.context().clearCookies(); await page.goto(base + path); };
     for (const [width, height] of [[1440, 1000], [390, 844]]) {
       await page.setViewportSize({ width, height });
+      await goto("/worlds");
+      await expect(page.locator(".offline-label").first()).toHaveText("Без AI");
+      await expect(page.getByText("Доступно офлайн", { exact: true })).toHaveCount(0);
+      await page.getByRole("button", { name: "Подробнее о мире Пепельная Корона", exact: true }).click();
+      await expect(page.getByRole("dialog")).toContainText("Без AI · нужен сервер");
+      await expect(page.locator(".creator-form .notice")).toContainText("Для игры нужно соединение с сервером.");
+      await expect(page.locator(".creator-form .notice")).toBeVisible();
+      await page.screenshot({ path: `${output}/creator-${width}.png` });
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await goto(`/play/${mockSessionId}`);
       await expect(page.getByRole("textbox", { name: "Ваше действие", exact: true })).toBeEditable();
       await expect(page.locator(".gx-composer-foot, .gx-side-foot, .imagination-card")).toHaveCount(0);
@@ -62,7 +73,8 @@ async function main() {
     }
     await goto(`/play/${mockSessionId}`);
     await page.getByRole("button", { name: "Обновления движка" }).click();
-    await expect(page.getByRole("dialog")).toContainText("Обновление 2.10");
+    await expect(page.getByRole("dialog")).toContainText(`Обновление ${PRODUCT_INFO.version}`);
+    await expect(page.getByRole("dialog")).toContainText(PRODUCT_REVIEWED_LABEL);
     await expect(page.getByRole("dialog")).toContainText("с сохранением черновика");
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Как это работает" }).click();
@@ -70,7 +82,8 @@ async function main() {
     expect(await page.getByRole("dialog").innerText()).not.toMatch(/эмбед|Gemini|семантическ/);
     await page.keyboard.press("Escape");
     await goto("/blueprint");
-    await expect(page.getByText(/локальная версия 2.10/)).toBeVisible();
+    await expect(page.getByText(`Текущее устройство проекта · локальная версия ${PRODUCT_INFO.version} · проверено ${PRODUCT_REVIEWED_LABEL}.`)).toBeVisible();
+    await expect(page.getByText(/Восстановления забытого пароля пока нет/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "Обновление приложения", exact: true })).toBeVisible();
     expect(errors).toEqual([]);
     expect(mockSnapshot.memories.length).toBe(2);

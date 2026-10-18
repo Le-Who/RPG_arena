@@ -700,7 +700,7 @@ test("performTurn narrative guard persists only canonical, verified narration", 
           loadNarrativeConfig: async () => ({ enabled: true, provider: "openrouter", apiKey: "" }), schedule() {},
         });
         assert.ok(result.ok, JSON.stringify(result));
-        assert.match(result.narration, /Автономный режим пресета/);
+        assert.match(result.narration, /Базовый режим пресета/);
         assert.equal(fetchMock.mock.callCount(), 0);
         const row = await pg.query<{ content: string }>("SELECT content FROM game_turns WHERE session_id=$1 AND role='narrator'", [sessionId]);
         assert.equal(row.rows[0].content, result.narration);

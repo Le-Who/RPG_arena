@@ -171,3 +171,31 @@ test("inline code and escaped link-like examples are not checked as links", asyn
     ]);
   });
 });
+
+test("current README version and review date follow product metadata while release history remains valid", async () => {
+  const metadata = JSON.stringify({ version: "3.4", reviewedOn: "2027-01-08" });
+  await fixture({
+    "package.json": "{}",
+    "src/lib/product-info.json": metadata,
+    "README.md": "# Chronicle Engine · 2.7\n\nСостояние документации: **29 сентября 2026**.\n\n## Что нового в v2.7\nИсторическая запись.",
+  }, async root => {
+    const result = await checkDocumentation(root);
+    assert.equal(result.errors.length, 2);
+    assert.ok(result.errors.some(error => error.includes("README.md") && error.includes("3.4")));
+    assert.ok(result.errors.some(error => error.includes("README.md") && error.includes("8 января 2027")));
+    await writeFile(join(root, "README.md"), "# Chronicle Engine · 3.4\n\nСостояние документации: **8 января 2027**.\n\n## Что нового в v2.7\nИсторическая запись.");
+    assert.deepEqual((await checkDocumentation(root)).errors, []);
+  });
+});
+
+test("an updated review stamp in a fenced example cannot hide a stale current README stamp", async () => {
+  await fixture({
+    "package.json": "{}",
+    "src/lib/product-info.json": JSON.stringify({ version: "3.4", reviewedOn: "2027-01-08" }),
+    "README.md": "# Chronicle Engine · 3.4\n\nСостояние документации: **29 сентября 2026**.\n\n```md\nСостояние документации: **8 января 2027**.\n```",
+  }, async root => {
+    const result = await checkDocumentation(root);
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0], /review date must be 8 января 2027/);
+  });
+});

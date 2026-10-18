@@ -100,7 +100,7 @@ export function runOfflineEngine(input: EngineInput): EngineOutput {
   if (band === "full") narration += `${pick(SUCCESS_TAILS, random)} Нить главной цели — «${input.world.mainQuest}» — становится чуть ближе.`;
   else if (band === "cost") narration += `${pick(COST_TAILS, random)} «${input.world.mainQuest}» по-прежнему впереди, но путь стал дороже.`;
   else narration += `${pick(FAIL_TAILS, random)} ${input.world.currentLocation} запоминает твою ошибку.`;
-  narration += ` (Автономный режим пресета: подключите ключи Gemini для живого повествования.)`;
+  narration += ` (Базовый режим пресета: для живого повествования подключите рассказчика в настройках.)`;
 
   const crit = dice?.critical === "crit";
   const fumble = dice?.critical === "fumble";

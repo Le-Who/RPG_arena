@@ -76,14 +76,29 @@ export async function checkDocumentation(root: string): Promise<DocumentationChe
   root = resolve(root);
   const result: DocumentationCheck = { filesChecked: 0, linksChecked: 0, errors: [] };
   const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { scripts?: Record<string, string> };
+  const productPath = join(root, "src/lib/product-info.json");
+  const product = await exists(productPath)
+    ? JSON.parse(await readFile(productPath, "utf8")) as { version: string; reviewedOn: string }
+    : null;
   const files = [join(root, "README.md"), ...await markdownFiles(join(root, "docs"))];
   for (const file of files) {
     const label = relative(root, file).replaceAll("\\", "/");
     if (!await exists(file)) { result.errors.push(`${label}: document missing`); continue; }
     result.filesChecked++;
     const source = await readFile(file, "utf8");
-    // Examples inside fenced or inline code aren't claims that a local link target exists.
     const prose = proseOutsideInlineCode(proseOutsideFences(source));
+    if (label === "README.md" && product) {
+      if (source.split(/\r?\n/, 1)[0] !== `# Chronicle Engine · ${product.version}`) {
+        result.errors.push(`README.md: current product version must be ${product.version}`);
+      }
+      const reviewed = new Intl.DateTimeFormat("ru", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
+        .format(new Date(`${product.reviewedOn}T00:00:00Z`)).replace(/ г\.$/, "");
+      const currentReview = prose.match(/^Состояние документации:[^\r\n]*/m)?.[0];
+      if (!currentReview?.startsWith(`Состояние документации: **${reviewed}**`)) {
+        result.errors.push(`README.md: documentation review date must be ${reviewed}`);
+      }
+    }
+    // Examples inside fenced or inline code aren't claims that a local link target exists.
     for (const match of prose.matchAll(/!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/g)) {
       const bracketIndex = (match.index ?? 0) + (match[0].startsWith("!") ? 1 : 0);
       if (isEscaped(prose, bracketIndex)) continue;

@@ -1,5 +1,5 @@
 {
-  "name": "nextjs-postgresql-template",
+  "name": "chronicle-engine",
   "private": true,
   "engines": {
     "node": ">=22.23.2 <23"

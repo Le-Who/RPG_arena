@@ -15,6 +15,6 @@ export function offlineCanonicalNarration(input: { action: string; location: str
   for (const [label, value] of deltas) if (value) lines.push(`${label}: ${value > 0 ? "+" : ""}${value}.`);
   if (input.applied.conditions.added.length) lines.push(`Новые состояния: ${input.applied.conditions.added.join(", ")}.`);
   if (input.applied.conditions.removed.length) lines.push(`Прошли состояния: ${input.applied.conditions.removed.join(", ")}.`);
-  lines.push("Автономный режим пресета: подключите Gemini для живого повествования.");
+  lines.push("Базовый режим пресета: для живого повествования подключите рассказчика в настройках.");
   return lines.join("\n\n");
 }

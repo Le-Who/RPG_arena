@@ -4,7 +4,7 @@
 
 ## Воспроизводимость
 
-`package-lock.json` фиксирует граф зависимостей. Чистая установка `npm ci --ignore-scripts --offline --no-audit --no-fund` проверена в отдельной временной папке; рабочий `node_modules` не удалялся. Runtime Next.js остаётся 16.3.5, зависимости manifest не понижались. Npm выдавал deprecation-предупреждения для существующих esbuild-kit/ESLint-зависимостей; это не исправлено скрытым обновлением основных версий и остаётся задачей сопровождения.
+`package-lock.json` фиксирует граф зависимостей. Используйте Node.js из `.node-version` (22.23.3 LTS); поддерживаемый диапазон `>=22.23.2 <23` включает управляемый Vercel patch 22.23.2. Текущий Next.js — `~16.4.2`, ESLint — `10.13.0` с нативными React/a11y/import-плагинами. Чистые установки и локальные production-сборки описаны в [стабилизации Node/PGlite](v8-pglite-stability-2026-10-18.md), [совместимости Vercel](vercel-node22-compatibility-2026-10-18.md) и [политике ESLint](react-eslint-native-policy-2026-10-18.md). Сверяйте версии с `package.json` и lockfile; старые протоколы установки относятся к своим датам.
 
 CI проверяет `npm ci --ignore-scripts`, typegen/typecheck, lint, герметичный `npm test`, документацию, применение миграций на PostgreSQL+pgvector и повторный прогон, затем build и изолированный браузерный lifecycle/modals-прогон. Сервер запускается на loopback, тест ждёт readiness и сохраняет скриншоты как CI artifact. Секреты пользователя CI не нужны. Наличие workflow не означает, что удалённый GitHub Actions run уже выполнен.
 

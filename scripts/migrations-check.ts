@@ -46,7 +46,7 @@ async function run() {
         "memory_nodes.last_accessed_at",
         "workspace_preferences.reading",
       ],
-      "v2.7 must add reading preferences and visual schema without dropping legacy columns",
+      "current schema must retain reading preferences and legacy columns",
     );
     const first = await target.execute(sql`SELECT count(*)::integer AS n FROM drizzle.__drizzle_migrations`);
     const migrationCount = readMigrationFiles({ migrationsFolder: "./drizzle" }).length;
@@ -75,7 +75,7 @@ async function run() {
     } finally {
       client.release();
     }
-    console.log("PASS: clean PostgreSQL database, complete v2.7 schema, repeat migration is a no-op");
+    console.log(`PASS: clean PostgreSQL database, complete ledger (${migrationCount} migrations), repeat migration is a no-op`);
   } finally {
     await targetPool?.end();
     await db.execute(sql.raw(`DROP DATABASE "${name}"`));

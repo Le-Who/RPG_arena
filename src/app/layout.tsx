@@ -17,9 +17,10 @@ import "./overview.css";
 import "./life.css";
 import "./pwa.css";
 import { APP_BUILD_ID } from "@/lib/build-version";
+import { PRODUCT_INFO } from "@/lib/product-info";
 export const metadata: Metadata = {
   title: { default: "Chronicle Engine — Твоя история начинается здесь", template: "%s · Chronicle Engine" },
-  description: "Живые миры, ИИ-мастер и свобода каждого решения. Создайте собственную историю или отправьтесь в авторское приключение.",
+  description: PRODUCT_INFO.description,
   icons: { icon: "/icon.svg" },
 };
 export default function RootLayout({ children }: { children: ReactNode }) {

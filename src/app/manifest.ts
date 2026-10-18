@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { PRODUCT_INFO } from "@/lib/product-info";
 
 // ECO-1 (2.10): устанавливаемое приложение. Service worker (/sw.js) кэширует только неизменяемые
 // ассеты и статичную офлайн-страницу; /api, HTML-документы и приватные данные в кэш не попадают.
@@ -10,7 +11,7 @@ export default function manifest(): MetadataRoute.Manifest {
     id: "/",
     name: "Chronicle Engine",
     short_name: "Chronicle",
-    description: "Универсальные интерактивные истории с памятью, людьми мира и проверяемыми последствиями.",
+    description: PRODUCT_INFO.description,
     start_url: "/",
     scope: "/",
     display: "standalone",

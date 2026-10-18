@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { PRODUCT_INFO } from "../src/lib/product-info";
 
 export const mockSessionId = "00000000-0000-4000-8000-000000000001";
 const mockProfileId = "guest:ui-audit-fixture";
@@ -51,7 +52,7 @@ export const mockSnapshot = {
   ],
   locations,
   quests: [{ id: "50000000-0000-4000-8000-000000000001", sessionId: mockSessionId, title: "Найти дорогу к столице", description: "Пройти мимо дозоров.", status: "active", progress: 35, isMain: true, createdAt: now, updatedAt: now }],
-  npcs: [{ id: "60000000-0000-4000-8000-000000000001", sessionId: mockSessionId, name: "Мара", role: "Посланник Хранителей", relation: 18, status: "alive", notes: "Знает безопасные тропы.", createdAt: now, updatedAt: now }],
+  npcs: [{ id: "60000000-0000-4000-8000-000000000001", sessionId: mockSessionId, key: "mara", name: "Мара", role: "Посланник Хранителей", relation: 18, status: "alive", notes: "Знает безопасные тропы.", createdAt: now, updatedAt: now }],
   sceneObjects: [{ id: "70000000-0000-4000-8000-000000000001", sessionId: mockSessionId, locationName: "Тихая гавань", name: "Запечатанное письмо", description: "Бумага пахнет дымом.", state: "изучено", createdAt: now, updatedAt: now }],
   embeddings: { nodes: 2, ready: 2, pending: 0, processing: 0, failed: 0 },
 };
@@ -86,7 +87,7 @@ export async function installUiMock(page: Page, { admin = false }: { admin?: boo
     else if (path === "/api/workspace") body = { id: mockProfileId, displayName: "Искатель историй", favorites: ["ashen-crown"], reading: { textScale: "normal", measure: "normal", theme: "midnight", motion: "full" } };
     else if (path === "/api/tokens/stats") body = { today: { totalReq: 7, totalTokens: 12450, errors: 0, embeddingReq: 3 }, quotas: { note: "audit" } };
     else if (path === "/api/system/status") body = {
-      version: "2.7", checkedAt: now, database: "connected",
+      version: PRODUCT_INFO.version, checkedAt: now, database: "connected",
       capabilities: { generation: false, embeddings: false, extraction: false, hasKeys: false, model: "gemini-embedding-2", dims: 768 },
       turns: { running: 0, completed: 3 }, checkpoints: 1, campaigns: 1,
       queues: { semantic: { pending: 1, processing: 0, completed: 2, failed: 0 }, embeddings: { pending: 0, processing: 0, ready: 2, failed: 0 }, staleSpace: 0, oldestPendingAt: now },

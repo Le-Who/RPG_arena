@@ -7,6 +7,7 @@ import { campaignCheckpoints, gameSessions, gameTurns, inventoryItems, memoryEmb
 import { acquireTurn, assertTurnLease, failTurnRequest, getTurnRequest, normalizeTurnInput } from "../src/lib/turn-admission";
 import { performTurn } from "../src/lib/turn";
 import { getAIConfig } from "../src/lib/ai-settings";
+import { PRODUCT_INFO } from "../src/lib/product-info";
 import { enqueueSemanticJob, processSemanticJob } from "../src/lib/memory-jobs";
 import { runMemoryCycle } from "../src/lib/background";
 import { upsertMemoryNode } from "../src/lib/memory";
@@ -164,7 +165,7 @@ async function run() {
   assert.equal((await compactSession(source.id)).created, 0);
   const seq = sourceAfter.turns.filter((t) => t.turnNumber === 2).map((t) => t.role); assert.deepEqual(seq, ["player", "narrator"]);
   assert.equal((await runMemoryCycle({ source: "manual", sessionId: source.id, ownerId: smokeOwnerId })).paused, true);
-  const status = await call<{ version: string; database: string }>("/api/system/status"); assert.equal(status.status, 200); assert.equal(status.data.version, "2.7"); assert.equal(status.data.database, "connected");
+  const status = await call<{ version: string; database: string }>("/api/system/status"); assert.equal(status.status, 200); assert.equal(status.data.version, PRODUCT_INFO.version); assert.equal(status.data.database, "connected");
   assert.equal((await call("/api/system/process", { action: "process" })).status, 409);
 
   for (let round = 0; round < 3; round++) {

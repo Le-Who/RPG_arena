@@ -5,6 +5,7 @@ import { getAIConfig } from "./ai-settings";
 import { currentProfileId } from "./identity";
 import { summarizeQueueHealth } from "./queue-health";
 import { summarizeWorkerHealth } from "./worker-health";
+import { PRODUCT_INFO } from "./product-info";
 export async function getSystemStatus() {
   const ownerId = await currentProfileId();
   const owned = db.select({ id: gameSessions.id }).from(gameSessions).where(eq(gameSessions.ownerId, ownerId));
@@ -27,7 +28,7 @@ export async function getSystemStatus() {
   ]);
   const group = (rows: { status: string; n: number }[]) => Object.fromEntries(rows.map((r) => [r.status, r.n]));
   return {
-    version: "2.7", checkedAt: new Date().toISOString(), database: "connected" as const,
+    version: PRODUCT_INFO.version, checkedAt: new Date().toISOString(), database: "connected" as const,
     capabilities: { generation: cfg.canUseLive, embeddings: cfg.keys.length > 0 && cfg.embeddingsEnabled, extraction: cfg.canUseLive && cfg.semanticExtractionEnabled, hasKeys: cfg.keys.length > 0, model: cfg.embeddingModel, dims: cfg.embeddingDims },
     turns: { running: active[0].n, completed: completed[0].n }, checkpoints: checkpointCount[0].n, campaigns: campaigns[0].n,
     queues: { semantic: group(semantic), embeddings: group(embeddings), staleSpace: staleSpace[0].n, ...summarizeQueueHealth([semantic, embeddings], [oldest[0]?.oldest, oldestSemantic[0]?.oldest]) },
