@@ -1,6 +1,6 @@
 # Memory worker — эксплуатация
 
-Обновлено 29 сентября 2026 для выборочной интеграции 2.10. Worker появился в v2.2; текущий ledger дополнен миграциями `0017`/`0018`. [README](../README.md) · [Roadmap](superpowers/plans/roadmap.md).
+Среда запуска обновлена 18 октября 2026 на Node 22 LTS; функциональный контракт — выборочная интеграция 2.10 от 29 сентября. Worker появился в v2.2; текущий ledger дополнен миграциями `0017`/`0018`. [README](../README.md) · [Roadmap](superpowers/plans/roadmap.md).
 
 ## Назначение
 
@@ -8,7 +8,7 @@
 
 ## Подготовка
 
-1. Из корня проекта выполнить версионированные миграции `npm run migrate` (Node.js 24, PostgreSQL, настроенный `.env`).
+1. Из корня проекта выполнить версионированные миграции `npm run migrate` (Node.js 22.23.3 LTS из `.node-version`, PostgreSQL, настроенный `.env`). Используйте ту же версию Node, что у web; [поддерживаемая среда](../README.md#запуск).
 2. Передать DATABASE_URL и тот же CHRONICLE_SECRET_ACTIVE_KEY/CHRONICLE_SECRET_KEYS, что у web. Текстовый провайдер (Gemini/OpenRouter/Pollinations) берётся из настроек владельца; для embeddings нужны его прямые Gemini-ключи. Нет fallback к GEMINI_API_KEYS/GEMINI_API_KEY или ключу изображений. См. [подключение рассказчика](text-providers-operations.md). Не публиковать ключи в логах или NEXT_PUBLIC-переменных.
 3. В настройках включить нужные функции. Для semantic extraction нужны Live + extraction и действующее подключение выбранного рассказчика; для embeddings — прямой Gemini-ключ и embeddingsEnabled.
 4. Проверить один проход: `npm run worker -- --once`.

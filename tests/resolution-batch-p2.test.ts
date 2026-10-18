@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { applyResolution, parseResolution, type ApplyInput } from "../src/lib/resolution";
+import { selectStateEvents } from "../src/lib/memory";
 
 const kitId = "abcdef00-0000-4000-8000-000000000001";
 const secondId = "abcdef00-0000-4000-8000-000000000002";
@@ -27,6 +28,119 @@ function checkedApply(value: ApplyInput) {
   assert.deepEqual(JSON.parse(JSON.stringify(value)), before, "parser output and caller state must remain unchanged");
   return result;
 }
+
+// Reusing the initial NPC snapshot would lose the first accepted delta and its note.
+test("resolution batch: repeated NPC changes accumulate accepted relationships and notes", () => {
+  const result = checkedApply(input(JSON.stringify({ stateChanges: { npcs: [
+    { ref: "anna", relationDelta: 10, note: "Помогла с архивом." },
+    { ref: "anna", relationDelta: 10, note: "Согласилась встретиться." },
+  ] } })));
+  const updates = result.ops.filter(op => op.t === "npc.update");
+  assert.deepEqual(updates.map(op => op.patch.relation), [10, 20]);
+  assert.equal(updates[1].patch.description, "[ход 7] Помогла с архивом. [ход 7] Согласилась встретиться.");
+  assert.deepEqual(result.applied.npcs.map(npc => [npc.relation, npc.delta]), [[10, 10], [20, 10]]);
+  assert.match(result.events.at(-1)!.content, /Отношение \+20/);
+  const canonical = selectStateEvents(result.events).filter(event => event.entityKey === "npc:anna");
+  assert.equal(canonical.length, 1);
+  assert.match(canonical[0].content, /Отношение \+20/);
+});
+
+for (const row of [{ tail: 5, final: 15 }, { tail: -5, final: 5 }]) {
+  test(`resolution batch: a small trailing NPC delta ${row.tail} refreshes already emitted canonical memory`, () => {
+    const result = checkedApply(input(JSON.stringify({ stateChanges: { npcs: [
+      { ref: "anna", relationDelta: 10 }, { ref: "anna", relationDelta: row.tail },
+    ] } })));
+    assert.deepEqual(result.ops.filter(op => op.t === "npc.update").map(op => op.patch.relation), [10, row.final]);
+    const canonical = selectStateEvents(result.events).filter(event => event.entityKey === "npc:anna");
+    assert.equal(canonical.length, 1);
+    assert.match(canonical[0].content, new RegExp(`Отношение \\+${row.final}\\.`));
+  });
+}
+
+test("resolution batch: refreshing an NPC event after a small delta preserves its earlier note", () => {
+  const result = checkedApply(input(JSON.stringify({ stateChanges: { npcs: [
+    { ref: "anna", relationDelta: 10, note: "Помогла с архивом." }, { ref: "anna", relationDelta: 5 },
+  ] } })));
+  const canonical = selectStateEvents(result.events).filter(event => event.entityKey === "npc:anna");
+  assert.equal(canonical.length, 1);
+  assert.match(canonical[0].content, /Отношение \+15\./);
+  assert.match(canonical[0].content, /Помогла с архивом\./);
+});
+
+test("resolution batch: small NPC deltas do not create standalone semantic events or borrow another NPC's novelty", () => {
+  const standalone = checkedApply(input(JSON.stringify({ stateChanges: { npcs: [{ ref: "anna", relationDelta: 5 }] } })));
+  assert.deepEqual(standalone.ops.filter(op => op.t === "npc.update").map(op => op.patch.relation), [5]);
+  assert.equal(selectStateEvents(standalone.events).filter(event => event.category === "npc").length, 0);
+  const initial = input("{}");
+  const result = checkedApply(input(JSON.stringify({ stateChanges: { npcs: [
+    { ref: "anna", relationDelta: 10 }, { ref: "boris", relationDelta: 5 },
+  ] } }), { npcs: [...initial.npcs, { ...initial.npcs[0], id: "n2", key: "boris", name: "Борис" }] }));
+  assert.deepEqual(result.ops.filter(op => op.t === "npc.update").map(op => op.patch.relation), [10, 5]);
+  assert.deepEqual(selectStateEvents(result.events).filter(event => event.category === "npc").map(event => event.entityKey), ["npc:anna"]);
+});
+
+for (const row of [
+  { initial: 0, delta: 20, relations: [20, 30, 30], deltas: [20, 10, 0] },
+  { initial: 0, delta: -20, relations: [-20, -30, -30], deltas: [-20, -10, 0] },
+  { initial: 98, delta: 20, relations: [100, 100, 100], deltas: [2, 0, 0] },
+  { initial: -98, delta: -20, relations: [-100, -100, -100], deltas: [-2, 0, 0] },
+]) test(`resolution batch: repeated NPC deltas ${row.delta} from ${row.initial} share turn and absolute limits`, () => {
+  const initial = input("{}");
+  const result = checkedApply(input(JSON.stringify({ stateChanges: { npcs: [
+    { ref: "anna", relationDelta: row.delta }, { ref: "anna", relationDelta: row.delta }, { ref: "anna", relationDelta: row.delta },
+  ] } }), { npcs: initial.npcs.map(npc => ({ ...npc, relation: row.initial })) }));
+  assert.deepEqual(result.ops.filter(op => op.t === "npc.update").map(op => op.patch.relation), row.relations);
+  assert.deepEqual(result.applied.npcs.map(npc => npc.delta), row.deltas);
+});
+
+// A later proposal must observe the terminal state accepted earlier in the batch.
+test("resolution batch: a completed quest cannot be reopened by a later proposal", () => {
+  const result = checkedApply(input(JSON.stringify({ stateChanges: { quests: [
+    { ref: "archive", status: "completed" }, { ref: "archive", status: "active", progress: 15 },
+  ] } })));
+  assert.deepEqual(result.ops.filter(op => op.t === "quest.update"), [{ t: "quest.update", id: "q1", patch: { status: "completed", progress: 100 } }]);
+  assert.equal(result.applied.quests.length, 1);
+  assert.equal(result.applied.rejected.length, 1);
+});
+
+test("resolution batch: an NPC killed earlier in the batch cannot be restored by a later proposal", () => {
+  const result = checkedApply(input(JSON.stringify({ stateChanges: { npcs: [
+    { ref: "anna", status: "dead" }, { ref: "anna", status: "alive", relationDelta: 10 },
+  ] } })));
+  assert.deepEqual(result.ops.filter(op => op.t === "npc.update").map(op => op.patch.status), ["dead"]);
+  assert.equal(result.applied.npcs.length, 1);
+  assert.equal(result.applied.rejected.length, 1);
+});
+
+// Comparing the second state to the original closed door would incorrectly skip it.
+test("resolution batch: a scene object can return to its initial state within one turn", () => {
+  const result = checkedApply(input(JSON.stringify({ stateChanges: { sceneObjects: [
+    { ref: "door", state: "открыта" }, { ref: "door", state: "закрыта" },
+  ] } })));
+  assert.deepEqual(result.ops.filter(op => op.t === "scene.update").map(op => op.patch.state), ["открыта", "закрыта"]);
+  assert.deepEqual(result.applied.sceneObjects.map(object => object.state), ["открыта", "закрыта"]);
+  assert.match(result.events.at(-1)!.content, /состояние: закрыта/);
+  const canonical = selectStateEvents(result.events).filter(event => event.entityKey === "object:door");
+  assert.equal(canonical.length, 1);
+  assert.match(canonical[0].content, /состояние: закрыта/);
+});
+
+// Inserts use ON CONFLICT DO NOTHING: announcing a second same-key row would invent state.
+test("resolution batch: duplicate new entity keys report only the row that can be persisted", () => {
+  const result = checkedApply(input(JSON.stringify({ stateChanges: {
+    quests: [{ title: "Новая цель", progress: 10 }, { title: "НОВАЯ ЦЕЛЬ", progress: 90 }],
+    npcs: [{ name: "Борис", relationDelta: 5 }, { name: "БОРИС", relationDelta: -5 }],
+    sceneObjects: [{ name: "Окно", state: "целое" }, { name: "ОКНО", state: "разбито" }],
+  } })));
+  assert.equal(result.ops.filter(op => op.t === "quest.insert").length, 1);
+  assert.equal(result.ops.filter(op => op.t === "npc.insert").length, 1);
+  assert.equal(result.ops.filter(op => op.t === "scene.insert").length, 1);
+  assert.deepEqual(result.applied.quests.map(quest => quest.progress), [10]);
+  assert.deepEqual(result.applied.npcs.map(npc => npc.relation), [5]);
+  assert.deepEqual(result.applied.sceneObjects.map(object => object.state), ["целое"]);
+  assert.equal(result.applied.rejected.length, 3);
+  assert.equal(result.events.some(event => event.content.includes("разбито") || event.content.includes("-5")), false);
+});
 
 // Catches malformed envelopes escaping into reducers or awarding proposed resources.
 for (const envelope of [null, false, 12, "ответ", [], { stateChanges: false, effects: "ошибка" }, { stateChanges: [], effects: [] }]) {

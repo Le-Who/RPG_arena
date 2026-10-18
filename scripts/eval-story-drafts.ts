@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { evaluateStoryDraftPatch, validateStoryDraft, type StoryDraft, type StoryDraftPatch } from "../src/lib/story-draft";
+import { readResponseJson } from "./lib/read-response-json";
 
 type Fixture = { id: string; description: string; draft: StoryDraft };
 type EvalResult = {
@@ -52,15 +53,16 @@ async function run() {
 
   for (const fixture of fixtures) {
     const started = Date.now();
+    const signal = AbortSignal.timeout(timeoutMs);
     try {
       const response = await fetch(`${baseUrl}/api/story-drafts/autofill`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Origin: process.env.CHRONICLE_PUBLIC_ORIGIN || parsedUrl.origin, Cookie: cookie },
-        redirect: "error", signal: AbortSignal.timeout(timeoutMs),
+        redirect: "error", signal,
         body: JSON.stringify({ draft: fixture.draft }),
       });
       if (!response.ok) { void response.body?.cancel().catch(() => {}); throw new EvalFailure(`STORY_EVAL_HTTP_${response.status}`); }
-      const payload = await response.json() as { patch?: StoryDraftPatch; modelUsed?: string };
+      const payload = await readResponseJson(response, signal) as { patch?: StoryDraftPatch; modelUsed?: string };
       if (!payload || !payload.patch || typeof payload.patch !== "object" || Array.isArray(payload.patch) || !Object.values(payload.patch).every(value => typeof value === "string")) throw new EvalFailure("STORY_EVAL_INVALID_RESPONSE");
       if (typeof payload.modelUsed !== "string" || !payload.modelUsed.trim() || payload.modelUsed.length > 200 || /[\r\n]/.test(payload.modelUsed)) throw new EvalFailure("STORY_EVAL_INVALID_MODEL");
       if (expectedModel !== undefined && payload.modelUsed !== expectedModel) throw new EvalFailure("STORY_EVAL_UNEXPECTED_MODEL");

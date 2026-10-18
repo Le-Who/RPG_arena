@@ -4,7 +4,6 @@ import { runJevTask, type JevTask, type JevTransport } from "./jev-tasks";
 
 export const TYPE_SAFE_MODEL = "jev-1.13.0" as const;
 export const TYPE_SAFE_PROMPT_VERSION = "fact-verification-v1" as const;
-export const TYPE_SAFE_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 const VERDICTS = ["supports", "contradicts", "unsupported"] as const;
 const CRITERIA: Record<TypeSafeVerdict, string> = {
   supports: "Повествование прямо подтверждает факт или однозначно из него следует.",

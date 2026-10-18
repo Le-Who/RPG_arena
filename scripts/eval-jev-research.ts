@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { JEV_PROVIDERS } from "../src/lib/jev-tasks";
 import { parsePrimitiveAnswers } from "./jev-evaluation";
 import { researchRequests, decideDualNoul } from "./jev-research-fixtures";
+import { readResponseJson } from "./lib/read-response-json";
 
 async function run() {
   const requests = researchRequests();
@@ -15,9 +16,10 @@ async function run() {
     const start = performance.now();
     try {
       calls++;
-      const res = await fetch(JEV_PROVIDERS.openrouter.endpoint, { method: "POST", redirect: "error", signal: AbortSignal.timeout(5000), headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(request.body) });
+      const signal = AbortSignal.timeout(5000);
+      const res = await fetch(JEV_PROVIDERS.openrouter.endpoint, { method: "POST", redirect: "error", signal, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(request.body) });
       if (!res.ok) { await res.body?.cancel(); stopReason = `http_${res.status}`; break; }
-      const parsed = parsePrimitiveAnswers(await res.json(), request.body.questions);
+      const parsed = parsePrimitiveAnswers(await readResponseJson(res, signal), request.body.questions);
       const a = parsed.answers.verdict;
       const choiceDecision = a.confidence! >= .8 && a.probabilities![a.choice!] >= .9 ? a.choice! : "abstain";
       const dualDecision = decideDualNoul(parsed.answers.support.noul!, parsed.answers.contradiction.noul!);

@@ -1,3 +1,5 @@
+import { assertTestRuntime } from "./node-runtime";
+
 // The unit suite owns synthetic PGlite/provider fixtures. Never inherit a user's DB or credentials.
 process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:1/chronicle_test";
 for (const name of [
@@ -8,3 +10,5 @@ for (const name of [
   "CHRONICLE_ADMIN_ACCOUNT_IDS",
   "CHRONICLE_QUOTA_TIMEZONE",
 ]) delete process.env[name];
+
+assertTestRuntime();

@@ -8,14 +8,33 @@ export function stableSerialize(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 export function snapshotChecksum(value: CheckpointSnapshot): string { return createHash("sha256").update(stableSerialize(value)).digest("hex"); }
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+const invalidShape = () => new HttpError(409, "SNAPSHOT_INTEGRITY", "Снимок содержит некорректную структуру данных.");
 export function assertSnapshot(snapshot: CheckpointSnapshot) {
+  if (!isRecord(snapshot)) throw invalidShape();
   if (snapshot.schemaVersion !== 1) throw new HttpError(409, "SNAPSHOT_VERSION", "Эта версия контрольной точки пока не поддерживается.");
   if (Buffer.byteLength(JSON.stringify(snapshot), "utf8") > CHECKPOINT_MAX_BYTES) throw new HttpError(413, "CHECKPOINT_TOO_LARGE", "Снимок больше 4 МБ. Экспортируйте журнал; для этой истории нужен расширенный формат хранения.");
-  const source = snapshot.session.id, turn = snapshot.session.turnCount;
-  if (snapshot.agreements !== undefined && (!Array.isArray(snapshot.agreements) || snapshot.agreements.length > 1000)) throw new HttpError(409, "SNAPSHOT_INTEGRITY", "Снимок содержит некорректный журнал договорённостей.");
+  // JSONB checkpoints need runtime guards before integrity checks and remapping
+  // traverse them. Keep optional legacy defaults; strict portable parsing is separate.
+  if (!isRecord(snapshot.session) || typeof snapshot.session.id !== "string" || !isRecord(snapshot.session.character) || !isRecord(snapshot.session.worldState)) throw invalidShape();
   const tables = [snapshot.turns, snapshot.inventory, snapshot.locations, snapshot.quests, snapshot.npcs, snapshot.sceneObjects, snapshot.memories];
+  const identityTables = [...tables, snapshot.links];
+  if (identityTables.some(rows => !Array.isArray(rows) || rows.some(row => !isRecord(row) || typeof row.id !== "string"))) throw invalidShape();
+  if (snapshot.turns.length > 2000 || tables.slice(1).some(rows => rows.length > 1000)) throw new HttpError(413, "CHECKPOINT_TOO_LARGE", "История превышает лимит быстрого снимка: 2000 записей или 1000 сущностей. Данные не усекались.");
+  for (const location of snapshot.locations) if (location.connectedTo != null && !Array.isArray(location.connectedTo)) throw invalidShape();
+  for (const turn of snapshot.turns) {
+    if (turn.contextMeta == null) continue;
+    if (!isRecord(turn.contextMeta) || !Array.isArray(turn.contextMeta.retrievedIds)) throw invalidShape();
+    const verification = turn.contextMeta.narrativeVerification;
+    if (verification != null && (!isRecord(verification) || !isRecord(verification.evidence) || !Array.isArray(verification.evidence.sources) || verification.evidence.sources.some(source => !isRecord(source)))) throw invalidShape();
+  }
+  const commitments = snapshot.session.worldState.commitments;
+  if (commitments != null && (!Array.isArray(commitments) || commitments.some(commitment => !isRecord(commitment)
+    || (commitment.history != null && (!Array.isArray(commitment.history) || commitment.history.some(entry => !isRecord(entry))))))) throw invalidShape();
+  const source = snapshot.session.id, turn = snapshot.session.turnCount;
+  if (snapshot.agreements !== undefined && (!Array.isArray(snapshot.agreements) || snapshot.agreements.length > 1000 || snapshot.agreements.some(row => !isRecord(row)))) throw new HttpError(409, "SNAPSHOT_INTEGRITY", "Снимок содержит некорректный журнал договорённостей.");
   if (tables.some((rows) => rows.some((row) => row.sessionId !== source))) throw new HttpError(409, "SNAPSHOT_INTEGRITY", "В снимке обнаружена сущность другой кампании.");
-  const allIds = [...tables.flatMap((rows) => rows.map((row) => row.id)), ...(snapshot.agreements ?? []).map(row => row.id)];
+  const allIds = [source, ...identityTables.flatMap((rows) => rows.map((row) => row.id)), ...(snapshot.agreements ?? []).map(row => row.id)];
   if (new Set(allIds).size !== allIds.length) throw new HttpError(409, "SNAPSHOT_INTEGRITY", "В снимке повторяются идентификаторы.");
   const current = snapshot.locations.filter((location) => location.current);
   if (current.length !== 1 || current[0].name !== snapshot.session.worldState.currentLocation) throw new HttpError(409, "SNAPSHOT_INTEGRITY", "Текущая локация мира не согласована с картой.");

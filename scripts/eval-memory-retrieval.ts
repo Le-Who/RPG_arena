@@ -6,6 +6,7 @@ import { buildEvalCorpus, retrievalMetrics, type EvalMemory, type EvalQuestion }
 import { formatDocument, formatQuery, EMBEDDING_MODEL } from "../src/lib/vector";
 import { memorySearchDb, sessionId } from "../tests/helpers/memory-search-db";
 import { buildMemorySearchQuery, type DatabaseSearchResult } from "../src/lib/memory-search";
+import { readResponseJson } from "./lib/read-response-json";
 
 const directory = "output/memory-evaluation";
 const live = process.argv.includes("--live");
@@ -62,15 +63,16 @@ async function embed(texts: string[], dims = 3072, cache = true): Promise<Float3
     const started = performance.now();
     const batch = texts.length > 1;
     const payload = (text: string) => ({ model: `models/${EMBEDDING_MODEL}`, content: { parts: [{ text }] }, outputDimensionality: dims });
+    const signal = AbortSignal.timeout(45000);
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:${batch ? "batchEmbedContents" : "embedContent"}`, {
-      method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, signal: AbortSignal.timeout(45000),
+      method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, signal,
       body: JSON.stringify(batch ? { requests: texts.map(payload) } : payload(texts[0])),
     });
     const entry = { requestId, dims, items: texts.length, ms: Math.round(performance.now() - started), status: response.status, tokens: null as number | null, timing: "full-response" };
     usage.push(entry);
     if (!response.ok) {
       // Inspect retry guidance only; never persist provider error bodies.
-      const error = await response.json() as { error?: { details?: { retryDelay?: string; violations?: { quotaId?: string; quotaValue?: string }[] }[] } };
+      const error = await readResponseJson(response, signal) as { error?: { details?: { retryDelay?: string; violations?: { quotaId?: string; quotaValue?: string }[] }[] } };
       entry.ms = Math.round(performance.now() - started);
       await appendFile(`${directory}/requests.jsonl`, JSON.stringify({ ...entry, at: Date.now() }) + "\n");
       if (response.status < 500) processedTexts -= texts.length;
@@ -81,7 +83,7 @@ async function embed(texts: string[], dims = 3072, cache = true): Promise<Float3
       throw new Error(`Gemini HTTP ${response.status}; evaluation stopped, cache retained`);
     }
     recent.push({ at: Date.now(), items: texts.length });
-    const data = await response.json() as { embeddings?: { values: number[] }[]; embedding?: { values: number[] } };
+    const data = await readResponseJson(response, signal) as { embeddings?: { values: number[] }[]; embedding?: { values: number[] } };
     if (!batch && data.embedding) data.embeddings = [data.embedding];
     entry.ms = Math.round(performance.now() - started);
     await appendFile(`${directory}/requests.jsonl`, JSON.stringify({ ...entry, at: Date.now() }) + "\n");

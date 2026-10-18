@@ -1,6 +1,8 @@
-FROM node:24-bookworm-slim AS dependencies
+ARG NODE_VERSION=22.23.3
+FROM node:${NODE_VERSION}-bookworm-slim AS dependencies
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc .node-version ./
+COPY tooling/braces ./tooling/braces
 RUN npm ci --ignore-scripts --no-audit --no-fund
 
 FROM dependencies AS build
@@ -10,7 +12,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN DATABASE_URL=postgresql://build:build@127.0.0.1:1/build_only CHRONICLE_AUTO_MIGRATE=0 npm run build
 RUN npm prune --omit=dev --ignore-scripts --no-audit --no-fund
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 TZ=UTC
 COPY --from=build --chown=node:node /app/.next ./.next

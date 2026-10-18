@@ -49,10 +49,6 @@
 .gx-narrative-head{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);padding:var(--sp-4) var(--sp-6);background:var(--raised);border-bottom:1px solid var(--line-2)}
 .gx-narrative-title{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--t-md);font-weight:650;color:var(--ink)}
 .gx-narrative-title svg{color:var(--accent)}
-.gx-live{display:inline-flex;align-items:center;gap:7px;font-size:var(--t-2xs);font-weight:650;color:var(--ink-4)}
-.gx-live i{width:8px;height:8px;border-radius:50%;background:var(--ink-4)}
-.gx-live.on{color:var(--ok)}
-.gx-live.on i{background:var(--ok);box-shadow:0 0 0 3px oklch(70% .12 163/.2);animation:pulse-soft 2.6s var(--ease) infinite}
 .gx-offline{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-6);border-bottom:1px solid var(--warn-line);background:var(--warn-soft);font-size:var(--t-xs);line-height:1.65;color:var(--ink-2)}
 .gx-offline>svg{margin-top:2px;color:var(--warn);flex-shrink:0}
 .gx-offline a{display:inline-flex;align-items:center;gap:4px;font-weight:650;color:var(--warn);text-decoration:underline;text-underline-offset:3px}
@@ -146,8 +142,6 @@
 .gx-input-cta{display:flex;align-items:center;gap:var(--sp-3)}
 .gx-hint{display:inline-flex;align-items:center;gap:5px;font-size:var(--t-2xs);color:var(--ink-4)}
 .gx-input .button.primary{height:46px;padding:0 var(--sp-6);font-size:var(--t-md)}
-.gx-composer-foot{display:flex;align-items:center;gap:7px;padding:var(--sp-4) var(--sp-5) var(--sp-5);font-size:var(--t-2xs);color:var(--ink-4)}
-.gx-composer-foot svg{color:var(--accent);flex-shrink:0}
 
 /* Recovery / archived */
 .gx-recovery{display:flex;gap:var(--sp-3);padding:var(--sp-4) var(--sp-5);border:1px solid var(--accent-line);border-radius:var(--r-md);background:var(--accent-soft)}
@@ -269,8 +263,6 @@
 .gx-mem h3{margin:6px 0 5px;font-size:var(--t-xs);font-weight:650}
 .gx-mem p{font-size:var(--t-2xs);line-height:1.7;color:var(--ink-3);display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .gx-mem-all{margin-top:var(--sp-4)}
-.gx-side-foot{display:flex;align-items:center;justify-content:center;gap:7px;flex-shrink:0;padding:var(--sp-3);border-top:1px solid var(--line);font-size:var(--t-2xs);color:var(--ink-4)}
-.gx-side-foot svg{color:var(--accent)}
 
 /* ── Footer / loading ─────────────────────────────────────────────────── */
 .gx-footer{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);margin-top:var(--sp-7);padding:var(--sp-6) 2px var(--sp-7);border-top:1px solid var(--line);font-size:var(--t-xs);color:var(--ink-4);flex-wrap:wrap}
@@ -319,7 +311,7 @@
   .gx-composer-wrap{padding:var(--sp-2) var(--sp-4) var(--sp-5)}
   .gx-composer-head,.gx-composer-hint{padding-left:var(--sp-4);padding-right:var(--sp-4);margin-left:0;margin-right:0}
   .gx-composer-head h3{font-size:var(--t-lg)}
-  .gx-choices,.gx-or,.gx-input,.gx-composer-foot,.gx-free-note{padding-left:var(--sp-4);padding-right:var(--sp-4)}
+  .gx-choices,.gx-or,.gx-input,.gx-free-note{padding-left:var(--sp-4);padding-right:var(--sp-4)}
   .gx-choice{padding:13px var(--sp-3)}
   .gx-choice p{font-size:var(--t-sm)}
   .gx-input-cta{flex:1}
@@ -373,12 +365,6 @@ button.gx-map-pin:focus-visible,.gx-map-expand:focus-visible,.gx-map-canvas:focu
 .gx-map-expand{display:inline-flex;align-items:center;gap:5px;min-height:44px;padding:5px 9px;border:1px solid var(--line-2);border-radius:var(--r-xs);background:var(--raised);color:var(--ink-3);font-size:var(--t-2xs);font-weight:600;transition:background var(--d2) var(--ease),border-color var(--d2) var(--ease),color var(--d2) var(--ease)}
 .gx-map-expand:hover{border-color:var(--accent-line);color:var(--accent-ink)}
 .gx-map-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-2);min-height:150px;margin-bottom:var(--sp-4);border:1px dashed var(--line-2);border-radius:var(--r-sm);color:var(--ink-4);font-size:var(--t-xs)}
-.gx-map-overlay{position:fixed;inset:0;z-index:110;display:flex;align-items:center;justify-content:center;padding:var(--sp-5);background:oklch(8% .01 288/.78);backdrop-filter:blur(10px);animation:fade var(--d2) var(--ease)}
-.gx-map-modal{width:min(980px,100%);padding:var(--sp-5);border:1px solid var(--line-2);border-radius:var(--r-xl);background:var(--overlay);box-shadow:var(--e4);animation:dialog-in var(--d4) var(--out)}
-.gx-map-modal header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);margin-bottom:var(--sp-4)}
-.gx-map-modal strong{display:block;font-size:var(--t-xl);color:var(--ink)}
-.gx-map-modal header span{display:block;margin-top:3px;font-size:var(--t-xs);color:var(--ink-3)}
-@media(max-width:780px){.gx-map-modal{padding:var(--sp-4)}}
 @media(forced-colors:active){button.gx-map-pin:focus-visible,.gx-map-expand:focus-visible,.gx-map-canvas:focus-visible{outline-color:Highlight}.gx-map-pin.is-current{border:2px solid Highlight}.gx-map-svg circle{stroke:CanvasText;fill:Canvas}.gx-map-svg text{fill:CanvasText}.gx-map-svg line{stroke:CanvasText}}
 
 /* ── 2.8: «Ранее в истории» (NARR-9) ── */

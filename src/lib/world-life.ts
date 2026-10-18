@@ -397,10 +397,21 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
     if (touchedItemIds.has(item.id)) { reject(`«${item.name}»: предмет уже изменён в этом ходе`); continue; }
     const left = qtyLeft.get(item.id) ?? 0;
     if (left < t.quantity) { reject(`«${item.name}»: недостаточно (есть ${left})`); continue; }
-    const npc = input.npcs.find((n) => n.key === t.to || normName(n.name) === normName(t.to) || mentions(t.to, n.name));
-    const loc = !npc ? input.locations.find((l) => normName(l.name) === normName(t.to) || l.id === t.to) : undefined;
+    // Stable identities outrank display names; a weaker match must not choose
+    // a different recipient when that identity is unavailable or ambiguous.
+    const recipientRef = t.to.trim();
+    let npcMatches = input.npcs.filter((n) => n.key === recipientRef);
+    let locMatches = input.locations.filter((l) => l.id === recipientRef);
+    if (!npcMatches.length && !locMatches.length) {
+      npcMatches = input.npcs.filter((n) => normName(n.name) === normName(recipientRef));
+      locMatches = input.locations.filter((l) => normName(l.name) === normName(recipientRef));
+    }
+    if (!npcMatches.length && !locMatches.length) npcMatches = input.npcs.filter((n) => mentions(recipientRef, n.name));
+    if (npcMatches.length + locMatches.length > 1) { reject(`«${item.name}»: неоднозначный получатель «${toName}»`); continue; }
+    const npc = npcMatches[0];
+    const loc = locMatches[0];
     if (!npc && !loc) { reject(`«${item.name}»: неизвестный получатель «${toName}»`); continue; }
-    if (npc && npc.status === "dead") { reject(`«${item.name}»: ${npc.name} не может принять предмет`); continue; }
+    if (npc && (npc.status === "dead" || npc.status === "missing")) { reject(`«${item.name}»: ${npc.name} не может принять предмет`); continue; }
     if (npc && npc.lastLocation && normName(npc.lastLocation) !== normName(currentLocation)) { reject(`«${item.name}»: ${npc.name} сейчас не рядом`); continue; }
     if (loc && normName(loc.name) !== normName(currentLocation)) { reject(`«${item.name}»: оставить можно только в текущем месте`); continue; }
     const holderName = npc ? npc.name : loc!.name;
@@ -418,7 +429,11 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
   const returnedItems = input.addedItems ?? (input.addedItemNames ?? []).map((name) => ({ name, quantity: 1 }));
   for (const returned of returnedItems) {
     const quantity = Math.max(1, Math.min(20, Math.round(returned.quantity || 1)));
-    const index = life.holdings.findIndex((h) => normName(h.name) === normName(returned.name) && (h.holderKind === "npc" || normName(h.holderName) === normName(currentLocation)));
+    // An accepted add carries only a name and quantity, not its source holder.
+    // Do not turn multiple possible sources into an arbitrary ownership fact.
+    const matches = life.holdings.filter((h) => normName(h.name) === normName(returned.name));
+    const candidate = matches.length === 1 ? matches[0] : undefined;
+    const index = candidate && (candidate.holderKind === "npc" || normName(candidate.holderName) === normName(currentLocation)) ? life.holdings.indexOf(candidate) : -1;
     if (index >= 0) {
       const holding = life.holdings[index];
       const moved = Math.min(quantity, holding.quantity);

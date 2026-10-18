@@ -1,4 +1,4 @@
-/* 3.0: офлайн-полка (ECO-1d) и живой каталог дизайн-системы (DS-2/PERF-4). Только существующие токены. */
+/* 3.0: живой каталог дизайн-системы (DS-2/PERF-4). Только существующие токены. */
 .x3-page{display:flex;flex-direction:column;gap:var(--sp-6,24px);padding-bottom:var(--sp-7,40px)}
 .x3-section{display:flex;flex-direction:column;gap:var(--sp-4,16px);padding:var(--sp-5,20px);border:1px solid var(--line);border-radius:var(--r-lg,16px);background:var(--surface)}
 .x3-section h2{display:flex;align-items:center;gap:var(--sp-2,8px);font-size:var(--t-lg);color:var(--ink)}
@@ -28,6 +28,6 @@
 .x3-states{display:grid;gap:var(--sp-4,16px)}
 .x3-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2,8px);color:var(--ink-2);font-size:var(--t-sm)}
 .x3-focus-demo{outline:2px solid var(--accent);outline-offset:3px}
-@media (max-width:780px){.x3-section{padding:var(--sp-4,16px)}.x3-book{grid-template-columns:1fr auto}.x3-book>svg{display:none}}
+@media (max-width:780px){.x3-section{padding:var(--sp-4,16px)}}
 
 .x3-page,.x3-section{min-width:0}.x3-matrices{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}.x3-table{overflow-wrap:anywhere}

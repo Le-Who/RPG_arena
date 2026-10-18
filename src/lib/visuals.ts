@@ -9,7 +9,6 @@ import { HttpError } from "./http";
 import { normName } from "./world-life";
 import { PROVIDERS, buildVisualPrompt, clip, fetchFromProvider, seedFor, visualConfig } from "./visual-provider";
 import { readVisualConfig } from "./visual-settings";
-export { buildVisualPrompt, fetchFromProvider, pollinationsProvider, seedFor, styleFor, visualConfig, type MediaProvider, type VisualRequest } from "./visual-provider";
 
 // ─────────────────────────────────────────────────────────────
 //  Паспорта внешности (VIS-2)

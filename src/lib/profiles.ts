@@ -4,7 +4,7 @@
 // какие эффекты и в каких пределах допустимы, какие панели показывает UI,
 // и какой текст канона получают narration/resolution/extraction промпты (MECH-1b).
 
-import type { RulesProfile, CampaignMode } from "@/db/schema";
+import type { RulesProfile } from "@/db/schema";
 
 export type ProfileSpec = {
   id: RulesProfile;
@@ -73,10 +73,6 @@ export const RULES_PROFILE_IDS: RulesProfile[] = ["d20", "rules-light", "narrati
 
 export function isRulesProfile(v: unknown): v is RulesProfile {
   return typeof v === "string" && (RULES_PROFILE_IDS as string[]).includes(v);
-}
-
-export function isCampaignMode(v: unknown): v is CampaignMode {
-  return v === "preset" || v === "free";
 }
 
 export function profileFor(id: string | null | undefined): ProfileSpec {

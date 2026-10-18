@@ -4,6 +4,7 @@ import { JEV_PROVIDERS } from "../src/lib/jev-tasks";
 import { selectNarrativeChecks } from "../src/lib/narrative-policy";
 import { parsePrimitiveAnswers, rankMetrics, type PrimitiveQuestion } from "./jev-evaluation";
 import { utilityFixtures } from "./jev-utility-fixtures";
+import { readResponseJson } from "./lib/read-response-json";
 
 const version = "utility-v1";
 const levels = ["Фрагмент не содержит сведений о предмете запроса.", "Фрагмент даёт контекст предмета запроса, но не отвечает на запрошенное отношение или условие.", "Фрагмент прямо помогает ответить на запрос, в том числе отрицанием, отменой или исправлением условия."];
@@ -38,9 +39,10 @@ async function run() {
     const started = performance.now();
     try {
       calls++;
-      const res = await fetch(JEV_PROVIDERS.openrouter.endpoint, { method: "POST", redirect: "error", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+      const signal = AbortSignal.timeout(5000);
+      const res = await fetch(JEV_PROVIDERS.openrouter.endpoint, { method: "POST", redirect: "error", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
       if (!res.ok) { await res.body?.cancel(); stopReason = `http_${res.status}`; break; }
-      const parsed = parsePrimitiveAnswers(await res.json(), body.questions);
+      const parsed = parsePrimitiveAnswers(await readResponseJson(res, signal), body.questions);
       const grades = f.candidates.map(c => c[1]);
       const score = f.candidates.map((_, i) => parsed.answers[`score_${i}`].score!);
       const choice = f.candidates.map((_, i) => Object.entries(parsed.answers[`choice_${i}`].probabilities!).reduce((sum, [k, p]) => sum + Number(k) * p, 0));

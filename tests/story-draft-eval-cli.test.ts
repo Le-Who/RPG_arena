@@ -6,10 +6,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-async function cli(args: string[], env: Record<string, string> = {}) {
+async function cli(args: string[], env: Record<string, string> = {}, nodeArgs: string[] = []) {
   return new Promise<{ code: number | null; output: string }>((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", "--import", "./tests/helpers/test-environment.ts", "scripts/eval-story-drafts.ts", ...args], { cwd: process.cwd(), env: { ...process.env, STORY_EVAL_COOKIE: "", ...env }, windowsHide: true });
-    let output = ""; const timer = setTimeout(() => { child.kill(); reject(new Error("CLI_TEST_TIMEOUT")); }, 10_000);
+    const child = spawn(process.execPath, [...nodeArgs, "--import", "tsx", "--import", "./tests/helpers/test-environment.ts", "scripts/eval-story-drafts.ts", ...args], { cwd: process.cwd(), env: { ...process.env, STORY_EVAL_COOKIE: "", ...env }, windowsHide: true });
+    let output = ""; const timer = setTimeout(() => { child.kill(); reject(new Error(`CLI_TEST_TIMEOUT: ${output}`)); }, 10_000);
     child.stdout.on("data", bytes => { output += bytes; }); child.stderr.on("data", bytes => { output += bytes; });
     child.on("error", error => { clearTimeout(timer); reject(error); }); child.on("close", code => { clearTimeout(timer); resolve({ code, output }); });
   });
@@ -151,7 +151,10 @@ test("story evaluation deadline aborts an unfinished body after headers and part
   try {
     const out = join(directory, "report.json");
     const started = performance.now();
-    const result = await cli(["--live", `--base-url=${fixture.url}`, "--timeout-ms=200", `--out=${out}`], { STORY_EVAL_COOKIE: cookie });
+    // Collection after headers exposed a lost timeout signal in the real fetch body reader.
+    const result = await cli(["--live", `--base-url=${fixture.url}`, "--timeout-ms=200", `--out=${out}`], { STORY_EVAL_COOKIE: cookie }, [
+      "--expose-gc", "--import", "data:text/javascript,setInterval(()=>globalThis.gc(),10).unref()",
+    ]).catch(error => { throw new Error(`${error.message}; requests=${fixture.calls()}; headers=${headersFlushed}; partialBodies=${partialBodiesWritten}; closedBodies=${closedBodies}`); });
     const elapsedMs = performance.now() - started;
     assert.equal(result.code, 1);
     assert.ok(elapsedMs < 8000, `unfinished-body CLI took ${elapsedMs} ms; bound is 8000 ms`);

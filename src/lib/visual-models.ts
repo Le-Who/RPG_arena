@@ -22,23 +22,34 @@ export function parseImageModels(value: unknown): ImageModelChoice[] {
 
 /** Public catalogue endpoint, bounded so a provider error cannot exhaust the web process. */
 export async function fetchPollinationsImageModels(fetchImpl: typeof fetch = fetch): Promise<ImageModelChoice[]> {
-  const response = await fetchImpl("https://gen.pollinations.ai/image/models", { cache: "no-store", signal: AbortSignal.timeout(8000) });
-  if (!response.ok || !response.body) throw new Error("POLLINATIONS_CATALOG_UNAVAILABLE");
+  const signal = AbortSignal.timeout(8000);
+  const response = await fetchImpl("https://gen.pollinations.ai/image/models", { cache: "no-store", signal });
+  if (!response.ok || !response.body) {
+    void response.body?.cancel().catch(() => {});
+    throw new Error("POLLINATIONS_CATALOG_UNAVAILABLE");
+  }
   const limit = 512 * 1024;
   const length = Number(response.headers.get("content-length"));
-  if (Number.isFinite(length) && length > limit) throw new Error("POLLINATIONS_CATALOG_TOO_LARGE");
+  if (Number.isFinite(length) && length > limit) {
+    void response.body.cancel().catch(() => {});
+    throw new Error("POLLINATIONS_CATALOG_TOO_LARGE");
+  }
   const reader = response.body.getReader();
+  const cancel = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener("abort", cancel, { once: true });
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
     while (true) {
+      if (signal.aborted) throw new Error("POLLINATIONS_CATALOG_UNAVAILABLE");
       const part = await reader.read();
+      if (signal.aborted) throw new Error("POLLINATIONS_CATALOG_UNAVAILABLE");
       if (part.done) break;
       total += part.value.byteLength;
       if (total > limit) throw new Error("POLLINATIONS_CATALOG_TOO_LARGE");
       chunks.push(part.value);
     }
-  } finally { reader.releaseLock(); }
+  } finally { signal.removeEventListener("abort", cancel); cancel(); reader.releaseLock(); }
   const bytes = new Uint8Array(total); let at = 0;
   for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.byteLength; }
   const choices = parseImageModels(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));

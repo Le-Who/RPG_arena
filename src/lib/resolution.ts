@@ -661,9 +661,11 @@ export function applyResolution(input: ApplyInput): ApplyResult {
 
   // ── Квесты ──
   const questsApplied: AppliedChanges["quests"] = [];
+  const questState = input.quests.map(quest => ({ ...quest }));
+  const newQuestKeys = new Set<string>();
   let newQuests = 0;
   for (const q of payload.stateChanges.quests) {
-    const existing = input.quests.find((x) => (q.ref && x.key === q.ref) || (q.title && norm(x.title) === norm(q.title)));
+    const existing = questState.find((x) => (q.ref && x.key === q.ref) || (q.title && norm(x.title) === norm(q.title)));
     if (existing) {
       if (existing.status === "completed" || existing.status === "failed") {
         rejected.push(`Квест «${existing.title}» уже ${existing.status === "completed" ? "завершён" : "провален"}`);
@@ -689,11 +691,16 @@ export function applyResolution(input: ApplyInput): ApplyResult {
           mode: status === "active" ? "upsert" : "append",
         });
         if (existing.isMain) world.mainQuest = existing.title;
+        Object.assign(existing, patch);
       }
-    } else if (q.title && newQuests < 2) {
-      newQuests++;
+    } else if (q.title) {
       const key = slugify(q.title);
+      // New rows receive their database ID on commit; later same-key proposals cannot update them.
+      if (newQuestKeys.has(key)) { rejected.push(`Повтор новой цели «${q.title}» в одном ходе отклонён`); continue; }
+      if (newQuests >= 2) continue;
       if (input.quests.some((x) => x.key === key)) continue;
+      newQuestKeys.add(key);
+      newQuests++;
       const status = q.status && q.status !== "hidden" ? q.status : "active";
       const progress = status === "completed" ? 100 : q.progress ?? 0;
       ops.push({ t: "quest.insert", row: { key, title: q.title, description: q.note, status, progress, isMain: false } });
@@ -712,16 +719,21 @@ export function applyResolution(input: ApplyInput): ApplyResult {
 
   // ── NPC ──
   const npcsApplied: AppliedChanges["npcs"] = [];
+  const npcState = input.npcs.map(npc => ({ ...npc }));
+  const initialRelations = new Map(input.npcs.map(npc => [npc.id, npc.relation]));
+  const emittedNpcNotes = new Map<string, string>();
+  const newNpcKeys = new Set<string>();
   let newNpcs = 0;
   for (const n of payload.stateChanges.npcs) {
-    const existing = input.npcs.find((x) => (n.ref && x.key === n.ref) || (n.name && norm(x.name) === norm(n.name)));
+    const existing = npcState.find((x) => (n.ref && x.key === n.ref) || (n.name && norm(x.name) === norm(n.name)));
     const delta = clampInt(n.relationDelta, -spec.limits.relation, spec.limits.relation);
     if (existing) {
       if (existing.status === "dead" && n.status !== "dead") {
         rejected.push(`NPC «${existing.name}» мёртв — изменения отклонены`);
         continue;
       }
-      const relation = Math.max(-100, Math.min(100, existing.relation + delta));
+      const initialRelation = initialRelations.get(existing.id)!;
+      const relation = Math.max(-100, initialRelation - spec.limits.relation, Math.min(100, initialRelation + spec.limits.relation, existing.relation + delta));
       const status = n.status ?? existing.status;
       ops.push({
         t: "npc.update",
@@ -729,21 +741,31 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         patch: { relation, status, role: n.role || undefined, description: n.note ? `${existing.description ? existing.description + " " : ""}[ход ${turnNumber}] ${n.note}`.slice(0, 1200) : undefined, lastLocation: world.currentLocation },
       });
       npcsApplied.push({ name: existing.name, relation, delta: relation - existing.relation, status, isNew: false, ...(n.note ? { note: n.note.slice(0, 200) } : {}) });
-      if (Math.abs(delta) >= 10 || status !== existing.status || n.note) {
+      // Once this NPC has a canonical event, trailing small changes must refresh its final state.
+      if (Math.abs(delta) >= 10 || status !== existing.status || n.note || emittedNpcNotes.has(existing.id)) {
+        const note = n.note || emittedNpcNotes.get(existing.id) || "";
+        emittedNpcNotes.set(existing.id, note);
         events.push({
           layer: "semantic",
           category: "npc",
           title: `NPC: ${existing.name}`,
-          content: `${existing.name}${existing.role || n.role ? ` (${n.role || existing.role})` : ""}. Отношение ${relation > 0 ? "+" : ""}${relation}${status !== "alive" ? `, статус: ${status}` : ""}. ${n.note || ""} Последняя встреча: «${world.currentLocation}», ход ${turnNumber}.`,
+          content: `${existing.name}${existing.role || n.role ? ` (${n.role || existing.role})` : ""}. Отношение ${relation > 0 ? "+" : ""}${relation}${status !== "alive" ? `, статус: ${status}` : ""}. ${note} Последняя встреча: «${world.currentLocation}», ход ${turnNumber}.`,
           importance: status === "dead" ? 90 : 70,
           entityKey: `npc:${existing.key}`,
           mode: "upsert",
         });
       }
-    } else if (n.name && newNpcs < 3) {
-      newNpcs++;
+      existing.relation = relation;
+      existing.status = status;
+      if (n.role) existing.role = n.role;
+      if (n.note) existing.description = `${existing.description ? existing.description + " " : ""}[ход ${turnNumber}] ${n.note}`.slice(0, 1200);
+    } else if (n.name) {
       const key = slugify(n.name);
+      if (newNpcKeys.has(key)) { rejected.push(`Повтор нового персонажа «${n.name}» в одном ходе отклонён`); continue; }
+      if (newNpcs >= 3) continue;
       if (input.npcs.some((x) => x.key === key)) continue;
+      newNpcKeys.add(key);
+      newNpcs++;
       const relation = Math.max(-100, Math.min(100, delta));
       const status = n.status ?? "alive";
       ops.push({ t: "npc.insert", row: { key, name: n.name, role: n.role, description: n.note, relation, status, lastLocation: world.currentLocation } });
@@ -853,9 +875,11 @@ export function applyResolution(input: ApplyInput): ApplyResult {
 
   // ── Объекты сцены (INV-1f) ──
   const sceneApplied: AppliedChanges["sceneObjects"] = [];
+  const sceneState = input.sceneObjects.map(object => ({ ...object }));
+  const newObjectKeys = new Set<string>();
   let newObjects = 0;
   for (const o of payload.stateChanges.sceneObjects) {
-    const existing = input.sceneObjects.find((x) => (o.ref && x.key === o.ref) || (o.name && norm(x.name) === norm(o.name) && norm(x.locationName) === norm(world.currentLocation)));
+    const existing = sceneState.find((x) => (o.ref && x.key === o.ref) || (o.name && norm(x.name) === norm(o.name) && norm(x.locationName) === norm(world.currentLocation)));
     if (existing) {
       if (norm(existing.state) !== norm(o.state) || o.note) {
         ops.push({ t: "scene.update", id: existing.id, patch: { state: o.state, description: o.note || undefined } });
@@ -869,11 +893,16 @@ export function applyResolution(input: ApplyInput): ApplyResult {
           entityKey: `object:${existing.key}`,
           mode: "upsert",
         });
+        existing.state = o.state;
+        if (o.note) existing.description = o.note;
       }
-    } else if (o.name && newObjects < 3) {
-      newObjects++;
+    } else if (o.name) {
       const key = `${slugify(world.currentLocation)}:${slugify(o.name)}`;
+      if (newObjectKeys.has(key)) { rejected.push(`Повтор нового объекта «${o.name}» в одном ходе отклонён`); continue; }
+      if (newObjects >= 3) continue;
       if (input.sceneObjects.some((x) => x.key === key)) continue;
+      newObjectKeys.add(key);
+      newObjects++;
       ops.push({ t: "scene.insert", row: { key, name: o.name, state: o.state, description: o.note, locationName: world.currentLocation } });
       sceneApplied.push({ name: o.name, state: o.state, isNew: true });
       events.push({

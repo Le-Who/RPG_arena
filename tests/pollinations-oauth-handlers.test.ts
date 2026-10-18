@@ -17,7 +17,7 @@ async function invoke(request: Request, run: () => Promise<Response>) {
   const { workUnitAsyncStorage } = await import("next/dist/server/app-render/work-unit-async-storage.external");
   const { appendMutableCookies } = await import("next/dist/server/web/spec-extension/adapters/request-cookies");
   const store = createRequestStore({ phase: "action", headers: request.headers, url: new URL(request.url), rootParams: {}, implicitTags: { tags: [], expirationsByCacheKind: new Map() }, resumeDataCache: null,
-    onUpdateCookies: undefined, previewProps: undefined, isHmrRefresh: false, serverComponentsHmrCache: undefined, hmrRefreshHash: undefined, fallbackParams: null });
+    onUpdateCookies: undefined, previewProps: undefined, isHmrRefresh: false, serverComponentsHmrCache: undefined, hmrRefreshHash: undefined, stagedFallbackParams: null });
   const response = await workAsyncStorage.run({ route: "/api/settings/pollinations", isStaticGeneration: false } as never, () => workUnitAsyncStorage.run(store, run));
   appendMutableCookies(response.headers, store.mutableCookies);
   return response;

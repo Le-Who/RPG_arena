@@ -331,5 +331,4 @@ export function createStoryDraftAutofillService<TConfig extends StoryDraftAIConf
   };
 }
 
-export const STORY_DRAFT_RESPONSE_SCHEMA = RESPONSE_SCHEMA;
 export type { GeneratedDraft };

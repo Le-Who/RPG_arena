@@ -29,6 +29,16 @@ function callback(operation: () => void) {
   try { operation(); } catch { throw new CallbackFailure(); }
 }
 
+async function withSignal<T>(operation: () => T | Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  let abort!: () => void;
+  try {
+    return await Promise.race([Promise.resolve().then(() => { signal.throwIfAborted(); return operation(); }), new Promise<never>((_, reject) => {
+      abort = () => reject(signal.reason); signal.addEventListener("abort", abort, { once: true });
+    })]);
+  } finally { signal.removeEventListener("abort", abort); }
+}
+
 /** Reads stay cancellable after headers, even for a synthetic or stalled stream. */
 async function readCompletion(response: Response, signal: AbortSignal, onText?: (delta: string) => void) {
   if (!response.body) throw new Error("EMPTY_RESPONSE");
@@ -132,12 +142,20 @@ export async function callTextWithConfig(cfg: TextConfig, opts: GeminiCallOption
     let retryable = true, fetched = false, reported = false;
     const report = async (info: Parameters<NonNullable<GeminiCallOptions["onAttempt"]>>[0]) => {
       reported = true;
-      try { await opts.onAttempt?.(info); } catch { throw new CallbackFailure(); }
+      try { await withSignal(() => opts.onAttempt?.(info), signal); }
+      catch (error) { if (signal.aborted) throw error; throw new CallbackFailure(); }
+    };
+    const reportTerminal = (error: string) => {
+      if (!fetched || reported) return;
+      reported = true;
+      try { void Promise.resolve(opts.onAttempt?.({ model, keyIndex: 0, ok: false, latencyMs: Date.now() - started, error })).catch(() => {}); }
+      catch { /* Terminal accounting must not extend cancellation or expose telemetry errors. */ }
     };
     try {
       callback(() => opts.onAttemptStart?.());
-      attempts++; fetched = true;
-      const response = await fetch(ENDPOINTS[provider], {
+      const response = await withSignal(() => {
+        attempts++; fetched = true;
+        return fetch(ENDPOINTS[provider], {
         method: "POST", redirect: "error", signal,
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({ model, messages: [{ role: "system", content: opts.system }, { role: "user", content: opts.user }],
@@ -146,7 +164,11 @@ export async function callTextWithConfig(cfg: TextConfig, opts: GeminiCallOption
           ...(provider === "openrouter" ? { provider: { allow_fallbacks: false, ...(opts.responseSchema ? { require_parameters: true } : {}) } } : {}),
           ...(opts.responseSchema ? { response_format: { type: "json_schema", json_schema: { name: "chronicle_response", strict: false, schema: compatibleSchema(opts.responseSchema) } } } : {}),
         }),
-      });
+        }).then(response => {
+          if (signal.aborted) void response.body?.cancel().catch(() => {});
+          return response;
+        });
+      }, signal);
       if (!response.ok) {
         retryable = [408, 429, 500, 502, 503, 504].includes(response.status);
         const retry = response.headers.get("retry-after");
@@ -157,14 +179,15 @@ export async function callTextWithConfig(cfg: TextConfig, opts: GeminiCallOption
       }
       const { text, usage } = await readCompletion(response, signal, opts.onText);
       const latencyMs = Date.now() - started;
-      const tokens = (value: unknown, fallback: number) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+      const tokens = (value: unknown, fallback: number) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : fallback;
       const promptTokens = tokens(usage?.prompt_tokens, Math.ceil((opts.system.length + opts.user.length) / 3.5));
       const completionTokens = tokens(usage?.completion_tokens, Math.ceil(text.length / 3.5));
       await report({ model, keyIndex: 0, ok: true, latencyMs, promptTokens, completionTokens });
       return { text, model, keyIndex: 0, latencyMs, promptTokens, completionTokens,
         thoughtTokens: tokens(usage?.completion_tokens_details?.reasoning_tokens, 0), cachedTokens: tokens(usage?.prompt_tokens_details?.cached_tokens, 0) };
     } catch (error) {
-      if (opts.signal?.aborted) throw opts.signal.reason;
+      if (opts.signal?.aborted) { reportTerminal("ABORTED"); throw opts.signal.reason; }
+      if (signal.aborted) { reportTerminal("TIMEOUT"); throw new Error("AI_DEADLINE:TIMEOUT"); }
       if (error instanceof CallbackFailure) {
         if (fetched && !reported) {
           try { await report({ model, keyIndex: 0, ok: false, latencyMs: Date.now() - started, error: "CALLBACK_ERROR" }); }
@@ -174,7 +197,7 @@ export async function callTextWithConfig(cfg: TextConfig, opts: GeminiCallOption
       }
       lastError = error instanceof Error && /^HTTP \d{3}: провайдер текста недоступен$/.test(error.message) ? error.message : safeError(error, signal);
       try { await report({ model, keyIndex: 0, ok: false, latencyMs: Date.now() - started, error: lastError }); }
-      catch { throw new Error("CALLBACK_ERROR"); }
+      catch { throw new Error(opts.signal?.aborted ? "ABORTED" : signal.aborted ? "AI_DEADLINE:TIMEOUT" : "CALLBACK_ERROR"); }
       if (!retryable || round === 1) break;
     }
     if (deadline - Date.now() <= retryAfterMs + 250) throw new Error(`AI_DEADLINE:${lastError}`);

@@ -93,12 +93,6 @@ export function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 3.6));
 }
 
-/** Ключи из окружения (GEMINI_API_KEYS="k1,k2") объединяются с ключами из БД. */
-export function envKeys(): string[] {
-  const raw = process.env.GEMINI_API_KEYS ?? process.env.GEMINI_API_KEY ?? "";
-  return [...new Set(raw.split(/[\n,;]+/).map((k) => k.trim()).filter((k) => k.length > 10))].slice(0, 10);
-}
-
 // ─────────────────────────────────────────────────────────────
 //  Промпты
 // ─────────────────────────────────────────────────────────────
@@ -200,19 +194,6 @@ export function buildDiceBlock(d: { goal?: string; kind?: string; skill: string;
           ? `УСПЕХ (${d.total} ≥ DC ${d.dc})`
           : `НЕУДАЧА (${d.total} < DC ${d.dc})`;
   return `${d.goal ? `\nПРОВЕРЯЕМАЯ ЦЕЛЬ: ${JSON.stringify(d.goal)}.` : ""}\nРЕЗУЛЬТАТ БРОСКА (факт сервера, не меняй): навык «${d.skill}», d20=${d.d20}${d.modifier >= 0 ? "+" : ""}${d.modifier} = ${d.total} vs DC ${d.dc} → ${outcomeRu}. Если УСПЕХ — цель достигнута (полностью или в основном); если НЕУДАЧА — цель не достигнута и есть последствия. Нарратив ОБЯЗАН соответствовать.`;
-}
-
-export function buildCompactionSystemPrompt(profileCanon: string): string {
-  return `Ты — модуль Memory House интерактивной истории. Сожми блок ходов в структурированную память БЕЗ потери канона.
-${profileCanon}
-Верни СТРОГО валидный JSON без текста вне него:
-{
-  "episodic": [ { "title": "...", "content": "Событие с причиной и следствием", "importance": 0-100, "entityKey": "quest:key | npc:key | location:slug | event" } ],
-  "semantic": [ { "title": "...", "content": "Устойчивый факт о мире, NPC, месте или предмете", "importance": 0-100, "entityKey": "npc:key | location:slug | item:slug | world" } ],
-  "chronicle": "3-5 предложений: ключевые события главы, причинно-следственные связи, потери, обязательства"
-}
-Правила важности: ≥85 — смерти, клятвы/долги, уникальные предметы, потеря союзников; ≥70 — квесты, именные NPC, смена сторон, тяжёлые раны; ≥55 — новые предметы, места, переговоры; <40 — антураж, отбрасывай.
-Канон: не меняй имена, не противоречь существующей памяти, НЕ дублируй уже зафиксированные факты — только новое и изменившееся. Русский язык.`;
 }
 
 // ─────────────────────────────────────────────────────────────

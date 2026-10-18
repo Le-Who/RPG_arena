@@ -40,7 +40,6 @@ export type AgendaApplied = {
 };
 
 export const AGENDA_KIND_LABELS: Record<AgendaKind, string> = { npc: "Персонаж", world: "Мир", reminder: "Напоминание" };
-export const AGENDA_STATUS_LABELS: Record<AgendaStatus, string> = { pending: "Запланировано", due: "Наступило", fired: "Произошло", cancelled: "Отменено" };
 
 const MAX_PENDING = 24;
 const MAX_EVENTS = 60;

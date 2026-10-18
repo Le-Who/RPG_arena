@@ -20,8 +20,6 @@ import { LAYER_INFO } from "./memory-ui";
 import type { MemoryLayer } from "./memory-ui";
 export type ModelTier = "lite" | "flash";
 
-export const CONTEXT_BUDGET: Record<ModelTier, number> = { lite: 7_500, flash: 16_000 };
-
 export type DigestNode = {
   id?: string;
   layer: string;
@@ -256,7 +254,7 @@ export function normalizeExtractedFacts(raw: unknown, narration: string, playerA
   // An intended player action is not proof that the event happened.
   const haystack = narration.toLowerCase();
   for (const f of facts.slice(0, 6)) {
-    if (!f || typeof f !== "object" || !["npc", "world", "character", "relationship", "promise", "secret", "event"].includes(String(f.type))) continue;
+    if (!f || typeof f !== "object" || typeof f.type !== "string" || !["npc", "world", "character", "relationship", "promise", "secret", "event"].includes(f.type)) continue;
     const content = typeof f.content === "string" ? f.content.trim().slice(0, 600) : "";
     const evidence = typeof f.evidence === "string" ? f.evidence.trim().slice(0, 240) : "";
     const rawConfidence = f.confidence;
@@ -268,13 +266,14 @@ export function normalizeExtractedFacts(raw: unknown, narration: string, playerA
     if (!evOk || confidence < 0.55) continue;
     // Не принимаем факты о ресурсах/предметах/локациях — они приходят из состояния (MEM-1c)
     if ((f.type === "event" || f.type === "world") && (ITEM_OR_MOVEMENT.test(content) || RESOURCE_CHANGE.test(content) || RESOURCE_HOLDING.test(content) || SCORE_CHANGE.test(content) || SCORE_BALANCE.test(content))) continue;
+    const importance = f.importance !== null && typeof f.importance === "object" ? Number.NaN : Number(f.importance);
     out.push({
       type: typeof f.type === "string" ? f.type : "world",
       entityKey: typeof f.entityKey === "string" ? f.entityKey.trim().slice(0, 80) : "",
       title: (typeof f.title === "string" ? f.title : content.slice(0, 60)).slice(0, 120),
       content,
       evidence,
-      importance: Number.isFinite(Number(f.importance)) ? Math.max(40, Math.min(95, Math.round(Number(f.importance)))) : 55,
+      importance: Number.isFinite(importance) ? Math.max(40, Math.min(95, Math.round(importance))) : 55,
       confidence,
     });
   }

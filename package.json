@@ -1,6 +1,9 @@
 {
   "name": "nextjs-postgresql-template",
   "private": true,
+  "engines": {
+    "node": ">=22.23.3 <23"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -27,29 +30,38 @@
     "check:docs": "node --import tsx scripts/check-docs.ts"
   },
   "dependencies": {
-    "@playwright/test": "^1.63.0",
-    "baseline-browser-mapping": "^2.11.25",
-    "dotenv": "17.3.1",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.47.0",
-    "next": "~16.3.8",
+    "next": "~16.4.2",
     "pg": "8.20.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "tsx": "^4.23.13"
   },
+  "overrides": {
+    "braces": "$braces"
+  },
   "devDependencies": {
+    "@eslint-react/eslint-plugin": "5.28.1",
     "@electric-sql/pglite": "^0.5.8",
     "@electric-sql/pglite-pgvector": "^0.0.9",
+    "@next/eslint-plugin-next": "16.4.2",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "4.1.17",
     "@types/node": "22.19.15",
     "@types/pg": "8.18.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@typescript-eslint/parser": "8.71.2",
+    "braces": "file:./tooling/braces",
     "esbuild": "0.28.2",
-    "eslint": "9.39.4",
-    "eslint-config-next": "~16.3.8",
+    "eslint": "10.13.0",
+    "eslint-plugin-import-x": "4.17.1",
+    "eslint-plugin-jsx-a11y-x": "0.2.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "16.4.0",
     "postcss": "^8.5.28",
+    "semver": "7.8.5",
     "tailwindcss": "4.1.17",
     "typescript": "5.9.3"
   }

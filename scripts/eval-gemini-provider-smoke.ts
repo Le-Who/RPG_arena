@@ -2,6 +2,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { callTextWithConfig } from "../src/lib/text-provider";
 import { parseResolution, RESOLUTION_RESPONSE_SCHEMA } from "../src/lib/resolution";
+import { readResponseJson } from "./lib/read-response-json";
 const scenes = [
   { id: "ordinary", text: "Бытовая история без опасности и бросков. Игрок спрашивает соседа, когда откроется библиотека. Время неизвестно; сосед тоже не знает. Не придумывай расписание и не решай следующее действие игрока." },
   { id: "alien", text: "В мире разумных кристаллов нет еды и сна. Игрок любуется отражением света. Опиши спокойную реакцию мира без навязывания человеческой физиологии и без изменения ресурсов." },
@@ -29,14 +30,15 @@ async function run() {
   }
   const started = Date.now();
   try {
+    const signal = AbortSignal.timeout(15000);
     const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent", {
-      method: "POST", redirect: "error", signal: AbortSignal.timeout(15000),
+      method: "POST", redirect: "error", signal,
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({ model: "models/gemini-embedding-2", content: { parts: [{ text: "В библиотеке хранится карта приливов." }] }, outputDimensionality: 768 }),
     });
     if (!response.ok) { await response.body?.cancel(); rows.push({ id: "embedding", httpStatus: response.status, ok: false }); }
     else {
-      const data = await response.json();
+      const data = await readResponseJson(response, signal) as { embedding?: { values?: unknown } };
       const values: unknown = data.embedding?.values;
       rows.push({ id: "embedding", model: "gemini-embedding-2", dimensions: Array.isArray(values) ? values.length : null,
         ok: Array.isArray(values) && values.length === 768 && values.every(v => typeof v === "number" && Number.isFinite(v)), latencyMs: Date.now() - started });

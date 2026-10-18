@@ -1,6 +1,6 @@
 # Chronicle Engine — Roadmap
 
-> Актуальный срез: **карта и диалоги в Firefox/WebKit, 16 октября 2026**.
+> Актуальный срез: **legacy-аудит, нативные ESLint 10 плагины и стабилизация V8/PGlite на Node 22 LTS с сохранением Next 16, 18 октября 2026**.
 > Этот файл — единый список текущих статусов и приоритетов. Планы отдельных версий ниже — исторические документы, а не параллельные актуальные roadmap.
 > «Реализовано» означает наличие в коде; успешное развёртывание и качество реального AI требуют отдельных проверок. Сроки будущих этапов не назначены.
 
@@ -9,6 +9,48 @@
 Дополнение после выборочной интеграции 2.9: [следующие шаги и приоритет JEV-3](../../development-roadmap-2026-09-27.md). **JEV-3 — универсальное применение Jev для задач проекта — важный приоритет P1 ближайшего цикла.** Общий слой Choice и адаптеры реализованы; следующий шаг — размеченная оценка механик и отдельный допуск наблюдения. [Дополнения поставки и границы](../../revision-29-addendum-review.md).
 
 ## Продуктовые решения
+
+### Стабильность V8/PGlite на поддерживаемом Node — 18.10.2026
+
+Выбран Node 22.23.3 LTS для разработки, CI и Docker; engines ограничен проверенной веткой, установка и test preloader отвергают неподдерживаемый Node. Сигнатура прежнего fatal abort совпадает с открытой upstream-проблемой V8/Wasm в Node 24. Изоляция PGlite, миграции, Next 16.4.2 и нативный ESLint 10 сохранены. Добавлено шесть runtime-проверок.
+
+Штатный полный ordinary **1217/1217 с первой попытки**, fail/cancelled/skipped/todo 0; все 1211 прежних регистраций сохранены. Stress **120/120** свежих PGlite lifecycle в четырёх процессах прошёл с обычным GC. Clean install, focused79/79, checkpoint44/44, итоговые type/lint, production build и HTTP smoke — exit 0; full/runtime audit 0, все 526 non-document inputs сохранили SHA256. Независимый review — PASS. Node 22 поддерживается до 30 апреля 2027; переход на следующий LTS требует подтверждённого upstream исправления и проверки нового baseline. [Причина, решение и результаты приёмки](../../v8-pglite-stability-2026-10-18.md). Предыдущие task IDs сохраняются.
+
+### Нативные ESLint 10 плагины после аудита React — 18.10.2026
+
+В 46 TSX-файлах приложения нет классовых React-компонентов или старых API. Legacy классовые blockers сняты; TypeScript проверяет duplicate props/JSX names, core guards удерживают JSX в TSX и исключают классы в TSX. Сохранены все 22 Next и 16 hooks правил, шесть a11y warnings и современные children/key/display-name проверки. Кавычки и апострофы разрешены как корректный JSX-текст; TSX default exports требуют именованных bindings. Compat, старые React/a11y/import плагины, eslint-config-next и eslint peer override удалены; отдельный braces security patch сохранён.
+
+Final focused 70/70, checkpoint repeat 44/44 и полный штатный ordinary **1211/1211** прошли, fail/cancelled/skipped/todo 0. Все 1141 прикладных и 40 security/glob executions сохранены по сверке имён; 47 старых toolchain registrations заменены 30 актуальными. Первый полный запуск получил native V8/WASM abort; повтор прошёл на том же Node без изменений исходников/GC flags. Clean-install/type/lint/build/production HTTP и audit gates прошли; full/runtime audit 0. Сохранены hashes 522 non-document inputs; итоговый npm ls exit 0 при двух optional/extraneous Sharp/WASM записях и отсутствии invalid/missing. [Решение, границы и результаты](../../react-eslint-native-policy-2026-10-18.md). Прежние task IDs сохранены.
+
+### Проверка нативных ESLint 10 плагинов — 18.10.2026
+
+Кандидаты React5.28.1, JSX a11y-x0.2.0 и import-x4.17.1 проверены в отдельной чистой npm-установке без overrides. Полный переход отложен: 14 React JSX/TSX fixtures теряют действующие диагностики, хотя положительный контроль обычного state assignment работает. A11y24/import22 и import-order fix совпали на проверенном срезе. Частичный переход оставляет React bridge/peer exception и добавляет сопровождение конфигурации; текущие package/config/lock сохранены побайтово.
+
+Добавлено8 ordinary registrations; focused87/87, независимые47/47 и полный ordinary **1228/1228** прошли, fail/cancelled/skipped/todo0. Clean-install/tree/type/lint/default build и production HTTP smoke прошли; full/runtime audit0. Все522 non-document inputs сохранили hashes. [Кандидаты, решение и доказательства](../../native-eslint-plugins-evaluation-2026-10-18.md), [план](2026-10-18-native-eslint-plugins.md). Предыдущие task IDs сохранены.
+
+### Поддерживаемый ESLint 10 и Next 16.4 — 18.10.2026
+
+ESLint обновлён до 10.13.0, согласованный Next/config/plugin — до 16.4.2. Официальный compat 2.1.1 дополняет upstream Next bridge для React/import SourceCode API; текущие React/JSX a11y/import peer-ограничения обозначены явно. Все 67 записей правил (62 активных), параметры, globals и ignores сохранены. Две общие root overrides устраняют конфликт наследования npm 11; постоянный guard проверяет сырые peer-контракты и braces API, сам depth-патч сохранён.
+
+Добавлено39 ordinary registrations, final focused84/84, штатный полный ordinary **1220/1220**, fail/cancelled/skipped/todo0. Clean-install/tree/full-runtime-audit/type/lint/default Turbopack build и production HTTP smoke прошли; audit0. Независимый review закрыл потерю Linux SWC ABI metadata и подтвердил адаптацию OAuth fixture к `stagedFallbackParams`; открытых findings нет. Зафиксированы522 non-document inputs. [Решение, ограничения поддержки и доказательства](../../eslint10-migration-2026-10-18.md), [план](2026-10-18-eslint10-migration.md). Предыдущие task IDs и продуктовые режимы сохранены.
+
+### Исправление ESLint high-цепочки с сохранением Next 16 — 18.10.2026
+
+Сохранён стек Next/config/plugin16.3.8. Приватный локальный braces patch ограничивает parser/compile/expand/stringify depth и подключён только к установленной lint-цепочке. Полноценная грамматика, numeric ranges, symlink/junction и root scope сохраняются; engine aliases отклонены после независимого review. Focused40/40, полный последовательный ordinary1181/1181, clean-install/type/lint/build/docs gates прошли. Full/runtime npm audit0; 521 non-document inputs совпадают с проверочной копией. Минимальные Docker install/prune inputs проверены; image build без доступного Docker CLI не заявляется. [Причина, патч, доказательства и условие удаления](../../eslint-dependency-remediation-2026-10-18.md).
+
+### Legacy-аудит, batch-состояние и дедлайны — 18.10.2026
+
+Удалены неиспользуемый алгоритм карты, остаточный Drizzle Kit config, восемь dead exports, provider reexport и 48 CSS selector rules. `dotenv` удалён; прямое объявление baseline mapping убрано, Playwright перенесён в dev с сохранением версии. Старые checkpoints/import/settings, миграции, rolling-deploy memory search и отдельный JEV-3b evaluator сохранены по подтверждённым контрактам. [Область, решения и доказательства](../../legacy-cleanup-audit-2026-10-18.md).
+
+Исправлены последовательные quest/NPC/object изменения, общий лимит отношений за ход и финальная NPC semantic memory; отклоняются ложные повторные new-key claims и object-valued memory coercions. Provider fetch/body/telemetry deadlines и cleanup получили регрессии. Первый полный прогон воспроизвёл GC-зависимое зависание evaluation CLI; общий reader закрыл тот же шаблон в пяти скриптах, сохранив бюджеты и auth/report contracts. StoryRecords keyboard search/Reset race исправлены. Добавлено31 ordinary registrations, семь obsolete-map registrations удалены; browser checks учитываются отдельно.
+
+Повторный полный ordinary набор **1141/1141**, fail/cancelled/skipped/todo0. Итоговые typecheck/lint и штатный Turbopack build прошли на чистой установке и побайтово равной копии;505 executable/config/SQL/public inputs неизменны. Независимые заключительные core39/embeddings14/GC15 и Chromium records8/map16 прошли без открытых scoped findings. Runtime npm audit0; пять зафиксированных тогда dev lint findings и последующий переход на ESLint10 закрыты отдельными этапами выше. Live качество моделей, native PostgreSQL contention и production deployment этим этапом не заявляются; прежние task IDs сохранены.
+
+### Границы снимков, передачи предметов и ротации ключей — 18.10.2026
+
+Добавлено85 ordinary registrations:44 для actual checkpoint services,29 для receiver/holding identity и12 для SQL/AES-GCM rotation recovery. Исправлены воспроизведённые обходы persisted row caps, небезопасные traversals и коллизии global snapshot IDs; передача теперь выбирает единственного получателя по stable key/ID перед именем/prose и отвергает missing NPC. Неоднозначная name-only acquisition сохраняет известные holdings и ownership memory. Ротация уже корректна: новые CAS/null/deletion/batch/late-failure/recovery проверки прошли без изменения production. [Контракты, RED/GREEN и пределы](../../persistence-identity-test-coverage-2026-10-18.md), [план](2026-10-18-persistence-identity-coverage.md).
+
+Full ordinary **1117/1117**, fail/cancelled/skipped/todo0; сохранены все1032 исходных имени, добавлено85. Прежний1026 имеет отдельную историю: шесть ранее добавленных JSON/Jev cases не засчитаны в85 новых. Focused44/29/12, adjacent52/83, independent73+12 и typecheck/lint прошли. Зафиксированы494 source/test/script/config/SQL/public inputs; default Turbopack build на побайтово равной физической копии прошёл, включая сверку публичной `.gitignore` конфигурации. Documentation checker86 files/355 links прошёл. Strict portable parsing, старый v1 и singleton remote/courier returns сохраняются. Native COMMIT/crash/disconnect, исчерпывающие malformed scalar fields и независимая live semantic evaluation остаются отдельными boundaries; прежние task IDs сохранены.
 
 ### Карта и диалоги в Firefox/WebKit — 15–16.10.2026
 

@@ -17,6 +17,35 @@ export type { RetrievedNode } from "./memory-search";
 export { DEFAULT_EMBEDDING_DIMS, cosine, formatDocument, formatQuery };
 export const EMBEDDING_MODEL_ALIASES = [EMBEDDING_MODEL];
 
+async function withEmbeddingSignal<T>(operation: () => T | Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  let abort!: () => void;
+  try {
+    return await Promise.race([Promise.resolve().then(() => { signal.throwIfAborted(); return operation(); }), new Promise<never>((_, reject) => {
+      abort = () => reject(signal.reason); signal.addEventListener("abort", abort, { once: true });
+    })]);
+  } finally { signal.removeEventListener("abort", abort); }
+}
+
+async function readEmbeddingResponse(response: Response, signal: AbortSignal) {
+  if (!response.body) throw new Error("INVALID_VECTOR_RESPONSE");
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  const cancel = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener("abort", cancel, { once: true });
+  let body = "", bytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await withEmbeddingSignal(() => reader.read(), signal);
+      signal.throwIfAborted();
+      bytes += value?.byteLength ?? 0;
+      // At most 100 vectors of 3072 finite numbers, with ample room for JSON metadata.
+      if (bytes > 16 * 1024 * 1024) throw new Error("INVALID_VECTOR_RESPONSE");
+      body += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      if (done) return JSON.parse(body);
+    }
+  } finally { signal.removeEventListener("abort", cancel); cancel(); reader.releaseLock(); }
+}
+
 /** One vector space, one total timeout, no silent migration to a preview model. */
 export async function embedTexts(opts: { keys: string[]; model: string; dims: number; texts: string[]; sessionId?: string | null; timeoutMs?: number }): Promise<{ vectors: number[][]; model: string; latencyMs: number }> {
   if (opts.model !== EMBEDDING_MODEL) throw new Error("INCOMPATIBLE_EMBEDDING_MODEL: требуется gemini-embedding-2");
@@ -46,26 +75,42 @@ export async function embedTexts(opts: { keys: string[]; model: string; dims: nu
     if (Date.now() >= started + budget) throw new QuotaAdmissionError("QUOTA_ADMISSION_TIMEOUT", providerAttempts);
     const batch = opts.texts.length > 1;
     const request = (text: string) => ({ model: `models/${EMBEDDING_MODEL}`, content: { parts: [{ text }] }, outputDimensionality: opts.dims });
+    let reported = false;
+    const report = (success: boolean, error: string) => {
+      reported = true;
+      return withEmbeddingSignal(() => logEmbeddingCall(opts, Date.now() - started, success, error, i), signal);
+    };
     try {
       providerAttempts++;
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:${batch ? "batchEmbedContents" : "embedContent"}`, {
+      const response = await withEmbeddingSignal(() => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:${batch ? "batchEmbedContents" : "embedContent"}`, {
         method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": opts.keys[i] },
         signal, body: JSON.stringify(batch ? { requests: opts.texts.map(request) } : request(opts.texts[0])),
-      });
+      }).then(response => {
+        if (signal.aborted) void response.body?.cancel().catch(() => {});
+        return response;
+      }), signal);
       if (!response.ok) {
+        void response.body?.cancel().catch(() => {});
         lastError = `Gemini: HTTP ${response.status}`;
-        await logEmbeddingCall(opts, Date.now() - started, false, lastError, i);
+        await report(false, lastError);
         if ([400, 404].includes(response.status)) break;
         continue;
       }
-      const data = await response.json();
+      const data = await readEmbeddingResponse(response, signal);
       const vectors: unknown[] = batch ? (data.embeddings ?? []).map((e: { values: unknown }) => e.values) : [data.embedding?.values];
       if (vectors.length !== opts.texts.length || !vectors.every((v) => isValidVector(v, opts.dims))) throw new Error("INVALID_VECTOR_RESPONSE");
-      await logEmbeddingCall(opts, Date.now() - started, true, "", i);
+      await report(true, "");
       return { vectors: vectors as number[][], model: EMBEDDING_MODEL, latencyMs: Date.now() - started };
     } catch (error) {
-      lastError = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name) ? "Gemini не ответил вовремя" : "Некорректный ответ сервиса эмбеддингов";
-      await logEmbeddingCall(opts, Date.now() - started, false, lastError, i);
+      lastError = signal.aborted || (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)) ? "Gemini не ответил вовремя" : "Некорректный ответ сервиса эмбеддингов";
+      if (signal.aborted) {
+        if (!reported) void logEmbeddingCall(opts, Date.now() - started, false, lastError, i).catch(() => {});
+        break;
+      }
+      if (!reported) {
+        try { await report(false, lastError); }
+        catch { lastError = "Gemini не ответил вовремя"; break; }
+      }
     }
   }
   throw new Error(lastError);

@@ -3,15 +3,6 @@ import type { DiceResult } from "@/db/schema";
 
 export type CheckResult = DiceResult;
 
-export const STAT_MODS: Record<string, string> = {
-  СИЛ: "Атлетика, ближний бой",
-  ЛОВ: "Скрытность, стрельба, акробатика",
-  ВЫН: "Стойкость, выживание",
-  ИНТ: "Анализ, знания, техника",
-  МУД: "Восприятие, медицина, воля",
-  ХАР: "Убеждение, обман, запугивание",
-};
-
 export function statModifier(score: number): number {
   return Math.floor((score - 10) / 2);
 }
