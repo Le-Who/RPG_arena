@@ -10,6 +10,12 @@
 
 ## Продуктовые решения
 
+### Node 22 на управляемом Vercel runtime — 18.10.2026
+
+Installation/runtime floor скорректирован до `>=22.23.2 <23`: Vercel выбирает major 22, но предоставляет patch 22.23.2/npm10.9.8. Прежний floor 22.23.3 вместе с engine-strict приводил к EBADENGINE. Strict проверка сохранена, рекомендованный dev/CI/Docker pin остаётся 22.23.3; добавлена регрессия реального Vercel patch. [Причина и результаты приёмки](../../vercel-node22-compatibility-2026-10-18.md). Прежние task IDs сохранены.
+
+На реальном 22.23.2/npm10.9.8 прошли обычный clean npm install с lifecycle scripts, focused80/80, итоговые type/lint/Next build/HTTP smoke, полный ordinary **1218/1218 с первой попытки** и stress **120/120**. Fail/cancelled/skipped/todo 0, full/runtime audit 0, все 526 non-document inputs сохранили SHA256. На pin22.23.3 policy7/7. Версии и dependency edges не менялись; служебная перезапись npm10 peer/libc metadata сохранена в evidence и не внесена в repository lock.
+
 ### Стабильность V8/PGlite на поддерживаемом Node — 18.10.2026
 
 Выбран Node 22.23.3 LTS для разработки, CI и Docker; engines ограничен проверенной веткой, установка и test preloader отвергают неподдерживаемый Node. Сигнатура прежнего fatal abort совпадает с открытой upstream-проблемой V8/Wasm в Node 24. Изоляция PGlite, миграции, Next 16.4.2 и нативный ESLint 10 сохранены. Добавлено шесть runtime-проверок.

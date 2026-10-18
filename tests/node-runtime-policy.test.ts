@@ -73,9 +73,20 @@ test("runtime policy rejects the affected Node 24 branch", async () => {
 
 test("runtime policy rejects outdated, unvalidated and malformed Node versions", async () => {
   const { assertTestRuntime } = await import("./helpers/node-runtime");
-  for (const version of ["20.19.0", "22.23.2", "23.0.0", "25.0.0", "26.12.0", "22.23.3-rc.1", "22", "invalid"]) {
+  for (const version of ["20.19.0", "22.23.1", "23.0.0", "25.0.0", "26.12.0", "22.23.3-rc.1", "22", "invalid"]) {
     assert.throws(() => assertTestRuntime(version), { code: "UNSUPPORTED_TEST_NODE" });
   }
+});
+
+test("Vercel Node 22.23.2 satisfies strict installation and test runtime contracts", async () => {
+  const require = createRequire(import.meta.url);
+  const semver = require("semver") as { satisfies(version: string, range: string): boolean };
+  for (const filename of [join(root, "package.json"), require.resolve("next/package.json"), join(dirname(require.resolve("eslint")), "..", "package.json")]) {
+    const manifest = JSON.parse(readFileSync(filename, "utf8")) as { engines: { node: string } };
+    assert.equal(semver.satisfies("22.23.2", manifest.engines.node), true, `Vercel Node must satisfy ${filename}: ${manifest.engines.node}`);
+  }
+  const { assertTestRuntime } = await import("./helpers/node-runtime");
+  assert.doesNotThrow(() => assertTestRuntime("22.23.2"));
 });
 
 test("the pinned Node release satisfies the project, Next and ESLint engine contracts", () => {

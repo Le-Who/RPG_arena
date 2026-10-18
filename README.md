@@ -99,7 +99,7 @@ worker, диагностика `/system`, согласованная компа�
 
 ## Запуск
 
-Для команд ниже используйте **Node.js 22.23.3 LTS** из `.node-version` и PostgreSQL. Проект допускает Node.js `>=22.23.3 <23`; `.npmrc` проверяет engines при установке, CI читает `.node-version`, Docker использует тот же релиз. Перед `npm ci` проверьте `node --version`: глобальный Node 24 для этого проекта не подходит из-за падения V8 при работе PGlite. [Причина, границы поддержки и проверки стабильности](docs/v8-pglite-stability-2026-10-18.md). Зависимости: Next.js `~16.4.2`, React `19.2.6`, Drizzle ORM `0.45.2`, node-postgres `8.20.0`, Tailwind CSS `4.1.17`.
+Для команд ниже используйте **Node.js 22.23.3 LTS** из `.node-version` и PostgreSQL. Проект допускает Node.js `>=22.23.2 <23`, включая доступный на Vercel патч 22.23.2; `.npmrc` проверяет engines при установке. CI читает `.node-version`, Docker использует 22.23.3. Перед `npm ci` проверьте `node --version`: глобальный Node 24 для этого проекта не подходит из-за падения V8 при работе PGlite. [Исходная стабилизация V8/PGlite](docs/v8-pglite-stability-2026-10-18.md), [совместимость с Node на Vercel](docs/vercel-node22-compatibility-2026-10-18.md). Зависимости: Next.js `~16.4.2`, React `19.2.6`, Drizzle ORM `0.45.2`, node-postgres `8.20.0`, Tailwind CSS `4.1.17`.
 
 Линтер использует нативные плагины ESLint 10 без compat bridge и peer overrides. React UI пишется функциональными компонентами в TSX; `npm run typecheck` обязателен вместе с lint и проверяет имена JSX-компонентов и повторные props. [Аудит используемых React API, политика правил и проверки перехода](docs/react-eslint-native-policy-2026-10-18.md).
 
