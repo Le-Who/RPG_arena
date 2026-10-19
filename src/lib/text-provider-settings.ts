@@ -21,7 +21,7 @@ export function parseTextProviderSettings(body: Record<string, unknown>): TextPr
   if (typeof body.provider !== "string" || !["gemini", "openrouter", "pollinations"].includes(body.provider)) invalid();
   if (typeof body.model !== "string") invalid();
   const model = body.model.trim();
-  if (model.length > 200 || (model && !/^[a-zA-Z0-9][a-zA-Z0-9._:/@+-]*$/.test(model)) || (body.provider !== "gemini" && !model)) invalid();
+  if (model.length > 200 || (model && !/^[a-zA-Z0-9][a-zA-Z0-9._:/@+-]*$/.test(model)) || (body.provider !== "gemini" && !model && !(body.provider === "pollinations" && body.useLiveAI === false))) invalid();
   if (body.clearKey !== undefined && typeof body.clearKey !== "boolean") invalid();
   if (body.useLiveAI !== undefined && typeof body.useLiveAI !== "boolean") invalid();
   if (body.apiKey !== undefined && (typeof body.apiKey !== "string" || !body.apiKey.trim() || body.apiKey.length > 4096 || /[\x00-\x20\x7f]/.test(body.apiKey.trim()))) invalid();

@@ -1,9 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beginPollinationsConnect } from "../src/lib/pollinations-oauth";
+import { beginPollinationsConnect, finishPollinationsConnect } from "../src/lib/pollinations-oauth";
 
 const config = { clientId: "pk_test_app", redirectUri: "http://localhost:3000/api/settings/pollinations/callback" };
 const keyring = { active: "test", keys: { test: Buffer.alloc(32, 9).toString("base64") } };
+const metadata = { authorization_endpoint: "https://enter.pollinations.ai/authorize", token_endpoint: "https://enter.pollinations.ai/api/oauth/token" };
+
+for (const phase of ["discovery", "token"] as const) test(`OAuth ${phase} deadline settles even when fetch ignores its signal`, async t => {
+  const started = await beginPollinationsConnect("synthetic-owner", config, async () => Response.json(metadata), keyring);
+  let controller!: AbortController;
+  t.mock.method(AbortSignal, "timeout", () => { controller = new AbortController(); return controller.signal; });
+  const fetcher = (async (_url, init) => phase === "token" && !init?.method ? Response.json(metadata) : new Promise<Response>(() => {})) as typeof fetch;
+  const pending = phase === "discovery" ? beginPollinationsConnect("synthetic-owner", config, fetcher, keyring)
+    : finishPollinationsConnect("synthetic-owner", config, started.cookie, new URL(started.url).searchParams.get("state")!, "synthetic-code", fetcher, keyring);
+  await new Promise(resolve => setImmediate(resolve));
+  controller.abort();
+  const result = await Promise.race([
+    pending.then(() => "resolved", error => (error as { code?: string }).code),
+    new Promise<string>(resolve => setTimeout(() => resolve("STILL_PENDING"), 100)),
+  ]);
+  assert.equal(result, "POLLINATIONS_CONNECT_INVALID");
+});
 
 test("OAuth discovery deadline cancels a stalled response after headers", async t => {
   const controller = new AbortController();

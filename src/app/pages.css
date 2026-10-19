@@ -306,6 +306,11 @@
 .setting-explainer{display:flex;align-items:flex-start;gap:var(--sp-2);font-size:var(--t-xs);line-height:1.65;color:var(--ink-3)}
 .setting-explainer svg{margin-top:2px;color:var(--ok);flex-shrink:0}
 .settings-footnote{margin-top:var(--sp-4);font-size:var(--t-xs);line-height:1.7;color:var(--ink-4)}
+.pollinations-connect>.button{max-width:100%;height:auto;min-height:42px;white-space:normal;overflow-wrap:anywhere;line-height:1.5}
+.pollinations-connect>.button svg{flex-shrink:0}
+.pollinations-result{margin-bottom:var(--sp-5);gap:var(--sp-3)}
+.pollinations-result>div{min-width:0;flex:1;overflow-wrap:anywhere}
+.pollinations-result>.icon-button{flex-shrink:0;min-width:42px;min-height:42px}
 .profile-edit{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
 .profile-edit .field{flex:1;min-width:180px}
 .profile-edit .avatar{width:46px;height:46px;font-size:var(--t-lg)}

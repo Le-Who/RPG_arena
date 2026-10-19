@@ -6,7 +6,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import { sql } from "drizzle-orm";
 import { db, pool } from "../src/db";
-import { gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats, visualQuotaReservations, visualSettings } from "../src/db/schema";
+import { aiSettings, gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats, sceneVisuals, visualQuotaReservations, visualSettings } from "../src/db/schema";
 async function run() {
   // Only use in a disposable development sandbox: requires CREATE DATABASE permission.
   const name = `chronicle_migration_test_${Date.now()}`;
@@ -17,7 +17,7 @@ async function run() {
     targetPool = new Pool({ connectionString: url.toString(), max: 2 });
     const target = drizzle(targetPool);
     await migrate(target, { migrationsFolder: "./drizzle" });
-    for (const table of [gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats, visualQuotaReservations, visualSettings]) await target.select().from(table).limit(1);
+    for (const table of [aiSettings, gameSessions, gameTurns, memoryNodes, memoryEmbeddings, workspacePreferences, inventoryItems, turnRequests, memoryJobs, campaignCheckpoints, checkpointForks, workerHeartbeats, sceneVisuals, visualQuotaReservations, visualSettings]) await target.select().from(table).limit(1);
     const compatibility = await target.execute(sql`
       SELECT table_name, column_name
       FROM information_schema.columns
@@ -30,6 +30,9 @@ async function run() {
           ('workspace_preferences', 'reading'),
           ('ai_settings', 'typesafe_key'),
           ('ai_settings', 'typesafe_pilot_enabled'),
+          ('ai_settings', 'visual_account_source'),
+          ('ai_settings', 'pollinations_image_model'),
+          ('scene_visuals', 'account_source'),
           ('memory_jobs', 'typesafe_report')
         )
       ORDER BY table_name, column_name
@@ -38,12 +41,15 @@ async function run() {
       compatibility.rows.map((row) => `${row.table_name}.${row.column_name}`),
       [
         "ai_settings.fallback_chain",
+        "ai_settings.pollinations_image_model",
         "ai_settings.primary_model",
         "ai_settings.typesafe_key",
         "ai_settings.typesafe_pilot_enabled",
+        "ai_settings.visual_account_source",
         "memory_jobs.typesafe_report",
         "memory_nodes.access_count",
         "memory_nodes.last_accessed_at",
+        "scene_visuals.account_source",
         "workspace_preferences.reading",
       ],
       "current schema must retain reading preferences and legacy columns",

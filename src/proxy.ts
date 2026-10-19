@@ -7,7 +7,7 @@ import { CHECKPOINT_MAX_BYTES } from "./lib/checkpoint-types";
 async function handleProxy(req: NextRequest) {
   if (["/sw.js", "/offline.html", "/manifest.webmanifest"].includes(req.nextUrl.pathname)) return NextResponse.next();
   // Readiness must not depend on guest identity or an already migrated auth schema.
-  if (["/api/health", "/api/version"].includes(req.nextUrl.pathname)) return NextResponse.next();
+  if (["/api/health", "/api/version", "/api/settings/pollinations/client"].includes(req.nextUrl.pathname)) return NextResponse.next();
   const id = req.nextUrl.pathname.match(/^\/api\/sessions\/([^/]+)/)?.[1];
   const importPath = req.nextUrl.pathname === "/api/sessions/import";
   if (id && !importPath && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return NextResponse.json({ error: "Некорректный идентификатор кампании" }, { status: 400 });

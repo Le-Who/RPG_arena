@@ -8,7 +8,7 @@ import { gameSessions, gameTurns, npcs, sceneObjects, sceneVisuals, visualIdenti
 import { HttpError } from "./http";
 import { normName } from "./world-life";
 import { PROVIDERS, buildVisualPrompt, clip, fetchFromProvider, seedFor, visualConfig } from "./visual-provider";
-import { readVisualConfig } from "./visual-settings";
+import { readVisualConfig, visualCredential, type VisualAccountSource } from "./visual-settings";
 
 // ─────────────────────────────────────────────────────────────
 //  Паспорта внешности (VIS-2)
@@ -47,20 +47,21 @@ export async function updateIdentity(sessionId: string, subjectKey: string, patc
 // ─────────────────────────────────────────────────────────────
 const LIST_COLUMNS = {
   id: sceneVisuals.id, kind: sceneVisuals.kind, subjectKey: sceneVisuals.subjectKey, turnNumber: sceneVisuals.turnNumber, caption: sceneVisuals.caption,
-  provider: sceneVisuals.provider, model: sceneVisuals.model, seed: sceneVisuals.seed, status: sceneVisuals.status, error: sceneVisuals.error,
+  provider: sceneVisuals.provider, accountSource: sceneVisuals.accountSource, model: sceneVisuals.model, seed: sceneVisuals.seed, status: sceneVisuals.status, error: sceneVisuals.error,
   attempts: sceneVisuals.attempts, latencyMs: sceneVisuals.latencyMs, width: sceneVisuals.width, height: sceneVisuals.height, createdAt: sceneVisuals.createdAt,
 };
-export type VisualView = { id: string; kind: VisualKind; subjectKey: string; turnNumber: number; caption: string; provider: string; model: string; seed: number; status: string; error: string | null; attempts: number; latencyMs: number | null; width: number; height: number; createdAt: Date };
+export type VisualView = { id: string; kind: VisualKind; subjectKey: string; turnNumber: number; caption: string; provider: string; accountSource: VisualAccountSource; generationBlocked?: boolean; model: string; seed: number; status: string; error: string | null; attempts: number; latencyMs: number | null; width: number; height: number; createdAt: Date };
 
 export async function listVisuals(sessionId: string) {
+  const [session] = await db.select({ ownerId: gameSessions.ownerId }).from(gameSessions).where(eq(gameSessions.id, sessionId));
   const [visuals, identities, cfg] = await Promise.all([
-    db.select(LIST_COLUMNS).from(sceneVisuals).where(eq(sceneVisuals.sessionId, sessionId)).orderBy(desc(sceneVisuals.createdAt)).limit(60),
+    db.select({ ...LIST_COLUMNS, payerOwnerId: sceneVisuals.ownerId }).from(sceneVisuals).where(eq(sceneVisuals.sessionId, sessionId)).orderBy(desc(sceneVisuals.createdAt)).limit(60),
     db.select().from(visualIdentities).where(eq(visualIdentities.sessionId, sessionId)),
-    readVisualConfig(),
+    readVisualConfig(session?.ownerId),
   ]);
   // Old rows may contain provider exception text. Gallery data is user-visible, so expose
   // the same safe Russian message as render failures without rewriting historical records.
-  return { visuals: visuals.map(visual => ({ ...visual, error: visual.error ? visualFailureMessage : null })) as VisualView[], identities, config: { enabled: cfg.enabled, provider: cfg.provider.id, model: cfg.model, dailyLimit: cfg.dailyLimit, authenticated: cfg.authenticated, capabilities: cfg.provider.capabilities } };
+  return { visuals: visuals.map(({ payerOwnerId, ...visual }) => ({ ...visual, generationBlocked: visual.accountSource === "personal" && payerOwnerId !== session?.ownerId, error: visual.error ? visualFailureMessage : null })) as VisualView[], identities, config: { enabled: cfg.enabled, provider: cfg.provider.id, accountSource: cfg.accountSource, availableAccounts: cfg.availableAccounts, model: cfg.model, dailyLimit: cfg.dailyLimit, authenticated: cfg.authenticated, capabilities: cfg.provider.capabilities } };
 }
 
 function heroPassport(c: CharacterState) {
@@ -68,11 +69,11 @@ function heroPassport(c: CharacterState) {
 }
 
 export async function createVisual(sessionId: string, input: { kind: VisualKind; subject?: string | null; turnNumber?: number | null }) {
-  const cfg = await readVisualConfig();
-  if (!cfg.enabled) throw new HttpError(503, "VISUALS_DISABLED", "Визуализация отключена администратором.");
-  if (!cfg.authenticated) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Для генерации иллюстраций нужен серверный ключ Pollinations.");
   const [session] = await db.select().from(gameSessions).where(eq(gameSessions.id, sessionId));
   if (!session) throw new HttpError(404, "NOT_FOUND", "Кампания не найдена.");
+  const cfg = await readVisualConfig(session.ownerId);
+  if (!cfg.enabled) throw new HttpError(503, "VISUALS_DISABLED", "Визуализация отключена администратором.");
+  if (!cfg.authenticated) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Выбранный аккаунт Pollinations недоступен. Проверьте подключение в настройках иллюстраций.");
   const world = session.worldState as WorldState;
   const character = session.character as CharacterState;
   const { partOfDay, readLife } = await import("./world-life");
@@ -133,7 +134,7 @@ export async function createVisual(sessionId: string, input: { kind: VisualKind;
     const [{ used }] = await tx.select({ used: sql<number>`count(*)::int` }).from(visualQuotaReservations)
       .where(and(scope, gte(visualQuotaReservations.createdAt, since)));
     if (Number(used ?? 0) >= cfg.dailyLimit) throw new HttpError(429, "VISUAL_QUOTA", `Дневной лимит иллюстраций (${cfg.dailyLimit}) исчерпан. Попробуйте завтра.`, { retryAfter: 3600 });
-    const [row] = await tx.insert(sceneVisuals).values({ sessionId, ownerId: session.ownerId, kind: input.kind, subjectKey, turnNumber, caption: clip(caption, 160), prompt, provider: cfg.provider.id, model: cfg.model, seed, width, height }).returning(LIST_COLUMNS);
+    const [row] = await tx.insert(sceneVisuals).values({ sessionId, ownerId: session.ownerId, kind: input.kind, subjectKey, turnNumber, caption: clip(caption, 160), prompt, provider: cfg.provider.id, accountSource: cfg.accountSource, model: cfg.model, seed, width, height }).returning(LIST_COLUMNS);
     await tx.insert(visualQuotaReservations).values({ quotaScope, visualId: row.id });
     return row as VisualView;
   });
@@ -160,7 +161,9 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
   if (row.status === "failed" && !opts.retry) throw new HttpError(502, "VISUAL_FAILED", visualFailureMessage);
   const provider = PROVIDERS[row.provider];
   if (!provider) throw new HttpError(502, "VISUAL_FAILED", `Провайдер ${row.provider} недоступен.`);
-  if (provider.id === "pollinations" && !config.authenticated) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Для генерации иллюстраций нужен серверный ключ Pollinations.");
+  const [session] = await db.select({ ownerId: gameSessions.ownerId }).from(gameSessions).where(eq(gameSessions.id, sessionId));
+  if (row.accountSource === "personal" && row.ownerId !== session?.ownerId) throw new HttpError(409, "VISUAL_PAYER_CHANGED", "Владелец этой иллюстрации изменился. Создайте новую иллюстрацию с выбранным аккаунтом Pollinations.");
+  const apiKey = provider.id === "pollinations" ? await visualCredential(session?.ownerId ?? null, row.accountSource) : undefined;
   let job = inflight.get(visualId);
   if (!job) {
     job = (async () => {
@@ -187,7 +190,7 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
       const started = Date.now();
       const fence = and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId), eq(sceneVisuals.attempts, claimed.attempts), eq(sceneVisuals.status, "pending"));
       try {
-        const result = await fetchFromProvider(provider, { prompt: claimed.prompt, seed: claimed.seed, width: claimed.width, height: claimed.height, model: claimed.model });
+        const result = await fetchFromProvider(provider, { prompt: claimed.prompt, seed: claimed.seed, width: claimed.width, height: claimed.height, model: claimed.model }, fetch, apiKey);
         await db.update(sceneVisuals).set({ status: "ready", image: result.image, mimeType: result.mimeType, error: null, latencyMs: Date.now() - started, updatedAt: new Date() }).where(fence);
         return result;
       } catch (error) {

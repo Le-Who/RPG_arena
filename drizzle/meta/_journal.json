@@ -141,6 +141,13 @@
       "when": 1790000000015,
       "tag": "0019_visual_quota_reservations",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790000000016,
+      "tag": "0020_personal_pollinations_visuals",
+      "breakpoints": true
     }
   ]
 }

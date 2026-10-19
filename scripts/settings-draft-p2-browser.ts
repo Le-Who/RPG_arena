@@ -66,6 +66,7 @@ async function main() {
         const url = new URL(route.request().url());
         let body: unknown = {}, status = 200;
         if (url.pathname === "/api/settings/pollinations/connect") body = { available: false };
+        else if (url.pathname === "/api/settings/pollinations/models") body = { models: [{ id: "openai", name: "Модель фикстуры", structuredOutput: true, streaming: true }] };
         else if (url.pathname === "/api/settings/text-provider/models") body = { models: [{ id: url.searchParams.get("provider") === "openrouter" ? "vendor/draft" : "openai", name: "Модель фикстуры", structuredOutput: true, streaming: true }] };
         else if (url.pathname === "/api/settings/text-provider") {
           if (route.request().method() === "GET") body = providerState;
@@ -110,7 +111,10 @@ async function main() {
       const expectedRouter = { provider: "openrouter", model: "vendor/draft", apiKey: "synthetic-browser-router", useLiveAI: true };
       expect(providerWrites).toEqual([expectedRouter, expectedRouter, expectedRouter]);
       await page.reload(); await expect(provider).toHaveValue("openrouter"); await expect(model).toHaveValue("vendor/canonical");
-      await provider.selectOption("pollinations"); await model.fill("openai"); await key.fill("synthetic-browser-pollen");
+      await provider.selectOption("pollinations");
+      await page.getByText("Ввести ID модели вручную", { exact: true }).click();
+      await page.getByText("Ввести API-ключ вручную", { exact: true }).click();
+      await model.fill("openai"); await key.fill("synthetic-browser-pollen");
       await page.getByRole("switch", { name: "Живой рассказчик" }).click(); await save.click();
       await expect(page.getByText("Ключ настроен", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Удалить ключ рассказчика" }).click(); await save.click();
@@ -138,6 +142,7 @@ async function main() {
       await panel.route("**/api/**", async route => {
         const url = new URL(route.request().url()); let body: unknown; let status = 200;
         if (url.pathname === "/api/settings/text-provider") body = emptyProvider;
+        else if (url.pathname === "/api/settings/visual-provider") body = { accountSource: "application", model: "fixture/image", applicationModel: "fixture/image", applicationConfigured: false, pollinationsConfigured: false };
         else if (url.pathname === "/api/settings/pollinations/connect") body = { available: false };
         else if (url.pathname === "/api/settings/narrative") body = { enabled: false, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "typesafe/jev-1.13", credentialSource: "none", administratorAvailable: false };
         else if (url.pathname === "/api/tokens/stats") body = { today: { totalReq: 0, totalTokens: 0, errors: 0, embeddingReq: 0 }, quotas: { note: "Фикстура" } };
@@ -194,6 +199,62 @@ async function main() {
       checks.push(`${viewport.name}:panel-stale-success-retains`, `${viewport.name}:panel-dirty-close-guard`, `${viewport.name}:panel-503-retains`, `${viewport.name}:panel-keyboard-retry-canonical`, `${viewport.name}:panel-no-overflow`);
       console.log(`${viewport.name} SettingsPanel: 5 checks passed, 3 exact POST payloads`);
       await panel.close();
+
+      const crossSection = await browser.newPage({ viewport, reducedMotion: "reduce" }); active = crossSection; watch(crossSection);
+      const imageSave = gate(); let imageSaveHeld = false;
+      let crossNarrator = { provider: "pollinations", model: "vendor/text-a", openrouterConfigured: false, pollinationsConfigured: true, useLiveAI: false };
+      let crossImages = { accountSource: "application", model: "vendor/image-a", applicationModel: "vendor/shared", applicationConfigured: true, pollinationsConfigured: true };
+      await crossSection.route("**/api/**", async route => {
+        const url = new URL(route.request().url()); let body: unknown;
+        if (url.pathname === "/api/settings/text-provider") {
+          if (route.request().method() === "POST") crossNarrator = { ...crossNarrator, ...route.request().postDataJSON() };
+          body = crossNarrator;
+        } else if (url.pathname === "/api/settings/visual-provider") {
+          if (route.request().method() === "POST") { imageSaveHeld = true; const submitted = route.request().postDataJSON(); await imageSave.promise; crossImages = { ...crossImages, ...submitted }; }
+          body = crossImages;
+        } else if (url.pathname === "/api/settings/pollinations/connect") body = { available: false };
+        else if (url.pathname === "/api/settings/pollinations/models") body = { models: ["a", "b"].map(suffix => ({ id: `vendor/${url.searchParams.get("kind")}-${suffix}`, name: `Модель ${suffix}`, structuredOutput: true, streaming: true })) };
+        else if (url.pathname === "/api/settings/narrative") body = { enabled: false, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "typesafe/jev-1.13", credentialSource: "none", administratorAvailable: false };
+        else if (url.pathname === "/api/tokens/stats") body = { today: { totalReq: 0, totalTokens: 0, errors: 0, embeddingReq: 0 }, quotas: { note: "Фикстура" } };
+        else if (url.pathname === "/api/settings" && route.request().method() === "GET") body = { ...initialSettings, textProvider: crossNarrator.provider, textModel: crossNarrator.model };
+        else throw new Error(`Unexpected cross-section request: ${route.request().method()} ${url.pathname}`);
+        await route.fulfill({ json: body });
+      });
+      await crossSection.goto(`${base}/panel`);
+      const crossModel = crossSection.getByRole("combobox", { name: "Модель рассказчика", exact: true });
+      await expect(crossModel).toHaveValue("vendor/text-a"); await crossModel.selectOption("vendor/text-b");
+      await crossSection.getByRole("combobox", { name: "Аккаунт для иллюстраций", exact: true }).selectOption("personal");
+      await crossSection.getByRole("button", { name: "Вернуться в историю", exact: true }).click();
+      await crossSection.getByRole("button", { name: "Сохранить и вернуться", exact: true }).click();
+      await expect.poll(() => imageSaveHeld).toBe(true);
+      expect(crossNarrator.model).toBe("vendor/text-b");
+      await crossModel.selectOption("vendor/text-a");
+      await crossSection.screenshot({ path: `${output}/${viewport.name}-cross-section-newer-draft.png`, fullPage: true });
+      imageSave.open();
+      await expect(crossSection.getByRole("button", { name: "Сохранить настройки", exact: true })).toBeEnabled();
+      await expect(crossModel).toHaveValue("vendor/text-a");
+      expect(await crossSection.getAttribute("body", "data-closed"), "Late narrator edits while the image save is pending must keep the settings open").toBeNull();
+      await expect(crossSection.getByRole("alert")).toContainText("Есть несохранённые изменения");
+      checks.push(`${viewport.name}:cross-section-late-edit-keeps-save-and-return-open`);
+      await crossSection.goto(`${base}/panel?keep=fixture&pollinations=cancelled#text-provider`);
+      const historyLimit = crossSection.getByRole("spinbutton", { name: "Flash · на модель в сутки", exact: true });
+      await historyLimit.fill("37");
+      await expect.poll(() => crossSection.evaluate(() => Boolean(history.state?.chronicleDirtyGuard))).toBe(true);
+      const dismissReturn = crossSection.getByRole("button", { name: "Закрыть сообщение Pollinations", exact: true });
+      await dismissReturn.focus(); await crossSection.keyboard.press("Enter");
+      await expect(crossSection).toHaveURL(`${base}/panel?keep=fixture#text-provider`);
+      await crossSection.evaluate(() => history.back());
+      await expect(crossSection.getByRole("alert")).toContainText("Есть несохранённые изменения");
+      await expect(historyLimit).toHaveValue("37");
+      await crossSection.getByRole("button", { name: "Продолжить редактирование", exact: true }).click();
+      await expect(historyLimit).toHaveValue("37");
+      expect(await crossSection.getAttribute("body", "data-closed")).toBeNull();
+      await crossSection.evaluate(() => history.back());
+      await expect(crossSection.getByRole("alert")).toContainText("Есть несохранённые изменения");
+      await crossSection.getByRole("button", { name: "Отбросить и вернуться", exact: true }).click();
+      await expect(crossSection.locator("body")).toHaveAttribute("data-closed", "yes");
+      checks.push(`${viewport.name}:notice-dismiss-keeps-dirty-back-confirmation`);
+      await crossSection.close();
     }
     expect(errors).toEqual([]);
     await writeFile(`${output}/result.json`, JSON.stringify({ checks, checkCount: checks.length, errors, scope: "actual TextProviderSettings + SettingsPanel; app context, Next navigation/link and unused server crypto stubbed; literal HTTP responses" }, null, 2));

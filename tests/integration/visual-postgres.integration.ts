@@ -9,6 +9,25 @@ import { profileIdFromToken } from "../../src/lib/guest-identity";
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==", "base64");
 const ownerToken = "a".repeat(64), owner = profileIdFromToken(ownerToken)!;
 
+test("native personal visual schema keeps application billing defaults and rejects unknown payers", {
+  skip: process.env.CHRONICLE_RUN_VISUAL_POSTGRES !== "1", timeout: 45000,
+}, async () => {
+  const fixture = await visualPostgresFixture();
+  try {
+    const session = randomUUID(), visual = randomUUID();
+    await fixture.control.query("INSERT INTO ai_settings(id) VALUES ($1)", [owner]);
+    await fixture.control.query("INSERT INTO game_sessions(id,owner_id,title,character,world_state) VALUES ($1,$2,'Billing fixture','{}','{}')", [session, owner]);
+    await fixture.control.query(`INSERT INTO scene_visuals(id,session_id,owner_id,kind,subject_key,prompt,provider,model,seed,width,height)
+      VALUES ($1,$2,$3,'portrait','hero','Synthetic portrait','pollinations','fixture/model',42,768,960)`, [visual, session, owner]);
+    assert.deepEqual((await fixture.control.query("SELECT visual_account_source,pollinations_image_model FROM ai_settings WHERE id=$1", [owner])).rows,
+      [{ visual_account_source: "application", pollinations_image_model: "" }]);
+    assert.deepEqual((await fixture.control.query("SELECT account_source,model FROM scene_visuals WHERE id=$1", [visual])).rows,
+      [{ account_source: "application", model: "fixture/model" }]);
+    await assert.rejects(fixture.control.query("UPDATE ai_settings SET visual_account_source='automatic' WHERE id=$1", [owner]), /check constraint/i);
+    await assert.rejects(fixture.control.query("UPDATE scene_visuals SET account_source='automatic' WHERE id=$1", [visual]), /check constraint/i);
+  } finally { await fixture.close(); }
+});
+
 for (const outcome of ["success", "failure"] as const) test(`native initial image GETs across web instances share ${outcome} and preserve the reservation`, {
   skip: process.env.CHRONICLE_RUN_VISUAL_POSTGRES !== "1", timeout: 45000,
 }, async () => {

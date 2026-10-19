@@ -82,6 +82,7 @@ async function main() {
           body = providerState;
         }
         else if (path === "/api/settings/text-provider/models") body = { models: [] };
+        else if (path === "/api/settings/visual-provider") body = { accountSource: "application", model: "flux", applicationModel: "flux", applicationConfigured: false, pollinationsConfigured: false };
         else if (path === "/api/settings/narrative") body = { enabled: false, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "jev", credentialSource: "none", administratorAvailable: false };
         else if (path === "/api/tokens/stats") body = { today: { totalReq: 0, totalTokens: 0, errors: 0, embeddingReq: 0 }, quotas: { note: "fixture" } };
         else if (path === "/api/settings/pollinations/connect") body = { available: false };
@@ -93,6 +94,7 @@ async function main() {
       const limit = page.getByText("Flash · на модель в сутки", { exact: true }).locator("..").locator("input");
       const key = page.getByRole("textbox", { name: "API-ключ Gemini", exact: true });
       await expect(page.getByRole("button", { name: "Сохранить рассказчика", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Сохранить настройки иллюстраций", exact: true })).toBeVisible();
       await limit.fill("30"); await save.focus(); await page.keyboard.press("Enter");
       await expect(save).toBeEnabled({ timeout: 2000 });
       await expect(page.getByText("Настройки сохранены. Ваш мир готов к новым историям.", { exact: true })).toBeVisible();

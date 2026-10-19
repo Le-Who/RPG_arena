@@ -24,7 +24,8 @@ async function invoke(request: Request, run: () => Promise<Response>) {
 }
 async function fixture() {
   const database = await accountsDb();
-  const saved = Object.fromEntries(["POLLINATIONS_APP_KEY", "POLLINATIONS_REDIRECT_URI", "CHRONICLE_SECRET_ACTIVE_KEY", "CHRONICLE_SECRET_KEYS"].map(key => [key, process.env[key]]));
+  const saved = Object.fromEntries(["CHRONICLE_PUBLIC_ORIGIN", "POLLINATIONS_APP_KEY", "POLLINATIONS_REDIRECT_URI", "CHRONICLE_SECRET_ACTIVE_KEY", "CHRONICLE_SECRET_KEYS"].map(key => [key, process.env[key]]));
+  process.env.CHRONICLE_PUBLIC_ORIGIN = base;
   process.env.POLLINATIONS_APP_KEY = "pk_fixture_app";
   process.env.POLLINATIONS_REDIRECT_URI = callback;
   process.env.CHRONICLE_SECRET_ACTIVE_KEY = "oauth-test";
@@ -86,7 +87,8 @@ test("actual OAuth handlers issue scoped private cookies, correct PKCE and clear
     assert.equal(settings.text_provider, "gemini");
     const snapshot = (await f.pg.query("SELECT * FROM ai_settings WHERE id=$1", [owner])).rows;
     const replay = await f.finish(identity, "", `state=${state}&code=synthetic-code`);
-    assert.equal(replay.status, 400); assertCleared(replay);
+    assert.equal(replay.status, 303); assertCleared(replay);
+    assert.equal(replay.headers.get("location"), `${base}/settings?pollinations=failed`);
     assert.equal(exchanges, 1);
     assert.deepEqual((await f.pg.query("SELECT * FROM ai_settings WHERE id=$1", [owner])).rows, snapshot);
   } finally { fetch.mock.restore(); await f.close(); }
@@ -100,11 +102,15 @@ for (const failure of ["state", "declined", "token-error"] as const) test(`actua
     exchanges++; return Response.json({ error: "fixture-only-secret-must-not-leak" }, { status: 400 });
   });
   try {
+    const { attachPollinationsKey } = await import("../src/lib/text-provider-settings");
+    await attachPollinationsKey(profileIdFromToken(guest)!, "sk_existing_synthetic_key");
+    const previous = (await f.pg.query("SELECT * FROM ai_settings")).rows;
     const started = await f.start(identity), state = started.authUrl.searchParams.get("state")!;
     const response = await f.finish(identity, started.pair, failure === "declined" ? "error=access_denied" : `state=${failure === "state" ? "wrong" : state}&code=synthetic-code`);
-    assert.equal(response.status, 400); assertCleared(response);
+    assert.equal(response.status, 303); assertCleared(response);
+    assert.equal(response.headers.get("location"), `${base}/settings?pollinations=${failure === "declined" ? "cancelled" : "failed"}`);
     assert.equal(exchanges, failure === "token-error" ? 1 : 0);
-    assert.equal((await f.pg.query<{ n: number }>("SELECT count(*)::int n FROM ai_settings")).rows[0].n, 0);
+    assert.deepEqual((await f.pg.query("SELECT * FROM ai_settings")).rows, previous);
     assert.ok(!(await response.text()).includes("fixture-only-secret"));
     assert.equal((await f.pg.query<{ n: number }>("SELECT count(*)::int n FROM owner_activity")).rows[0].n, 0);
   } finally { fetch.mock.restore(); await f.close(); }
@@ -133,7 +139,18 @@ test("revocation during token response cannot attach OAuth credentials to the ad
     release();
     const response = await pending;
     assert.equal((await f.pg.query<{ n: number }>("SELECT count(*)::int n FROM ai_settings")).rows[0].n, 0, "late token response cannot write either identity's key");
-    assert.equal(response.status, 400); assertCleared(response);
+    assert.equal(response.status, 303); assertCleared(response);
+    assert.equal(response.headers.get("location"), `${base}/settings?pollinations=failed`);
     assert.equal((await f.pg.query<{ n: number }>("SELECT count(*)::int n FROM owner_activity")).rows[0].n, 0);
   } finally { release(); await pending?.catch(() => {}); fetch.mock.restore(); await f.close(); }
+});
+
+test("OAuth callback without a trusted configuration cannot choose a redirect origin", async () => {
+  const f = await fixture();
+  try {
+    delete process.env.CHRONICLE_PUBLIC_ORIGIN; delete process.env.POLLINATIONS_APP_KEY; delete process.env.POLLINATIONS_REDIRECT_URI;
+    const response = await f.finish(`chronicle_guest=${"9".repeat(64)}`, "", "error=access_denied&redirect_uri=https://untrusted.example");
+    assert.equal(response.status, 400); assertCleared(response);
+    assert.equal(response.headers.has("location"), false);
+  } finally { await f.close(); }
 });

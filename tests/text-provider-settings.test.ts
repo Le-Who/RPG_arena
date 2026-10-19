@@ -100,3 +100,12 @@ test("provider settings reject unbounded input and incompatible key operations",
   ]) assert.throws(() => parseTextProviderSettings(body));
   assert.deepEqual(parseTextProviderSettings({ provider: "openrouter", model: " vendor/model:free " }), { provider: "openrouter", model: "vendor/model:free" });
 });
+
+test("Pollinations can be selected before choosing a model to start native login without enabling generation", async () => {
+  const f = await accountsDb();
+  try {
+    const { saveTextProviderSettings } = await import("../src/lib/text-provider-settings");
+    const result = await saveTextProviderSettings("connect-before-model", { provider: "pollinations", model: "", useLiveAI: false });
+    assert.equal(result.provider, "pollinations"); assert.equal(result.useLiveAI, false); assert.equal(result.model, "");
+  } finally { await f.close(); }
+});

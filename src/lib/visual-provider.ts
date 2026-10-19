@@ -10,7 +10,7 @@ export type MediaProvider = {
   id: string;
   defaultModel: string;
   capabilities: { generate: boolean; edit: boolean; referenceInput: boolean };
-  buildRequest(input: VisualRequest): { url: string; headers: Record<string, string> };
+  buildRequest(input: VisualRequest, apiKey?: string): { url: string; headers: Record<string, string> };
 };
 
 export const pollinationsProvider: MediaProvider = {
@@ -18,8 +18,8 @@ export const pollinationsProvider: MediaProvider = {
   defaultModel: "tongyi-mai/z-image-turbo",
   // Редактирование и референсы (kontext/gptimage) требуют ключа и публичного URL исходника — см. roadmap VIS-2b.
   capabilities: { generate: true, edit: false, referenceInput: false },
-  buildRequest({ prompt, seed, width, height, model }) {
-    const key = process.env.POLLINATIONS_API_KEY?.trim();
+  buildRequest({ prompt, seed, width, height, model }, apiKey) {
+    const key = (apiKey === undefined ? process.env.POLLINATIONS_API_KEY : apiKey)?.trim();
     if (!key) throw new Error("POLLINATIONS_KEY_REQUIRED");
     const params = new URLSearchParams({ model, width: String(width), height: String(height), seed: String(seed), safe: "true" });
     const encoded = encodeURIComponent(prompt);
@@ -88,8 +88,8 @@ export function buildVisualPrompt(p: PromptInput): string {
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
-export async function fetchFromProvider(provider: MediaProvider, request: VisualRequest, fetchImpl: typeof fetch = fetch): Promise<{ image: Buffer; mimeType: string }> {
-  const { url, headers } = provider.buildRequest(request);
+export async function fetchFromProvider(provider: MediaProvider, request: VisualRequest, fetchImpl: typeof fetch = fetch, apiKey?: string): Promise<{ image: Buffer; mimeType: string }> {
+  const { url, headers } = provider.buildRequest(request, apiKey);
   const signal = AbortSignal.timeout(90_000);
   const bounded = async <T>(operation: () => Promise<T>) => {
     if (signal.aborted) throw new Error("PROVIDER_TIMEOUT");

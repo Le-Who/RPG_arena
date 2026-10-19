@@ -11,8 +11,12 @@ async function main() {
   const bundle = await build({
     stdin: { contents: 'import React from "react"; import {createRoot} from "react-dom/client"; import {VisualGallery} from "./src/components/visual-gallery"; createRoot(document.getElementById("root")).render(<VisualGallery sessionId="fixture" isOwner={!location.pathname.endsWith("/viewer")} npcs={[]} currentLocationId={null} lastTurn={1}/>);', resolveDir: process.cwd(), loader: "tsx" },
     bundle: true, write: false, platform: "browser", jsx: "automatic", tsconfig: "tsconfig.json", define: { "process.env.NODE_ENV": '"production"' },
+    plugins: [{ name: "gallery-link-fixture", setup(build) {
+      build.onResolve({ filter: /^next\/link$/ }, () => ({ path: "link", namespace: "fixture" }));
+      build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: 'import React from "react"; export default function Link({children,...props}){return <a {...props}>{children}</a>}', loader: "jsx", resolveDir: process.cwd() }));
+    } }],
   });
-  const css = (await Promise.all(["globals", "life"].map(name => readFile(`src/app/${name}.css`, "utf8")))).join("\n").replace('@import "tailwindcss";', "");
+  const css = (await Promise.all(["globals", "theatre", "life"].map(name => readFile(`src/app/${name}.css`, "utf8")))).join("\n").replace('@import "tailwindcss";', "");
   const html = '<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><body><main id="root" style="max-width:420px;margin:auto"></main><script src="/fixture.js"></script></body></html>';
   const server = createServer((req, res) => {
     res.setHeader("Content-Type", req.url === "/fixture.js" ? "text/javascript" : req.url === "/fixture.css" ? "text/css" : "text/html");
@@ -25,14 +29,16 @@ async function main() {
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
     const errors: string[] = [];
-    page.on("pageerror", error => errors.push(error.message));
+    page.on("pageerror", error => { errors.push(error.message); console.error(`Gallery browser error: ${error.message}`); });
     let authenticated = true;
     let enabled = true;
     let status = "failed";
+    let accountSource = "application", visualAccountSource = "application", generationBlocked = false;
+    let availableAccounts: { application: boolean; personal: boolean } | undefined;
     const attempts: { retry: string | null; number: string | null }[] = [];
     await page.route("**/api/sessions/fixture/visuals", route => route.fulfill({ json: {
-      visuals: [{ id: "failed-image", kind: "scene", subjectKey: "scene:1", turnNumber: 1, caption: "Чай в кафе", provider: "fixture", model: "synthetic", seed: 1, status, error: "Сервис не ответил", width: 320, height: 180 }],
-      identities: [], config: { enabled, authenticated, provider: "fixture", model: "synthetic", dailyLimit: 10 },
+      visuals: [{ id: "failed-image", kind: "scene", subjectKey: "scene:1", turnNumber: 1, caption: "Чай в кафе", provider: "fixture", model: "synthetic", accountSource: visualAccountSource, generationBlocked, seed: 1, status, error: "Сервис не ответил", width: 320, height: 180 }],
+      identities: [], config: { enabled, authenticated, provider: "fixture", accountSource, availableAccounts, model: "synthetic", dailyLimit: 10 },
     } }));
     await page.route("**/api/sessions/fixture/visuals/failed-image*", route => {
       const url = new URL(route.request().url());
@@ -46,6 +52,7 @@ async function main() {
     await expect(retry).toBeVisible();
     expect(attempts).toEqual([]);
     await retry.focus();
+    await page.screenshot({ path: `${output}/owner-desktop-retry-focus.png`, fullPage: true });
     await page.keyboard.press("Enter");
     await expect.poll(() => attempts.length, { timeout: 3000 }).toBe(1);
     await expect(retry).toBeVisible();
@@ -84,8 +91,25 @@ async function main() {
     await page.goto(base + "/disabled-ready");
     await expect.poll(() => page.getByRole("img", { name: "Чай в кафе", exact: true }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
     expect(attempts).toEqual([{ retry: "1", number: "1" }, { retry: "1", number: "2" }, { retry: null, number: null }]);
+    enabled = true; status = "failed"; authenticated = false; accountSource = "personal"; availableAccounts = { application: true, personal: false };
+    await page.goto(base + "/old-application");
+    await expect(retry).toBeVisible();
+    await expect(page.getByText(/ваш аккаунт Pollinations, расходуется ваш Pollen/)).toBeVisible();
+    for (const width of [1280, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      const geometry = await page.evaluate(() => ({ viewport: innerWidth, documentWidth: document.documentElement.scrollWidth, overflowing: Array.from(document.querySelectorAll<HTMLElement>("body *")).flatMap(element => { const rect = element.getBoundingClientRect(); return element.getClientRects().length && (rect.right > innerWidth + 1 || element.scrollWidth > element.clientWidth + 1) ? [{ tag: element.tagName, className: element.className, text: element.textContent?.slice(0, 100), right: rect.right, clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }] : []; }) }));
+      await writeFile(`${output}/payer-${width}-geometry.json`, JSON.stringify(geometry, null, 2));
+      expect(geometry.documentWidth, JSON.stringify(geometry)).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: `${output}/payer-${width}.png`, fullPage: true });
+    }
+    await retry.click();
+    await expect.poll(() => page.getByRole("img", { name: "Чай в кафе", exact: true }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
+    expect(attempts).toHaveLength(4);
+    generationBlocked = true; visualAccountSource = "personal"; availableAccounts.personal = true; authenticated = true;
+    await page.goto(base + "/transferred-personal");
+    await expect(retry).toHaveCount(0); await expect(page.getByRole("img")).toHaveCount(0); expect(attempts).toHaveLength(4);
     expect(errors).toEqual([]);
-    await writeFile(`${output}/result.json`, JSON.stringify({ checks: ["stored-failure-does-not-auto-retry", "keyboard-retry", "failure-can-retry-again", "loaded-real-png", "mobile-no-overflow", "viewer-cannot-generate", "unconfigured-cannot-retry", "disabled-no-retry", "disabled-no-pending-generation", "disabled-keeps-saved-images-readable"], attempts, errors }, null, 2));
+    await writeFile(`${output}/result.json`, JSON.stringify({ checks: ["stored-failure-does-not-auto-retry", "keyboard-retry", "failure-can-retry-again", "loaded-real-png", "mobile-no-overflow", "viewer-cannot-generate", "unconfigured-cannot-retry", "disabled-no-retry", "disabled-no-pending-generation", "disabled-keeps-saved-images-readable", "retry-uses-recorded-payer-availability", "transferred-personal-generation-blocked", "payer-layout-1280-390-320"], attempts, errors, scope: "actual gallery; Next Link stubbed, synthetic HTTP/images" }, null, 2));
     console.log(`Visual gallery Chromium checks passed: ${output}`);
   } finally {
     await browser.close();

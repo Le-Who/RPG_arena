@@ -130,6 +130,7 @@ jobs:
           node --import tsx scripts/workspace-latency-browser.ts
           node --import tsx scripts/settings-latency-browser.ts
           node --import tsx scripts/settings-draft-p2-browser.ts
+          node --import tsx scripts/pollinations-settings-browser.ts
       - name: Actual handler browser retry and two-build service worker rollout
         env:
           CHRONICLE_RUN_BROWSER_RETRY_POSTGRES: "1"
@@ -163,5 +164,6 @@ jobs:
             output/playwright/workspace-latency
             output/playwright/settings-latency
             output/playwright/settings-draft-p2
+            output/playwright/pollinations-settings
             output/p1-continuation/pwa
             output/p1-continuation/browser-retry

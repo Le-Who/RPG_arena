@@ -11,7 +11,7 @@ export const GET = withIdentityWork(async () => {
 export const POST = withIdentityWork(async () => {
   try {
     const cfg = pollinationsOAuthConfig();
-    if (!cfg) throw new HttpError(503, "POLLINATIONS_APP_UNCONFIGURED", "Для подключения кошелька администратору нужно настроить App Key и callback URL. Можно сохранить личный API-ключ вручную.");
+    if (!cfg) throw new HttpError(503, "POLLINATIONS_APP_UNCONFIGURED", "Для входа Pollinations администратору нужно задать публичный HTTPS-адрес приложения либо App Key и callback URL.");
     const result = await beginPollinationsConnect(await currentProfileId(), cfg);
     (await cookies()).set(POLLINATIONS_OAUTH_COOKIE, result.cookie, { httpOnly: true, secure: new URL(cfg.redirectUri).protocol === "https:", sameSite: "lax", path: "/api/settings/pollinations", maxAge: 600 });
     return Response.json({ url: result.url });

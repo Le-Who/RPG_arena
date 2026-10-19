@@ -217,6 +217,7 @@ async function assertUpgraded(pg: PGlite) {
     narrative_guard_enabled: true, narrative_guard_provider: 'openrouter', narrative_guard_key: '',
     keys_shared_project: true, daily_embedding_limit: 5000, text_provider: 'gemini', text_model: '',
     openrouter_key: '', pollinations_key: '', pollinations_key_expires_at: null,
+    visual_account_source: 'application', pollinations_image_model: '',
   } }]);
   assert.deepEqual((await pg.query('SELECT to_jsonb(workspace_preferences) AS preferences FROM workspace_preferences')).rows,
     [{ preferences: { id: 'owner:legacy', display_name: 'Лада', favorites: ['10000000-0000-4000-8000-000000000001'],
