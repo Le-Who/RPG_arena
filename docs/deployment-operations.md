@@ -12,6 +12,12 @@ Unit-тесты не загружают `.env`, используют недос�
 
 `npm run verify:revisions-ui` запускается только с `CHRONICLE_UI_ISOLATED=1` и `SMOKE_BASE_URL` на loopback. Нужен уже работающий сервер с отдельной одноразовой БД и без provider credentials. Скрипт создаёт синтетические аккаунты/кампании и оставляет их в этой БД для анализа; пользовательская БД недопустима. На production-сборке проверяются реальные HTTP-переходы гостя/аккаунта, явный перенос, запреты ролей, JSON download/upload, контекстные команды и модальные окна. Старые `verify:story-ui`/`verify:ui` дополнительно проверяют интерфейс с mock API; они не заменяют реальные серверные проверки.
 
+## Vercel и Neon
+
+Для текущей production-БД Neon во Frankfurt функции закреплены в `vercel.json` → `regions: ["fra1"]`. Этот файл переопределяет регион по умолчанию в dashboard; при переносе БД нужно согласованно изменить регион и выполнить новый deployment. Проверять следует фактический `X-Chronicle-Region`, отдельный регион proxy и распознанный `X-Chronicle-Database-Region`, а не только настройки проекта. Статические файлы обслуживает глобальный CDN.
+
+Миграции выполняет обязательный `build:deploy`; дублирующий `CHRONICLE_AUTO_MIGRATE=1` для этого окружения не нужен. Runtime использует общий pg pool (`max=10`, `min=0`, idle 10 секунд, получение соединения до 10 секунд) и однократный lifecycle hook Fluid. Таймаут получения не является таймаутом SQL/транзакции. Прогрев SQL-пингами и отключение приостановки Neon не входят в конфигурацию. [Причины, production-замеры и границы](database-cold-entry-production-2026-10-19.md).
+
 ## Docker Compose
 
 Файлы: [Dockerfile](../deploy/docker/Dockerfile), [Compose](../deploy/docker/docker-compose.yml), [.dockerignore](../.dockerignore).
