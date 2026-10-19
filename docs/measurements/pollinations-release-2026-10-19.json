@@ -1,0 +1,1410 @@
+{
+  "startedAt": "2026-10-19T11:42:42.368Z",
+  "source": "https://rpgtoku.vercel.app",
+  "browser": "153.0.8010.12",
+  "counts": {
+    "fresh": 5,
+    "warm": 5,
+    "saves": 5
+  },
+  "definitions": {
+    "readyMs": "Before page.goto until Overview exists and overview-loading is absent",
+    "responseMs": "Before save.click until complete JSON settings POST body",
+    "uiMs": "Before save.click until canonical JSON POST body and enabled save button",
+    "fresh": "New BrowserContext, not a forced cold backend",
+    "warm": "New page in the fifth context, retaining cookies and any service worker; page routing disables HTTP cache",
+    "verification": "Persistence GET after every save excluded from measured window; warms subsequent samples",
+    "comparison": "n5 post-feature series is a regression check; p95 is unstable and not equivalent to prior n10 samples",
+    "guestIdentity": "Fresh contexts reuse only this run's new technical guest cookie to verify the same owner; the previous n10 series created a guest profile per fresh context, so guest fresh results are not a controlled paired comparison."
+  },
+  "modes": {
+    "guest": {
+      "fresh": [
+        {
+          "readyMs": 1867.094500000001,
+          "guideOpenMs": 111.28049999999894,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=1.5, db_connect;dur=0.0, identity;dur=6.1, admission;dur=3.0, handler;dur=10.3, cleanup;dur=3.3, app;desc=\"response-ready\";dur=22.8",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "55.9",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=9;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 740.314699999999,
+          "guideOpenMs": 125.25160000000142,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=1.7, db_connect;dur=0.0, identity;dur=6.1, admission;dur=3.1, handler;dur=11.5, cleanup;dur=3.7, app;desc=\"response-ready\";dur=24.7",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "53.8",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=9;new=0;queue=0"
+              }
+            },
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 812.2325000000001,
+          "guideOpenMs": 127.02800000000025,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=53.2, db_connect;dur=49.0, identity;dur=26.2, admission;dur=11.4, handler;dur=49.6, cleanup;dur=3.6, app;desc=\"response-ready\";dur=92.6",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "4.1",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "1",
+                "x-chronicle-pool": "acq=9;new=2;queue=2"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 715.4665999999997,
+          "guideOpenMs": 107.04720000000088,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=1.4, db_connect;dur=0.0, identity;dur=6.0, admission;dur=3.1, handler;dur=10.0, cleanup;dur=3.1, app;desc=\"response-ready\";dur=22.4",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "29.5",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=9;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 669.3313999999991,
+          "guideOpenMs": 104.99369999999908,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=2.1, db_connect;dur=0.0, identity;dur=7.1, admission;dur=3.3, handler;dur=11.3, cleanup;dur=3.2, app;desc=\"response-ready\";dur=25.5",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "5.5",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=9;new=0;queue=0"
+              }
+            }
+          ]
+        }
+      ],
+      "warm": [
+        {
+          "readyMs": 620.8351000000002,
+          "guideOpenMs": 111.05160000000069,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=2.7, db_connect;dur=0.0, identity;dur=7.0, admission;dur=3.3, handler;dur=12.8, cleanup;dur=3.2, app;desc=\"response-ready\";dur=26.9",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "3.4",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=9;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 557.0781000000006,
+          "guideOpenMs": 123.16489999999976,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=2.2, db_connect;dur=0.0, identity;dur=6.9, admission;dur=3.7, handler;dur=11.6, cleanup;dur=3.4, app;desc=\"response-ready\";dur=25.9",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "3.6",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=9;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 571.9049000000014,
+          "guideOpenMs": 94.73469999999725,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=1.8, db_connect;dur=0.0, identity;dur=6.7, admission;dur=3.4, handler;dur=11.9, cleanup;dur=3.4, app;desc=\"response-ready\";dur=25.6",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "49.0",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=9;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 610.997000000003,
+          "guideOpenMs": 100.11699999999837,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=2.1, db_connect;dur=0.0, identity;dur=6.7, admission;dur=3.3, handler;dur=11.2, cleanup;dur=3.3, app;desc=\"response-ready\";dur=24.9",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "77.7",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=9;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 513.2960000000021,
+          "guideOpenMs": 120.71510000000126,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=2.2, db_connect;dur=0.0, identity;dur=6.6, admission;dur=3.3, handler;dur=11.1, cleanup;dur=3.3, app;desc=\"response-ready\";dur=24.7",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "3.3",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=9;new=0;queue=0"
+              }
+            }
+          ]
+        }
+      ],
+      "saves": [
+        {
+          "responseMs": 227.82330000000002,
+          "uiMs": 268.84300000000076,
+          "persisted": true,
+          "response": {
+            "path": "/api/settings",
+            "method": "POST",
+            "status": 200,
+            "headers": {
+              "x-chronicle-database-region": "aws-eu-central-1",
+              "x-chronicle-auto-migrate": "0",
+              "x-chronicle-database-mode": "pooled",
+              "server-timing": "db_acquire;dur=0.8, db_connect;dur=0.0, identity;dur=5.1, admission;dur=3.0, handler;dur=16.0, cleanup;dur=2.1, app;desc=\"response-ready\";dur=26.7",
+              "x-chronicle-proxy-region": "fra1",
+              "x-chronicle-proxy-ms": "0.3",
+              "x-chronicle-region": "fra1",
+              "cache-control": "private, no-store",
+              "x-vercel-cache": "MISS",
+              "x-chronicle-instance-first": "0",
+              "x-chronicle-pool": "acq=8;new=0;queue=0"
+            }
+          }
+        },
+        {
+          "responseMs": 193.58980000000156,
+          "uiMs": 209.96370000000024,
+          "persisted": true,
+          "response": {
+            "path": "/api/settings",
+            "method": "POST",
+            "status": 200,
+            "headers": {
+              "x-chronicle-database-region": "aws-eu-central-1",
+              "x-chronicle-auto-migrate": "0",
+              "x-chronicle-database-mode": "pooled",
+              "server-timing": "db_acquire;dur=0.4, db_connect;dur=0.0, identity;dur=4.8, admission;dur=2.6, handler;dur=11.3, cleanup;dur=2.3, app;desc=\"response-ready\";dur=21.4",
+              "x-chronicle-proxy-region": "fra1",
+              "x-chronicle-proxy-ms": "1.2",
+              "x-chronicle-region": "fra1",
+              "cache-control": "private, no-store",
+              "x-vercel-cache": "MISS",
+              "x-chronicle-instance-first": "0",
+              "x-chronicle-pool": "acq=8;new=0;queue=0"
+            }
+          }
+        },
+        {
+          "responseMs": 204.90589999999793,
+          "uiMs": 223.18149999999878,
+          "persisted": true,
+          "response": {
+            "path": "/api/settings",
+            "method": "POST",
+            "status": 200,
+            "headers": {
+              "x-chronicle-database-region": "aws-eu-central-1",
+              "x-chronicle-auto-migrate": "0",
+              "x-chronicle-database-mode": "pooled",
+              "server-timing": "db_acquire;dur=0.5, db_connect;dur=0.0, identity;dur=4.7, admission;dur=2.1, handler;dur=12.0, cleanup;dur=2.3, app;desc=\"response-ready\";dur=21.4",
+              "x-chronicle-proxy-region": "fra1",
+              "x-chronicle-proxy-ms": "0.3",
+              "x-chronicle-region": "fra1",
+              "cache-control": "private, no-store",
+              "x-vercel-cache": "MISS",
+              "x-chronicle-instance-first": "0",
+              "x-chronicle-pool": "acq=8;new=0;queue=0"
+            }
+          }
+        },
+        {
+          "responseMs": 216.3178999999982,
+          "uiMs": 231.06329999999798,
+          "persisted": true,
+          "response": {
+            "path": "/api/settings",
+            "method": "POST",
+            "status": 200,
+            "headers": {
+              "x-chronicle-database-region": "aws-eu-central-1",
+              "x-chronicle-auto-migrate": "0",
+              "x-chronicle-database-mode": "pooled",
+              "server-timing": "db_acquire;dur=0.4, db_connect;dur=0.0, identity;dur=4.8, admission;dur=2.3, handler;dur=13.0, cleanup;dur=8.3, app;desc=\"response-ready\";dur=28.7",
+              "x-chronicle-proxy-region": "fra1",
+              "x-chronicle-proxy-ms": "0.3",
+              "x-chronicle-region": "fra1",
+              "cache-control": "private, no-store",
+              "x-vercel-cache": "MISS",
+              "x-chronicle-instance-first": "0",
+              "x-chronicle-pool": "acq=8;new=0;queue=0"
+            }
+          }
+        },
+        {
+          "responseMs": 193.46310000000085,
+          "uiMs": 212.97940000000017,
+          "persisted": true,
+          "response": {
+            "path": "/api/settings",
+            "method": "POST",
+            "status": 200,
+            "headers": {
+              "x-chronicle-database-region": "aws-eu-central-1",
+              "x-chronicle-auto-migrate": "0",
+              "x-chronicle-database-mode": "pooled",
+              "server-timing": "db_acquire;dur=0.5, db_connect;dur=0.0, identity;dur=4.8, admission;dur=2.5, handler;dur=12.4, cleanup;dur=2.4, app;desc=\"response-ready\";dur=22.4",
+              "x-chronicle-proxy-region": "fra1",
+              "x-chronicle-proxy-ms": "0.3",
+              "x-chronicle-region": "fra1",
+              "cache-control": "private, no-store",
+              "x-vercel-cache": "MISS",
+              "x-chronicle-instance-first": "0",
+              "x-chronicle-pool": "acq=8;new=0;queue=0"
+            }
+          }
+        }
+      ],
+      "screenshots": [
+        "guest-1280-narrator.png",
+        "guest-1280-images.png",
+        "guest-390-narrator.png",
+        "guest-390-images.png"
+      ],
+      "restoration": {
+        "settingsRestored": true,
+        "visualRestored": true,
+        "persistedGetVerified": true,
+        "noPersonalKey": true
+      }
+    },
+    "account": {
+      "fresh": [
+        {
+          "readyMs": 702.4910999999993,
+          "guideOpenMs": 111.0183999999972,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=1.6, db_connect;dur=0.0, identity;dur=7.6, admission;dur=3.5, handler;dur=14.2, cleanup;dur=3.3, app;desc=\"response-ready\";dur=28.7",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "3.6",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=10;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 807.9709000000003,
+          "guideOpenMs": 91.48319999999876,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=25.1, db_connect;dur=22.7, identity;dur=4.7, admission;dur=2.2, handler;dur=32.6, cleanup;dur=1.9, app;desc=\"response-ready\";dur=41.6",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "46.5",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=10;new=1;queue=1"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 674.6697999999997,
+          "guideOpenMs": 113.42259999999806,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=2.1, db_connect;dur=0.0, identity;dur=3.9, admission;dur=2.3, handler;dur=9.0, cleanup;dur=1.9, app;desc=\"response-ready\";dur=17.4",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "3.3",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=10;new=0;queue=0"
+              }
+            },
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 725.9714999999997,
+          "guideOpenMs": 100.96889999999985,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=25.4, db_connect;dur=23.8, identity;dur=7.0, admission;dur=3.7, handler;dur=37.0, cleanup;dur=3.3, app;desc=\"response-ready\";dur=51.3",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "2.9",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=10;new=1;queue=1"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 760.1072999999997,
+          "guideOpenMs": 117.8224999999984,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=1.3, db_connect;dur=0.0, identity;dur=6.3, admission;dur=3.4, handler;dur=12.6, cleanup;dur=3.2, app;desc=\"response-ready\";dur=25.7",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "27.2",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=10;new=0;queue=0"
+              }
+            }
+          ]
+        }
+      ],
+      "warm": [
+        {
+          "readyMs": 588.2824,
+          "guideOpenMs": 116.29149999999936,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=1.6, db_connect;dur=0.0, identity;dur=6.2, admission;dur=3.0, handler;dur=12.9, cleanup;dur=3.1, app;desc=\"response-ready\";dur=25.4",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "3.6",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=10;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 546.4602000000014,
+          "guideOpenMs": 124.47500000000218,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=2.0, db_connect;dur=0.0, identity;dur=7.3, admission;dur=3.9, handler;dur=13.7, cleanup;dur=3.0, app;desc=\"response-ready\";dur=28.1",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "2.8",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=10;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 543.6319000000003,
+          "guideOpenMs": 92.74250000000029,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=1.7, db_connect;dur=0.0, identity;dur=5.7, admission;dur=3.1, handler;dur=12.4, cleanup;dur=3.1, app;desc=\"response-ready\";dur=24.5",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "2.3",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=10;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 501.03639999999723,
+          "guideOpenMs": 98.6938999999984,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=1.6, db_connect;dur=0.0, identity;dur=4.4, admission;dur=2.4, handler;dur=9.3, cleanup;dur=2.0, app;desc=\"response-ready\";dur=18.5",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "3.7",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=10;new=0;queue=0"
+              }
+            }
+          ]
+        },
+        {
+          "readyMs": 529.1267000000007,
+          "guideOpenMs": 103.79980000000069,
+          "check": {
+            "correctKind": true,
+            "correctOwner": true,
+            "sessionCount": 0,
+            "liveAI": false,
+            "credentialCount": 0
+          },
+          "calls": [
+            {
+              "path": "/api/version",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "cache-control": "no-store, max-age=0",
+                "x-vercel-cache": "MISS",
+                "age": "0"
+              }
+            },
+            {
+              "path": "/api/bootstrap",
+              "method": "GET",
+              "status": 200,
+              "headers": {
+                "x-chronicle-database-region": "aws-eu-central-1",
+                "age": "0",
+                "x-chronicle-auto-migrate": "0",
+                "x-chronicle-database-mode": "pooled",
+                "server-timing": "db_acquire;dur=1.5, db_connect;dur=0.0, identity;dur=3.8, admission;dur=2.1, handler;dur=8.1, cleanup;dur=2.0, app;desc=\"response-ready\";dur=16.4",
+                "x-chronicle-proxy-region": "fra1",
+                "x-chronicle-proxy-ms": "4.0",
+                "x-chronicle-region": "fra1",
+                "cache-control": "private, no-store",
+                "x-vercel-cache": "MISS",
+                "x-chronicle-instance-first": "0",
+                "x-chronicle-pool": "acq=10;new=0;queue=0"
+              }
+            }
+          ]
+        }
+      ],
+      "saves": [
+        {
+          "responseMs": 193.21169999999984,
+          "uiMs": 236.20010000000184,
+          "persisted": true,
+          "response": {
+            "path": "/api/settings",
+            "method": "POST",
+            "status": 200,
+            "headers": {
+              "x-chronicle-database-region": "aws-eu-central-1",
+              "x-chronicle-auto-migrate": "0",
+              "x-chronicle-database-mode": "pooled",
+              "server-timing": "db_acquire;dur=0.3, db_connect;dur=0.0, identity;dur=4.1, admission;dur=2.0, handler;dur=9.2, cleanup;dur=1.8, app;desc=\"response-ready\";dur=17.3",
+              "x-chronicle-proxy-region": "fra1",
+              "x-chronicle-proxy-ms": "0.3",
+              "x-chronicle-region": "fra1",
+              "cache-control": "private, no-store",
+              "x-vercel-cache": "MISS",
+              "x-chronicle-instance-first": "0",
+              "x-chronicle-pool": "acq=8;new=0;queue=0"
+            }
+          }
+        },
+        {
+          "responseMs": 188.63200000000506,
+          "uiMs": 208.3076000000001,
+          "persisted": true,
+          "response": {
+            "path": "/api/settings",
+            "method": "POST",
+            "status": 200,
+            "headers": {
+              "x-chronicle-database-region": "aws-eu-central-1",
+              "x-chronicle-auto-migrate": "0",
+              "x-chronicle-database-mode": "pooled",
+              "server-timing": "db_acquire;dur=0.4, db_connect;dur=0.0, identity;dur=4.5, admission;dur=1.9, handler;dur=9.8, cleanup;dur=1.7, app;desc=\"response-ready\";dur=18.1",
+              "x-chronicle-proxy-region": "fra1",
+              "x-chronicle-proxy-ms": "0.3",
+              "x-chronicle-region": "fra1",
+              "cache-control": "private, no-store",
+              "x-vercel-cache": "MISS",
+              "x-chronicle-instance-first": "0",
+              "x-chronicle-pool": "acq=8;new=0;queue=0"
+            }
+          }
+        },
+        {
+          "responseMs": 193.3836999999985,
+          "uiMs": 211.1958999999988,
+          "persisted": true,
+          "response": {
+            "path": "/api/settings",
+            "method": "POST",
+            "status": 200,
+            "headers": {
+              "x-chronicle-database-region": "aws-eu-central-1",
+              "x-chronicle-auto-migrate": "0",
+              "x-chronicle-database-mode": "pooled",
+              "server-timing": "db_acquire;dur=0.4, db_connect;dur=0.0, identity;dur=4.0, admission;dur=2.5, handler;dur=11.0, cleanup;dur=1.7, app;desc=\"response-ready\";dur=19.3",
+              "x-chronicle-proxy-region": "fra1",
+              "x-chronicle-proxy-ms": "0.3",
+              "x-chronicle-region": "fra1",
+              "cache-control": "private, no-store",
+              "x-vercel-cache": "MISS",
+              "x-chronicle-instance-first": "0",
+              "x-chronicle-pool": "acq=8;new=0;queue=0"
+            }
+          }
+        },
+        {
+          "responseMs": 185.056700000001,
+          "uiMs": 200.86789999999746,
+          "persisted": true,
+          "response": {
+            "path": "/api/settings",
+            "method": "POST",
+            "status": 200,
+            "headers": {
+              "x-chronicle-database-region": "aws-eu-central-1",
+              "x-chronicle-auto-migrate": "0",
+              "x-chronicle-database-mode": "pooled",
+              "server-timing": "db_acquire;dur=0.4, db_connect;dur=0.0, identity;dur=3.8, admission;dur=2.1, handler;dur=10.0, cleanup;dur=1.8, app;desc=\"response-ready\";dur=17.8",
+              "x-chronicle-proxy-region": "fra1",
+              "x-chronicle-proxy-ms": "0.3",
+              "x-chronicle-region": "fra1",
+              "cache-control": "private, no-store",
+              "x-vercel-cache": "MISS",
+              "x-chronicle-instance-first": "0",
+              "x-chronicle-pool": "acq=8;new=0;queue=0"
+            }
+          }
+        },
+        {
+          "responseMs": 208.85369999999966,
+          "uiMs": 228.2283000000025,
+          "persisted": true,
+          "response": {
+            "path": "/api/settings",
+            "method": "POST",
+            "status": 200,
+            "headers": {
+              "x-chronicle-database-region": "aws-eu-central-1",
+              "x-chronicle-auto-migrate": "0",
+              "x-chronicle-database-mode": "pooled",
+              "server-timing": "db_acquire;dur=0.3, db_connect;dur=0.0, identity;dur=4.7, admission;dur=2.3, handler;dur=8.8, cleanup;dur=1.7, app;desc=\"response-ready\";dur=17.7",
+              "x-chronicle-proxy-region": "fra1",
+              "x-chronicle-proxy-ms": "0.2",
+              "x-chronicle-region": "fra1",
+              "cache-control": "private, no-store",
+              "x-vercel-cache": "MISS",
+              "x-chronicle-instance-first": "0",
+              "x-chronicle-pool": "acq=8;new=0;queue=0"
+            }
+          }
+        }
+      ],
+      "screenshots": [
+        "account-1280-narrator.png",
+        "account-1280-images.png",
+        "account-390-narrator.png",
+        "account-390-images.png"
+      ],
+      "restoration": {
+        "settingsRestored": true,
+        "visualRestored": true,
+        "persistedGetVerified": true,
+        "noPersonalKey": true
+      }
+    }
+  },
+  "failures": [],
+  "version": {
+    "buildId": "37a322c6-5c34-4787-82de-8c10db6f8b96"
+  },
+  "oauth": {
+    "guest": {
+      "available": true,
+      "publicClientMetadata": true,
+      "canonicalRedirect": true,
+      "pkceS256": true,
+      "boundedPermissions": true,
+      "consentNotFollowed": true,
+      "authorizationEndpoint": {
+        "path": "/api/settings/pollinations/connect",
+        "method": "POST",
+        "status": 200,
+        "headers": {
+          "cache-control": "private, no-store",
+          "server-timing": "db_acquire;dur=0.5, db_connect;dur=0.0, identity;dur=6.6, admission;dur=3.4, handler;dur=519.3, cleanup;dur=3.6, app;desc=\"response-ready\";dur=533.2",
+          "x-chronicle-auto-migrate": "0",
+          "x-chronicle-database-mode": "pooled",
+          "x-chronicle-database-region": "aws-eu-central-1",
+          "x-chronicle-instance-first": "0",
+          "x-chronicle-pool": "acq=5;new=0;queue=0",
+          "x-chronicle-proxy-ms": "0.4",
+          "x-chronicle-proxy-region": "fra1",
+          "x-chronicle-region": "fra1",
+          "x-vercel-cache": "MISS"
+        }
+      }
+    },
+    "account": {
+      "available": true,
+      "publicClientMetadata": true,
+      "canonicalRedirect": true,
+      "pkceS256": true,
+      "boundedPermissions": true,
+      "consentNotFollowed": true,
+      "authorizationEndpoint": {
+        "path": "/api/settings/pollinations/connect",
+        "method": "POST",
+        "status": 200,
+        "headers": {
+          "cache-control": "private, no-store",
+          "server-timing": "db_acquire;dur=0.3, db_connect;dur=0.0, identity;dur=6.9, admission;dur=3.1, handler;dur=37.4, cleanup;dur=3.2, app;desc=\"response-ready\";dur=50.9",
+          "x-chronicle-auto-migrate": "0",
+          "x-chronicle-database-mode": "pooled",
+          "x-chronicle-database-region": "aws-eu-central-1",
+          "x-chronicle-instance-first": "0",
+          "x-chronicle-pool": "acq=5;new=0;queue=0",
+          "x-chronicle-proxy-ms": "0.4",
+          "x-chronicle-proxy-region": "fra1",
+          "x-chronicle-region": "fra1",
+          "x-vercel-cache": "MISS"
+        }
+      }
+    }
+  },
+  "catalogs": {
+    "guest": {
+      "text": {
+        "count": 230,
+        "publicOnly": true,
+        "stale": false,
+        "response": {
+          "path": "/api/settings/pollinations/models",
+          "method": "GET",
+          "status": 200,
+          "headers": {
+            "age": "0",
+            "cache-control": "private, no-store",
+            "server-timing": "db_acquire;dur=0.5, db_connect;dur=0.0, identity;dur=7.4, admission;dur=4.0, handler;dur=288.7, cleanup;dur=3.2, app;desc=\"response-ready\";dur=303.7",
+            "x-chronicle-auto-migrate": "0",
+            "x-chronicle-database-mode": "pooled",
+            "x-chronicle-database-region": "aws-eu-central-1",
+            "x-chronicle-instance-first": "0",
+            "x-chronicle-pool": "acq=7;new=0;queue=0",
+            "x-chronicle-proxy-ms": "0.4",
+            "x-chronicle-proxy-region": "fra1",
+            "x-chronicle-region": "fra1",
+            "x-vercel-cache": "MISS"
+          }
+        }
+      },
+      "image": {
+        "count": 68,
+        "publicOnly": true,
+        "stale": false,
+        "response": {
+          "path": "/api/settings/pollinations/models",
+          "method": "GET",
+          "status": 200,
+          "headers": {
+            "age": "0",
+            "cache-control": "private, no-store",
+            "server-timing": "db_acquire;dur=0.4, db_connect;dur=0.0, identity;dur=6.2, admission;dur=3.1, handler;dur=52.4, cleanup;dur=3.0, app;desc=\"response-ready\";dur=65.0",
+            "x-chronicle-auto-migrate": "0",
+            "x-chronicle-database-mode": "pooled",
+            "x-chronicle-database-region": "aws-eu-central-1",
+            "x-chronicle-instance-first": "0",
+            "x-chronicle-pool": "acq=7;new=0;queue=0",
+            "x-chronicle-proxy-ms": "0.4",
+            "x-chronicle-proxy-region": "fra1",
+            "x-chronicle-region": "fra1",
+            "x-vercel-cache": "MISS"
+          }
+        }
+      }
+    },
+    "account": {
+      "text": {
+        "count": 230,
+        "publicOnly": true,
+        "stale": false,
+        "response": {
+          "path": "/api/settings/pollinations/models",
+          "method": "GET",
+          "status": 200,
+          "headers": {
+            "age": "0",
+            "cache-control": "private, no-store",
+            "server-timing": "db_acquire;dur=0.4, db_connect;dur=0.0, identity;dur=6.6, admission;dur=3.1, handler;dur=11.1, cleanup;dur=3.0, app;desc=\"response-ready\";dur=24.1",
+            "x-chronicle-auto-migrate": "0",
+            "x-chronicle-database-mode": "pooled",
+            "x-chronicle-database-region": "aws-eu-central-1",
+            "x-chronicle-instance-first": "0",
+            "x-chronicle-pool": "acq=7;new=0;queue=0",
+            "x-chronicle-proxy-ms": "0.4",
+            "x-chronicle-proxy-region": "fra1",
+            "x-chronicle-region": "fra1",
+            "x-vercel-cache": "MISS"
+          }
+        }
+      },
+      "image": {
+        "count": 68,
+        "publicOnly": true,
+        "stale": false,
+        "response": {
+          "path": "/api/settings/pollinations/models",
+          "method": "GET",
+          "status": 200,
+          "headers": {
+            "age": "0",
+            "cache-control": "private, no-store",
+            "server-timing": "db_acquire;dur=0.3, db_connect;dur=0.0, identity;dur=6.5, admission;dur=3.1, handler;dur=9.3, cleanup;dur=3.0, app;desc=\"response-ready\";dur=22.2",
+            "x-chronicle-auto-migrate": "0",
+            "x-chronicle-database-mode": "pooled",
+            "x-chronicle-database-region": "aws-eu-central-1",
+            "x-chronicle-instance-first": "0",
+            "x-chronicle-pool": "acq=7;new=0;queue=0",
+            "x-chronicle-proxy-ms": "0.3",
+            "x-chronicle-proxy-region": "fra1",
+            "x-chronicle-region": "fra1",
+            "x-vercel-cache": "MISS"
+          }
+        }
+      }
+    }
+  },
+  "visualRoundtrip": {
+    "guest": {
+      "applicationDefault": true,
+      "personalSavedWithoutKey": true,
+      "personalGetVerified": true,
+      "otherIdentityUnchanged": true,
+      "restored": true,
+      "noGenerationRequested": true
+    },
+    "account": {
+      "applicationDefault": true,
+      "personalSavedWithoutKey": true,
+      "personalGetVerified": true,
+      "otherIdentityUnchanged": true,
+      "restored": true,
+      "noGenerationRequested": true
+    }
+  },
+  "endVersion": {
+    "buildId": "37a322c6-5c34-4787-82de-8c10db6f8b96"
+  },
+  "summary": {
+    "guest": {
+      "fresh": {
+        "n": 5,
+        "p50": 740.314699999999,
+        "p95": 1656.1221000000007,
+        "points": [
+          1867.094500000001,
+          740.314699999999,
+          812.2325000000001,
+          715.4665999999997,
+          669.3313999999991
+        ]
+      },
+      "warm": {
+        "n": 5,
+        "p50": 571.9049000000014,
+        "p95": 618.8674800000008,
+        "points": [
+          620.8351000000002,
+          557.0781000000006,
+          571.9049000000014,
+          610.997000000003,
+          513.2960000000021
+        ]
+      },
+      "saves": {
+        "n": 5,
+        "p50": 223.18149999999878,
+        "p95": 261.2870600000002,
+        "points": [
+          268.84300000000076,
+          209.96370000000024,
+          223.18149999999878,
+          231.06329999999798,
+          212.97940000000017
+        ]
+      }
+    },
+    "account": {
+      "fresh": {
+        "n": 5,
+        "p50": 725.9714999999997,
+        "p95": 798.3981800000001,
+        "points": [
+          702.4910999999993,
+          807.9709000000003,
+          674.6697999999997,
+          725.9714999999997,
+          760.1072999999997
+        ]
+      },
+      "warm": {
+        "n": 5,
+        "p50": 543.6319000000003,
+        "p95": 579.9179600000003,
+        "points": [
+          588.2824,
+          546.4602000000014,
+          543.6319000000003,
+          501.03639999999723,
+          529.1267000000007
+        ]
+      },
+      "saves": {
+        "n": 5,
+        "p50": 211.1958999999988,
+        "p95": 234.60574000000196,
+        "points": [
+          236.20010000000184,
+          208.3076000000001,
+          211.1958999999988,
+          200.86789999999746,
+          228.2283000000025
+        ]
+      }
+    }
+  },
+  "finishedAt": "2026-10-19T11:43:22.625Z",
+  "cleanup": {
+    "restoration": {
+      "guest": {
+        "settingsRestored": true,
+        "visualRestored": true,
+        "persistedGetVerified": true,
+        "noPersonalKey": true
+      },
+      "account": {
+        "settingsRestored": true,
+        "visualRestored": true,
+        "persistedGetVerified": true,
+        "noPersonalKey": true
+      }
+    },
+    "technicalSessionRevoked": true,
+    "privateStateDeleted": true
+  }
+}
