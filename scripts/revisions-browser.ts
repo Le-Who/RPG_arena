@@ -136,7 +136,7 @@ async function main() {
       await page.screenshot({ path: `${output}/creator-${name}.png` });
     }
     await dialog.getByRole("button", { name: "Заполнить пустые поля", exact: true }).click();
-    const settings = page.getByRole("dialog", { name: "Настройки пространства", exact: true });
+    const settings = page.getByRole("dialog", { name: "Настройки пространства", exact: true, includeHidden: true });
     await settings.getByRole("textbox", { name: "Имя профиля", exact: true }).waitFor();
     for (const [name, width, height] of [["desktop", 1280, 900], ["mobile", 390, 844], ["200-layout", 640, 450]] as const) {
       await page.setViewportSize({ width, height });
@@ -150,10 +150,10 @@ async function main() {
     await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
     await settings.getByRole("textbox", { name: "Имя профиля", exact: true }).fill("Несохранённое имя");
     await page.keyboard.press("Escape");
-    await settings.getByRole("button", { name: "Продолжить редактирование", exact: true }).click();
+    await page.getByRole("button", { name: "Продолжить редактирование", exact: true }).click();
     await expect(settings.getByRole("textbox", { name: "Имя профиля", exact: true })).toHaveValue("Несохранённое имя");
     await page.keyboard.press("Escape");
-    await settings.getByRole("button", { name: "Отбросить и вернуться", exact: true }).click();
+    await page.getByRole("button", { name: "Выйти без сохранения", exact: true }).click();
     await expect(dialog.getByRole("textbox", { name: "Название истории *", exact: true })).toHaveValue("Черновик остаётся");
     expect(await page.evaluate(() => document.body.style.overflow)).toBe("hidden");
     await page.keyboard.press("Escape");

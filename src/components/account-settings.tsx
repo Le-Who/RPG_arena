@@ -26,13 +26,13 @@ export function AccountSettings({ unsaved }: { unsaved: boolean }) {
       const next = parseIdentityResponse(await api(`/api/auth/${action}`, jsonBody(body)));
       setPassword(""); setOldPassword(""); setNewPassword(""); setAdopting(false);
       await applyIdentityChange(next);
-      notify(action === "password" ? "Пароль изменён. Войдите заново на нужных устройствах." : action === "adopt-guest" ? "Гостевые кампании перенесены в аккаунт." : "Профиль обновлён.");
+      notify(action === "password" ? "Пароль изменён. Войдите заново на нужных устройствах." : action === "adopt-guest" ? "Гостевые кампании перенесены в аккаунт." : action === "login" ? "Вы вошли в аккаунт." : action === "register" ? "Аккаунт создан." : action === "logout" || action === "logout-all" ? "Вы вышли из аккаунта." : "Профиль обновлён.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Не удалось обновить профиль."); }
     finally { setBusy(false); }
   }
   const submit = (event: FormEvent) => { event.preventDefault(); void act(mode, { login, password }, mode === "login"); };
   return <section className="settings-card account-settings" id="account" aria-busy={busy}>
-    <div className="settings-card-heading"><div><h2>{identity.account ? `Аккаунт · ${identity.account.login}` : "Можно без регистрации"}</h2><p>{identity.account ? "Войдите с другого устройства, чтобы продолжить свои истории." : "Гостевые истории доступны в этом браузере. Аккаунт даёт доступ с других устройств."}</p></div><ContextualHelp title="Аккаунт и гостевые истории"><p>При регистрации текущие истории и настройки остаются с вами.</p><p>Если войти в существующий аккаунт, гостевые истории можно перенести отдельно. До переноса они доступны в гостевом профиле после выхода из аккаунта.</p><p>При переносе ключи и настройки гостя не заменяют настройки аккаунта.</p></ContextualHelp></div>
+    <div className="settings-card-heading"><div><h2>{identity.account ? `Аккаунт · ${identity.account.login}` : "Можно без регистрации"}</h2><p>{identity.account ? "Войдите с другого устройства, чтобы продолжить свои истории." : "Гостевые истории доступны в этом браузере. Аккаунт даёт доступ с других устройств."}</p></div><ContextualHelp title="Аккаунт и гостевые истории"><p>Приватные истории доступны только их владельцу.</p><p>При регистрации текущие истории и настройки остаются с вами.</p><p>Если войти в существующий аккаунт, гостевые истории можно перенести отдельно. До переноса они доступны в гостевом профиле после выхода из аккаунта.</p><p>При переносе ключи и настройки гостя не заменяют настройки аккаунта.</p></ContextualHelp></div>
     {error && <p className="notice error-notice" role="alert">{error}</p>}
     {identity.kind === "guest" ? <>
       <p>{mode === "register" ? "Ваши гостевые истории и настройки сохранятся в новом аккаунте." : "Гостевые истории можно перенести после входа. Они не добавляются в аккаунт автоматически."}</p>

@@ -14,7 +14,16 @@
 .settings-dialog .settings-page>.notice:first-child{margin:16px 0;font-size:var(--t-xs)}
 .settings-dialog .settings-return,.settings-dialog .workspace-footer,.settings-dialog .page-heading>div{display:none}
 .settings-dialog .page-heading{position:sticky;top:0;z-index:3;justify-content:flex-end;margin:0 0 16px;padding:12px 0;background:var(--overlay)}
-.settings-dialog .settings-unsaved{top:0;z-index:4;margin:0;border:1px solid var(--warn-line)}
+/* A departure decision sits above both the page and nested settings dialogs. */
+.unsaved-changes-dialog{width:min(560px,96vw);border:2px solid var(--bad-line)}
+.unsaved-changes-dialog>.dialog-header{background:var(--bad-soft);border-bottom-color:var(--bad-line)}
+.unsaved-changes-summary{display:flex;align-items:flex-start;gap:16px;margin-bottom:24px}
+.unsaved-changes-summary>svg{color:var(--bad);margin-top:4px}
+.unsaved-changes-summary>p{color:var(--ink)}
+.unsaved-changes-actions{display:grid;gap:12px}
+.unsaved-changes-actions>.button{width:100%}
+.unsaved-changes-actions>.unsaved-changes-discard{color:var(--bad);border-color:var(--bad-line)}
+.unsaved-changes-actions>.text-button{min-height:44px;white-space:normal}
 .settings-dialog section[id]{scroll-margin-top:84px}
 .settings-dialog .settings-layout{grid-template-columns:minmax(0,1fr) 270px;gap:16px}
 @container (width < 52rem){.settings-dialog .settings-layout{grid-template-columns:minmax(0,1fr)}}

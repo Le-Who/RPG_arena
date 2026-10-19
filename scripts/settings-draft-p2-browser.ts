@@ -31,15 +31,15 @@ async function main() {
       const refresh=useCallback(async()=>{const r=await fetch('/api/settings');setSettings(await r.json())},[]);
       const acceptSettings=useCallback(value=>setSettings(value),[]);
       const notify=useCallback((message,error=false)=>setNotices(old=>[...old,{message,error}]),[]);
-      const value={settings,workspace:{displayName:'Гость',favorites:[],reading:{textScale:'normal',measure:'normal',theme:'midnight',motion:'reduced'}},identity:null,administration:false,loading:false,hasOpenDraft:false,refresh,acceptSettings,notify,updateReading:async()=>{}};
+      const value={settings,workspace:{displayName:'Гость',favorites:[],reading:{textScale:'normal',measure:'normal',theme:'midnight',motion:'reduced'}},identity:location.search.includes('account=1')?{kind:'account',profileId:'fixture-account',account:{login:'fixture_user'},isAdmin:false,pendingGuestCampaigns:0}:null,administration:false,loading:false,hasOpenDraft:false,refresh,acceptSettings,notify,updateReading:async()=>{}};
       return <Context.Provider value={value}>{children}<aside aria-label="Уведомления фикстуры">{notices.map((n,i)=><p key={i} data-error={n.error}>{n.message}</p>)}</aside></Context.Provider>
     }`;
   const bundle = await build({ stdin: { contents: `
     import React,{useCallback,useState} from "react";import {createRoot} from "react-dom/client";
     import {FixtureApp} from "fixture:app";import {TextProviderSettings} from "./src/components/text-provider-settings";
-    import {SettingsPanel} from "./src/components/settings-panel";
+    import {SettingsPanel} from "./src/components/settings-panel"; import {DeveloperSettings} from "./src/components/developer-settings";
     function ProviderFixture(){const [dirty,setDirty]=useState(false);const [saved,setSaved]=useState([]);const ready=useCallback(()=>{},[]);return <><TextProviderSettings onDirtyChange={setDirty} onSaveReady={ready} onSaved={value=>setSaved(old=>[...old,value])}/><output aria-label="Черновик">{dirty?'изменён':'сохранён'}</output><output aria-label="События сохранения">{JSON.stringify(saved)}</output></>}
-    createRoot(document.getElementById('root')).render(location.pathname==='/provider'?<ProviderFixture/>:<FixtureApp><SettingsPanel onClose={()=>{document.body.dataset.closed='yes'}} returnLabel="Вернуться в историю"/></FixtureApp>);
+    createRoot(document.getElementById('root')).render(location.pathname==='/provider'?<ProviderFixture/>:<FixtureApp><nav aria-label="Переходы фикстуры"><a href="/">Главная</a><a href="/overview">Обзор</a><a href="/campaigns">Мои кампании</a></nav>{location.pathname==='/developer'?<DeveloperSettings returnLabel="Назад к настройкам" onClose={()=>{document.body.dataset.closed='yes'}}/>:<SettingsPanel {...(location.pathname==='/standalone'?{}:{onClose:()=>{document.body.dataset.closed='yes'},returnLabel:'Вернуться в историю'})}/>}</FixtureApp>);
   `, resolveDir: process.cwd(), loader: "tsx" }, bundle: true, write: false, outfile: "fixture.js", platform: "browser", jsx: "automatic", tsconfig: "tsconfig.json", define: { "process.env.NODE_ENV": '"production"' }, plugins: [{ name: "settings-environment", setup(build) {
     build.onResolve({ filter: /(?:^|\/)app-shell$|^fixture:app$/ }, () => ({ path: "app-shell", namespace: "fixture" }));
     build.onResolve({ filter: /^next\/(navigation|link)$/ }, args => ({ path: args.path, namespace: "fixture" }));
@@ -57,7 +57,7 @@ async function main() {
   let active: Page | undefined;
   const watch = (page: Page) => page.on("pageerror", error => errors.push(error.message));
   try {
-    for (const viewport of [{ name: "desktop", width: 1280, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
+    for (const viewport of [{ name: "desktop", width: 1280, height: 900 }, { name: "mobile", width: 390, height: 844 }, { name: "narrow", width: 320, height: 720 }]) {
       const page = await browser.newPage({ viewport, reducedMotion: "reduce" }); active = page; watch(page);
       let providerState: Record<string, unknown> = emptyProvider;
       const providerWrites: unknown[] = [];
@@ -158,10 +158,12 @@ async function main() {
       await limit.fill("30"); await gemini.fill("synthetic-gemini-draft-a");
       const saveAll = panel.getByRole("button", { name: "Сохранить настройки", exact: true });
       await panel.getByRole("button", { name: "Вернуться в историю", exact: true }).click();
-      await expect(panel.getByRole("alert")).toContainText("Есть несохранённые изменения");
-      await panel.getByRole("button", { name: "Сохранить и вернуться", exact: true }).focus(); await panel.keyboard.press("Enter");
+      await expect(panel.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true })).toBeVisible();
+      await expect(panel.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true })).toBeFocused();
+      await panel.getByRole("button", { name: "Сохранить и выйти", exact: true }).focus(); await panel.keyboard.press("Enter");
       await expect.poll(() => settingsWrites.length).toBe(1);
       await expect(saveAll).toBeDisabled();
+      await panel.getByRole("button", { name: "Продолжить редактирование", exact: true }).click();
       await limit.fill("41"); await gemini.fill("synthetic-gemini-draft-b");
       await panel.screenshot({ path: `${output}/${viewport.name}-panel-newer-draft.png`, fullPage: true });
       firstSave.open(); await expect(saveAll).toBeEnabled();
@@ -169,9 +171,8 @@ async function main() {
       await expect(panel.getByText("••••draft-a", { exact: true })).toBeVisible();
       await expect(panel.getByText("Сохранён отправленный вариант. Новые изменения ещё не сохранены.", { exact: true })).toBeVisible();
       await expect(panel.getByText("Настройки сохранены.", { exact: true })).toHaveCount(0);
-      await expect(panel.getByRole("alert")).toContainText("Есть несохранённые изменения");
+      await expect(panel.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true })).toHaveCount(0);
       expect(await panel.getAttribute("body", "data-closed")).toBeNull();
-      await panel.getByRole("button", { name: "Продолжить редактирование" }).click();
       await saveAll.click();
       await expect(panel.getByText("Общие настройки временно недоступны", { exact: true })).toBeVisible();
       await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("synthetic-gemini-draft-b");
@@ -218,9 +219,10 @@ async function main() {
       await crossSection.getByRole("button", { name: "Изменить иллюстрации" }).click();
       await crossSection.getByRole("combobox", { name: "Аккаунт для иллюстраций", exact: true }).selectOption("personal");
       await crossSection.getByRole("button", { name: "Вернуться в историю", exact: true }).click();
-      await crossSection.getByRole("button", { name: "Сохранить и вернуться", exact: true }).click();
+      await crossSection.getByRole("button", { name: "Сохранить и выйти", exact: true }).click();
       await expect.poll(() => imageSaveHeld).toBe(true);
       expect(crossNarrator.model).toBe("vendor/text-b");
+      await crossSection.getByRole("button", { name: "Продолжить редактирование", exact: true }).click();
       await crossSection.getByRole("button", { name: "Изменить рассказчика" }).click();
       await crossModel.check();
       await crossSection.screenshot({ path: `${output}/${viewport.name}-cross-section-newer-draft.png`, fullPage: true });
@@ -228,7 +230,7 @@ async function main() {
       await expect(crossSection.getByRole("button", { name: "Сохранить настройки", exact: true })).toBeEnabled();
       await expect(crossModel).toBeChecked();
       expect(await crossSection.getAttribute("body", "data-closed"), "Late narrator edits while the image save is pending must keep the settings open").toBeNull();
-      await expect(crossSection.getByRole("alert")).toContainText("Есть несохранённые изменения");
+      await expect(crossSection.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true })).toHaveCount(0);
       checks.push(`${viewport.name}:cross-section-late-edit-keeps-save-and-return-open`);
       await crossSection.goto(`${base}/panel?keep=fixture&pollinations=cancelled#text-provider`);
       await crossSection.getByText("Лимиты обращений к ИИ", { exact: true }).click();
@@ -239,17 +241,96 @@ async function main() {
       await dismissReturn.focus(); await crossSection.keyboard.press("Enter");
       await expect(crossSection).toHaveURL(`${base}/panel?keep=fixture#text-provider`);
       await crossSection.evaluate(() => history.back());
-      await expect(crossSection.getByRole("alert")).toContainText("Есть несохранённые изменения");
+      await expect(crossSection.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true })).toBeVisible();
       await expect(historyLimit).toHaveValue("37");
       await crossSection.getByRole("button", { name: "Продолжить редактирование", exact: true }).click();
       await expect(historyLimit).toHaveValue("37");
       expect(await crossSection.getAttribute("body", "data-closed")).toBeNull();
       await crossSection.evaluate(() => history.back());
-      await expect(crossSection.getByRole("alert")).toContainText("Есть несохранённые изменения");
-      await crossSection.getByRole("button", { name: "Отбросить и вернуться", exact: true }).click();
+      await expect(crossSection.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true })).toBeVisible();
+      await crossSection.getByRole("button", { name: "Выйти без сохранения", exact: true }).click();
       await expect(crossSection.locator("body")).toHaveAttribute("data-closed", "yes");
       checks.push(`${viewport.name}:notice-dismiss-keeps-dirty-back-confirmation`);
       await crossSection.close();
+
+      const departure = await browser.newPage({ viewport, reducedMotion: "reduce" }); active = departure; watch(departure);
+      const delayed = gate(), developerSave = gate(); let writeStarted = false, developerWriteStarted = false;
+      await departure.route("**/api/**", async route => {
+        const pathname = new URL(route.request().url()).pathname;
+        let body: unknown;
+        if (pathname === "/api/settings/provider-connections") body = { geminiConfigured: false, openrouterConfigured: false, pollinationsConfigured: false };
+        else if (pathname === "/api/settings/text-provider") body = emptyProvider;
+        else if (pathname === "/api/settings/visual-provider") body = { enabled: false, provider: "pollinations", endpoint: null, accountSource: "application", model: "fixture/image", applicationModel: "fixture/image", applicationConfigured: false, pollinationsConfigured: false };
+        else if (pathname === "/api/settings/pollinations/connect") body = { available: false };
+        else if (pathname === "/api/settings/narrative") body = { enabled: false, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "typesafe/jev-1.13", credentialSource: "none", administratorAvailable: false };
+        else if (pathname === "/api/tokens/stats") body = { today: { totalReq: 0, totalTokens: 0, errors: 0, embeddingReq: 0 }, quotas: { note: "Фикстура" } };
+        else if (pathname === "/api/developer/typesafe/results") body = { results: [] };
+        else if (pathname === "/api/developer/typesafe") {
+          if (route.request().method() === "POST") { developerWriteStarted = true; await developerSave.promise; }
+          body = { configured: false, storedConfigured: false, maskedKey: null, source: "none", envOverride: false, pilotEnabled: false, model: "jev-1.13.0" };
+        }
+        else if (pathname === "/api/settings" && route.request().method() === "POST") {
+          writeStarted = true; await delayed.promise;
+          body = { ...initialSettings, dailyFlashLimit: 31 };
+        } else throw Error("Unexpected departure fixture request: " + pathname);
+        await route.fulfill({ status: 200, json: body });
+      });
+      await departure.goto(`${base}/standalone?account=1`);
+      await expect(departure.getByRole("heading", { name: "Аккаунт · fixture_user", exact: true })).toBeVisible();
+      await expect(departure.getByText("Вы вошли в аккаунт. Приватные истории доступны только вам.", { exact: true })).toHaveCount(0);
+      await departure.getByText("Лимиты обращений к ИИ", { exact: true }).click();
+      const navLimit = departure.getByRole("spinbutton", { name: "Flash · на модель в сутки", exact: true });
+      await navLimit.fill("31");
+      const decision = departure.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true });
+      for (const destination of ["Обзор", "Мои кампании", "Главная"]) {
+        const link = departure.getByRole("link", { name: destination, exact: true });
+        await link.click();
+        await expect(decision).toBeVisible(); await expect(decision).toBeFocused();
+        expect(await decision.evaluate(el => { const b=el.getBoundingClientRect(); return b.left>=0 && b.right<=innerWidth && b.top>=0 && b.bottom<=innerHeight; })).toBe(true);
+        expect(await departure.locator("#root").evaluate(el => el instanceof HTMLElement && el.inert)).toBe(true);
+        expect(await departure.getAttribute("body", "data-navigation")).toBeNull();
+        await departure.screenshot({ path: `${output}/${viewport.name}-departure-dialog.png` });
+        await departure.keyboard.press("Escape");
+        await expect(decision).toHaveCount(0); await expect(link).toBeFocused(); await expect(navLimit).toHaveValue("31");
+      }
+      checks.push(`${viewport.name}:every-navigation-attempt-opens-focused-modal`, `${viewport.name}:account-has-no-persistent-success-banner`);
+      await departure.getByRole("link", { name: "Главная", exact: true }).click();
+      await decision.getByRole("button", { name: "Выйти без сохранения", exact: true }).click();
+      await expect(departure.locator("body")).toHaveAttribute("data-navigation", "/");
+      await departure.goto(`${base}/panel`);
+      await departure.getByText("Лимиты обращений к ИИ", { exact: true }).click();
+      await navLimit.fill("31");
+      await departure.getByRole("button", { name: "Вернуться в историю", exact: true }).click();
+      await decision.getByRole("button", { name: "Сохранить и выйти", exact: true }).click();
+      await expect.poll(() => writeStarted).toBe(true);
+      await decision.getByRole("button", { name: "Продолжить редактирование", exact: true }).click();
+      // No newer edits: the save succeeds, but the cancelled departure must stay cancelled.
+      delayed.open();
+      await expect(departure.getByText("Настройки сохранены.", { exact: true })).toBeVisible();
+      expect(await departure.getAttribute("body", "data-closed")).toBeNull();
+      await expect(decision).toHaveCount(0); await expect(navLimit).toHaveValue("31");
+      checks.push(`${viewport.name}:discard-uses-requested-destination`, `${viewport.name}:cancel-during-save-never-leaves-after-success`);
+      await departure.goto(`${base}/developer`);
+      const developerKey = departure.getByLabel("API-ключ TypeSafe", { exact: true });
+      await developerKey.fill("synthetic-developer-submitted");
+      const developerBack = departure.getByRole("button", { name: "Назад к настройкам", exact: true });
+      await developerBack.click(); await expect(decision).toBeFocused();
+      await departure.keyboard.press("Escape"); await expect(developerBack).toBeFocused();
+      await expect(developerKey).toHaveValue("synthetic-developer-submitted");
+      await developerBack.click();
+      await decision.getByRole("button", { name: "Сохранить и выйти", exact: true }).click();
+      await expect.poll(() => developerWriteStarted).toBe(true);
+      await decision.getByRole("button", { name: "Продолжить редактирование", exact: true }).click();
+      await developerKey.fill("synthetic-developer-newer");
+      developerSave.open();
+      await expect(departure.getByText("Настройки TypeSafe сохранены.", { exact: true })).toBeVisible();
+      await expect(developerKey).toHaveValue("synthetic-developer-newer");
+      expect(await departure.getAttribute("body", "data-closed")).toBeNull();
+      await developerBack.click();
+      await decision.getByRole("button", { name: "Выйти без сохранения", exact: true }).click();
+      await expect(departure.locator("body")).toHaveAttribute("data-closed", "yes");
+      checks.push(`${viewport.name}:developer-modal-cancel-preserves-newer-key`, `${viewport.name}:developer-discard-leaves-explicitly`);
+      await departure.close();
     }
     expect(errors).toEqual([]);
     await writeFile(`${output}/result.json`, JSON.stringify({ checks, checkCount: checks.length, errors, scope: "actual TextProviderSettings + SettingsPanel; app context, Next navigation/link and unused server crypto stubbed; literal HTTP responses" }, null, 2));

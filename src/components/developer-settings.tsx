@@ -6,6 +6,7 @@ import { Check, KeyRound, LoaderCircle, RefreshCw, Save, ShieldCheck, Trash2, Wi
 import { api, jsonBody } from "@/lib/api-client";
 import type { TypeSafeReport } from "@/lib/typesafe-report";
 import type { SettingsPanelProps } from "./settings-panel";
+import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
 import { useDirtyHistory } from "./use-dirty-history";
 import { ContextualHelp } from "./contextual-help";
 
@@ -129,7 +130,9 @@ export function DeveloperSettings({ onClose, returnLabel = "Вернуться",
     setSaving(true); setMessage(null);
     try {
       const saved = await api<TypeSafeSettings>("/api/developer/typesafe", jsonBody({ pilotEnabled, ...(key.trim() ? { key } : {}) }));
-      setSettings(saved); setPilotEnabled(saved.pilotEnabled); setKey("");
+      setSettings(saved);
+      setPilotEnabled(current => current === pilotEnabled ? saved.pilotEnabled : current);
+      setKey(current => current === key ? "" : current);
       setMessage({ ok: true, text: "Настройки TypeSafe сохранены." });
       return true;
     } catch (error) {
@@ -137,7 +140,6 @@ export function DeveloperSettings({ onClose, returnLabel = "Вернуться",
       return false;
     } finally { setSaving(false); }
   };
-  const saveAndFinish = async () => { if (await save()) finishClose(pendingTarget); };
   const discardAndFinish = () => { setPilotEnabled(settings?.pilotEnabled ?? false); setKey(""); finishClose(pendingTarget); };
   const removeKey = async () => {
     setSaving(true); setMessage(null);
@@ -161,7 +163,7 @@ export function DeveloperSettings({ onClose, returnLabel = "Вернуться",
   if (!settings) return <div className="play-loading"><ShieldCheck size={27} /><h2>Не удалось загрузить инструменты разработки</h2><p>{message?.text}</p><div className="settings-close-actions"><button className="button primary" onClick={() => window.location.reload()}>Попробовать снова</button>{onClose && <button className="button secondary" onClick={onClose}>{returnLabel}</button>}</div></div>;
   return <div className="settings-page">
     {onClose && <div className="settings-return"><button className="button secondary" onClick={requestClose} disabled={saving}>{returnLabel}</button></div>}
-    {confirmClose && <section className="notice settings-unsaved" role="alert"><div><strong>Есть несохранённые изменения</strong><p>Сохраните их перед переходом или продолжите редактирование.</p><div className="settings-close-actions"><button className="button primary" disabled={saving} onClick={() => void saveAndFinish()}>Сохранить и продолжить</button><button className="button secondary" disabled={saving} onClick={discardAndFinish}>Отбросить и продолжить</button><button className="text-button" onClick={() => { pendingHistoryLeave.current = null; setConfirmClose(false); setPendingTarget(null); }}>Продолжить редактирование</button></div></div></section>}
+    {confirmClose && <UnsavedChangesDialog saving={saving} onSave={save} onLeave={() => finishClose(pendingTarget)} onDiscard={discardAndFinish} onCancel={() => { pendingHistoryLeave.current = null; setConfirmClose(false); setPendingTarget(null); }} />}
     <div className="page-heading"><div><div className="eyebrow">ДЛЯ РАЗРАБОТКИ</div><h1>Пробная проверка фактов Jev</h1><p>Оценки сохраняются отдельно и не меняют события или память истории.</p></div><button className="button primary" disabled={saving || !dirty} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}Сохранить</button></div>
     <div className="settings-layout"><div className="settings-main">
       <section className="settings-card"><div className="settings-card-heading"><span className="feature-icon violet"><KeyRound size={20} /></span><div><h2>TypeSafe</h2><p>Подключение сервиса проверки фактов.</p></div><ContextualHelp title="Пробная проверка фактов"><p>Модель jev-1.13.0 проверяет до шести утверждений за запрос. Проверка запускается после извлечения и подготовки фактов.</p><p>Её результат помогает оценивать качество и не влияет на сохранение памяти. Ошибка сервиса или отсутствие ключа не останавливают сохранение.</p><p>Это отдельный инструмент разработки. Выборочная проверка перед показом рассказа настраивается в разделе «Проверка повествования».</p></ContextualHelp><span className={`pill ${settings.configured ? "teal" : "amber"}`}>{settings.configured ? "Ключ настроен" : "Не подключено"}</span></div>
