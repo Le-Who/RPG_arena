@@ -66,11 +66,11 @@
 
 **Files:** roadmap, behavior docs, release report/measurement JSON, CI workflow if new checks need coverage.
 
-- [ ] Integrate independent work and obtain fresh whole-change review; resolve material findings with reproductions.
+- [x] Integrate independent work and obtain fresh whole-change review; resolve material findings with reproductions.
 - [x] Run full hermetic npm test, typecheck, lint, docs, production build, migrations and relevant native PostgreSQL/browser suites. Inspect every result.
-- [ ] Commit all completed changes, including the approved proposal and this plan; push, integrate on main and deploy through the existing production path.
-- [ ] Verify deployed version, guest/account settings, catalogs/help, independent saves and real-DB timings; record exact evidence and paid-generation limitations.
-- [ ] Update roadmap and release report, commit/push final documentation, ensure root and release working trees contain no omitted completed changes.
+- [x] Commit all completed changes, including the approved proposal and this plan; push, integrate on main and deploy through the existing production path.
+- [x] Verify deployed version, guest/account settings, catalogs/help, independent saves and real-DB timings; record exact evidence and paid-generation limitations.
+- [x] Update roadmap and release report, commit/push final documentation, ensure root and release working trees contain no omitted completed changes.
 
 ## Execution record
 
@@ -78,6 +78,8 @@ Implementation authorized explicitly by the user; continued in the existing isol
 
 Review corrections: current credentials and session rechecked after metadata/lease waits; Live intent preserved on unrelated general writes; resolution state cleared on draft invalidation; application payer displays its actual administrator model; prices match the saved endpoint; community choices excluded from the primary shortlist and labelled in the full catalog; advanced Gemini mutations refresh the shared connection view. RED/green reproductions and test logs are in the ignored `output/provider-selection-release` workspace.
 
-The first pre-integration full run had three failures while files/fixtures were being introduced: missing help module during creation and two legacy expected-row snapshots lacking new columns. These are corrected; that run is not final release evidence. A full suite on the stable integrated source is running separately. Production generation is not used to infer model quality from mock transport tests.
+The first pre-integration full run had three failures while files/fixtures were being introduced: missing help module during creation and two legacy expected-row snapshots lacking new columns. These are corrected; that run is not final release evidence. The stable integrated local run and exact-commit CI subsequently passed. Production generation is not used to infer model quality from mock transport tests.
 
-Local release gates: ordinary1303/1303, final catalog9/9, native39/39, provider UI39, Pollinations75, draft24, latency12, gallery16, actual Next story/game, full ESLint, production Next build/typecheck and docs104/454 passed. One additional top-level catalog exclusion test was added after the ordinary run had begun; it passed in the final focused run and is included in the exact-commit CI. No paid generation was executed.
+Local release gates: ordinary 1303/1303, final catalog 9/9, native 39/39, provider UI 42, Pollinations 75, draft 24, latency 12, gallery 16, actual Next story/game, full ESLint, production Next build/typecheck and docs104/454 passed. One additional top-level catalog exclusion test was added after the ordinary run had begun; it passed in the final focused run and is included in the exact-commit CI. No paid generation was executed.
+
+Final release: commits 05fc5aa and 16869ab pushed and fast-forwarded to main; exact CI 39288274263 success (1304 unit, 39 native, 22 fresh/replay). Production 7179719284 / build f9cd3222-cf40-42b2-a251-365d8ac335f7 verified with real DB guest/account, independent saves, catalogs/prices, edit-only deny, help/focus, 30 timing points and successful restoration/session revocation/private-state removal. Final documentation and safe measurements: [release report](../../provider-selection-release-2026-10-19.md). Source inventory 534 matches the tested commit; final documentation commit does not change runtime code.
