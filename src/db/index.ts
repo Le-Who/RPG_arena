@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool, type PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
+import { createDatabasePool } from "./pool";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -13,7 +14,7 @@ const globalForDb = globalThis as typeof globalThis & {
 
 export const pool =
   globalForDb.__arenaNextJsPostgresqlPool ??
-  new Pool({
+  createDatabasePool({
     connectionString: databaseUrl,
   });
 

@@ -4,7 +4,7 @@ import { auth } from "./lib/auth";
 import { assertAuthOrigin } from "./lib/auth-policy";
 import { httpError } from "./lib/http";
 import { CHECKPOINT_MAX_BYTES } from "./lib/checkpoint-types";
-export async function proxy(req: NextRequest) {
+async function handleProxy(req: NextRequest) {
   if (["/sw.js", "/offline.html", "/manifest.webmanifest"].includes(req.nextUrl.pathname)) return NextResponse.next();
   // Readiness must not depend on guest identity or an already migrated auth schema.
   if (["/api/health", "/api/version"].includes(req.nextUrl.pathname)) return NextResponse.next();
@@ -36,6 +36,15 @@ export async function proxy(req: NextRequest) {
   const response = NextResponse.next({ request: { headers: req.headers } });
   if (token !== existing) response.cookies.set(GUEST_COOKIE, token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production" || req.nextUrl.protocol === "https:", path: "/", maxAge: GUEST_MAX_AGE });
   if (req.nextUrl.pathname.startsWith("/api/")) response.headers.set("Cache-Control", "private, no-store");
+  return response;
+}
+export async function proxy(req: NextRequest) {
+  const started = performance.now();
+  const response = await handleProxy(req);
+  if (req.nextUrl.pathname.startsWith("/api/") && !["/api/version", "/api/health", "/api/telemetry/vitals"].includes(req.nextUrl.pathname)) {
+    response.headers.set("X-Chronicle-Proxy-Ms", Math.max(0, performance.now() - started).toFixed(1));
+    response.headers.set("X-Chronicle-Proxy-Region", /^[a-z]{3}\d$/.test(process.env.VERCEL_REGION ?? "") ? process.env.VERCEL_REGION! : "local");
+  }
   return response;
 }
 export const config = { matcher: ["/((?!_next/|favicon.ico|.*\\.(?:png|jpg|jpeg|webp|svg|ico|woff2?)$).*)"] };

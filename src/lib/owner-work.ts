@@ -5,6 +5,7 @@ import { OWNER_LOCK_NAMESPACE } from "./auth";
 import { currentIdentity } from "./identity";
 import { HttpError, httpError } from "./http";
 import { withAdmittedIdentity } from "./identity-scope";
+import { measureRequestPhase, withRequestDiagnostics } from "./request-diagnostics";
 
 type Work = { id: string; ownerId: string; refs: number; active: boolean };
 const workScope = new AsyncLocalStorage<Map<string, Work>>();
@@ -21,9 +22,9 @@ export async function withOwnerWork<T>(ownerId: string, run: () => Promise<T>): 
     // The materialized, volatile lock CTE must run before the insert. Autocommit
     // holds its transaction lock through the durable insert, then releases both
     // the lock and connection before work starts, using one database roundtrip.
-    await pool.query(`WITH admission_lock AS MATERIALIZED (
+    await measureRequestPhase("admission", () => pool.query(`WITH admission_lock AS MATERIALIZED (
       SELECT pg_advisory_xact_lock($1,hashtext($2))
-    ) INSERT INTO owner_activity(id,owner_id) SELECT $3,$2 FROM admission_lock`, [OWNER_LOCK_NAMESPACE, ownerId, id]);
+    ) INSERT INTO owner_activity(id,owner_id) SELECT $3,$2 FROM admission_lock`, [OWNER_LOCK_NAMESPACE, ownerId, id]));
     work = { id, ownerId, refs: 0, active: true };
   }
   work.refs++;
@@ -34,14 +35,14 @@ export async function withOwnerWork<T>(ownerId: string, run: () => Promise<T>): 
       work.active = false;
       // Failure to clean up must block later transfers, not turn a committed game action
       // into an apparent failure/retry. Recovery is explicitly fail-closed.
-      await pool.query("DELETE FROM owner_activity WHERE id=$1", [work.id]).catch(() => { console.warn("owner_activity_cleanup_failed"); });
+      await measureRequestPhase("cleanup", () => pool.query("DELETE FROM owner_activity WHERE id=$1", [work.id]).catch(() => { console.warn("owner_activity_cleanup_failed"); }));
     }
   }
 }
 export async function withCurrentIdentityWork<T>(run: () => Promise<T>): Promise<T> {
-  const before = await currentIdentity();
+  const before = await measureRequestPhase("identity", () => currentIdentity());
   return withOwnerWork(before.profileId, async () => {
-    const current = await currentIdentity();
+    const current = await measureRequestPhase("identity", () => currentIdentity());
     if (current.profileId !== before.profileId || current.account?.id !== before.account?.id) throw new HttpError(401, "IDENTITY_CHANGED", "Профиль изменился. Обновите страницу.");
     return withAdmittedIdentity(current, run);
   });
@@ -59,8 +60,10 @@ export function withIdentityWork<A extends unknown[]>(handler: (...args: A) => P
   return async (...args: A): Promise<Response> => {
     const started = performance.now();
     let response: Response;
-    try { response = await withCurrentIdentityWork(() => handler(...args)); }
-    catch (error) { response = httpError(error); }
+    response = await withRequestDiagnostics(async () => {
+      try { return await withCurrentIdentityWork(() => measureRequestPhase("handler", () => handler(...args))); }
+      catch (error) { return httpError(error); }
+    });
     return withServerTiming(response, started);
   };
 }
