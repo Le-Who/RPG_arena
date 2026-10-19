@@ -5,6 +5,7 @@ import { databaseLocation, withRequestDiagnostics, measureRequestPhase } from ".
 test("database diagnostics expose only a recognized region and connection mode", () => {
   const location = databaseLocation("postgresql://private-user:private-password@ep-secret-pooler.eu-central-1.aws.neon.tech/private-db?sslmode=require");
   assert.deepEqual(location, { region: "aws-eu-central-1", mode: "pooled" });
+  assert.deepEqual(databaseLocation("postgresql://secret@ep-private-pooler.c-2.eu-central-1.aws.neon.tech/db"), { region: "aws-eu-central-1", mode: "pooled" });
   assert.deepEqual(databaseLocation("postgres://secret@private.internal/db"), { region: "unknown", mode: "unknown" });
   assert.deepEqual(databaseLocation("bad secret"), { region: "unknown", mode: "unknown" });
 });

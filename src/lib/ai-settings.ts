@@ -50,7 +50,9 @@ export async function getRawSettingsRow(ownerId?: string) {
   const id = ownerId ?? await currentProfileId();
   const rows = await db.select().from(aiSettings).where(eq(aiSettings.id, id));
   if (rows[0]) return rows[0];
-  await db.insert(aiSettings).values({ ...DEFAULT_ROW, id }).onConflictDoNothing();
+  const [created] = await db.insert(aiSettings).values({ ...DEFAULT_ROW, id }).onConflictDoNothing().returning();
+  if (created) return created;
+  // A competing creator may have committed after the first SELECT missed.
   const fresh = await db.select().from(aiSettings).where(eq(aiSettings.id, id));
   if (!fresh[0]) throw new Error("Settings row was not created");
   return fresh[0];

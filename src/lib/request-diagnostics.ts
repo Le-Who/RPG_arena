@@ -12,7 +12,7 @@ const diagnostics = globals.__chronicleRequestDiagnostics ??= { scope: new Async
 export function databaseLocation(connectionString: string | undefined) {
   try {
     const hostname = new URL(connectionString ?? "").hostname;
-    const neon = hostname.match(/^[a-z0-9-]+\.([a-z]{2}-[a-z]+-\d)\.(aws|azure)\.neon\.tech$/);
+    const neon = hostname.match(/^[a-z0-9-]+\.(?:c-\d+\.)?([a-z]{2}-[a-z]+-\d)\.(aws|azure)\.neon\.tech$/);
     return neon ? { region: `${neon[2]}-${neon[1]}`, mode: hostname.split(".")[0].endsWith("-pooler") ? "pooled" : "direct" } : { region: "unknown", mode: "unknown" };
   } catch { return { region: "unknown", mode: "unknown" }; }
 }
