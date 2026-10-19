@@ -30,6 +30,15 @@ test("invalid provider query does not fetch", async () => {
   assert.equal(response.status, 400);
 });
 
+test("public narrator catalogs add source/checked pricing without dropping capability metadata", () => {
+  const architecture = { input_modalities: ["text"], output_modalities: ["text"] };
+  const [openrouter] = parseTextModelCatalog("openrouter", { data: [{ id: "priced", architecture, supported_parameters: ["structured_outputs"], pricing: { prompt: "0.000001", completion: "0.000002" } }] });
+  assert.equal(openrouter.structuredOutput, true); assert.equal(openrouter.price?.amount, 0.01); assert.equal(openrouter.price?.status, "estimate");
+  assert.match(openrouter.price?.source ?? "", /openrouter/); assert.ok(openrouter.price?.checkedAt);
+  const [pollinations] = parseTextModelCatalog("pollinations", [{ name: "priced", ...architecture, pricing: { currency: "pollen", promptTextTokens: "0.000001", completionTextTokens: "0.000002" } }]);
+  assert.equal(pollinations.price?.amount, 0.01); assert.equal(pollinations.price?.currency, "Pollen");
+});
+
 test("catalog loader uses public fixed endpoint without credentials and caches successful results", async () => {
   const old = global.fetch; let calls = 0;
   try {
@@ -65,4 +74,19 @@ test("catalog deadline remains active through a stalled response body", async ()
     await assert.rejects(() => loadTextModelCatalog("pollinations"), /CATALOG_UNAVAILABLE/);
     assert.equal(cancelled, true);
   } finally { global.fetch = old; }
+});
+
+test("public text catalog deadline also bounds a fetch implementation that ignores its AbortSignal", async t => {
+  const originalFetch = global.fetch; let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  try {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    global.fetch = async () => { entered(); return new Promise<Response>(() => {}); };
+    const request = loadTextModelCatalog("pollinations");
+    const result = assert.rejects(request, /CATALOG_UNAVAILABLE/);
+    await started; t.mock.timers.tick(5000);
+    // The immediate ensures a regression reports a failure instead of hanging the test process.
+    const outcome = await Promise.race([result.then(() => "rejected"), new Promise<string>(resolve => setImmediate(() => resolve("pending")))]);
+    assert.equal(outcome, "rejected");
+  } finally { global.fetch = originalFetch; t.mock.timers.reset(); }
 });

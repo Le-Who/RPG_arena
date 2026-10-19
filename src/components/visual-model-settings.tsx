@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Camera, LoaderCircle, RefreshCw, Save } from "lucide-react";
 import { api } from "@/lib/api-client";
 import type { ImageModelChoice } from "@/lib/visual-models";
+import { ContextualHelp } from "./contextual-help";
 
 type ModelSettings = { model: string; keyConfigured: boolean; models: ImageModelChoice[]; catalogError: string | null };
 
@@ -30,7 +31,7 @@ export function VisualModelSettings() {
     finally { setBusy(false); }
   };
   return <div className="system-page">
-    <div className="page-heading"><div><div className="eyebrow">НАСТРОЙКИ АДМИНИСТРАТОРА</div><h1>Модель иллюстраций</h1><p>Выбор действует на новые иллюстрации всех кампаний. Уже созданные записи сохраняют свою модель и seed.</p></div></div>
+    <div className="page-heading"><div><div className="eyebrow">НАСТРОЙКИ АДМИНИСТРАТОРА</div><h1>Модель иллюстраций приложения</h1><p>Для новых иллюстраций с оплатой аккаунтом приложения.</p></div><ContextualHelp title="Общая модель иллюстраций"><p>Эта настройка действует на новые изображения, создаваемые за счёт приложения. Личные настройки иллюстраций выбираются в профиле.</p><p>Уже созданные изображения сохраняют свою модель и параметры. При ошибке генерации другая модель не выбирается автоматически.</p><p>Каталог содержит официальные модели Pollinations для создания изображения по тексту. Цена, доступность и допустимые размеры зависят от модели и аккаунта.</p></ContextualHelp></div>
     <section className="system-card">
       <div className="system-card-heading"><div><Camera size={20} /><h2>Pollinations</h2></div><button className="button secondary" type="button" disabled={busy} onClick={() => void load()}><RefreshCw size={14} />Обновить каталог</button></div>
       {!data && !error && <p role="status"><LoaderCircle size={14} className="spin" /> Загружаем каталог моделей…</p>}
@@ -42,7 +43,7 @@ export function VisualModelSettings() {
           {!data.models.some(model => model.id === selected) && <option value={selected}>{selected} (нет в текущем каталоге)</option>}
           {data.models.map(model => <option key={model.id} value={model.id}>{model.title} · {model.id}{model.paidOnly ? " · платная" : ""}</option>)}
         </select></label>
-        <p className="system-footnote">Каталог показывает официальные модели Pollinations для генерации изображения по тексту. Цена, доступность и ограничения размеров зависят от модели и аккаунта. При ошибке генерации сохранённая модель не заменяется другой автоматически.</p>
+        <p className="system-footnote">Стоимость зависит от модели и параметров изображения. При ошибке выбранная модель не заменяется автоматически.</p>
         <div className="system-card-actions"><button className="button primary" type="button" disabled={busy || selected === data.model || !data.models.some(model => model.id === selected)} onClick={() => void save()}>{busy ? <LoaderCircle size={14} className="spin" /> : <Save size={14} />}Сохранить модель</button></div>
       </>}
       {error && <p className="notice error-notice" role="alert">{error}</p>}

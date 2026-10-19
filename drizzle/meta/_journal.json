@@ -148,6 +148,13 @@
       "when": 1790000000016,
       "tag": "0020_personal_pollinations_visuals",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790000000017,
+      "tag": "0021_independent_visual_providers",
+      "breakpoints": true
     }
   ]
 }

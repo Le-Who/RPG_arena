@@ -6,17 +6,20 @@ import { randomUUID } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { cookieContext } from "../helpers/accounts-db";
 
-test("PostgreSQL independent-connection auth claims and ownership fencing", { skip: process.env.CHRONICLE_RUN_AUTH_POSTGRES !== "1", timeout: 30000 }, async () => {
+test("PostgreSQL independent-connection auth claims and ownership fencing", { skip: process.env.CHRONICLE_RUN_AUTH_POSTGRES !== "1", timeout: 30000 }, async t => {
   const url = new URL("postgresql://chronicle_test@127.0.0.1:55439/chronicle_auth_test");
   const schema = `auth_task2_${randomUUID().replaceAll("-", "")}`;
   const bootstrap = new Pool({ connectionString: url.toString() });
   await bootstrap.query(`CREATE SCHEMA ${schema}`);
-  url.searchParams.set("options", `-csearch_path=${schema},public`);
+  // Timestamp-without-zone jobs use the application's UTC convention, independent of initdb's host zone.
+  url.searchParams.set("options", `-csearch_path=${schema},public -cTimeZone=UTC`);
   process.env.DATABASE_URL = url.toString();
   const { pool } = await import("../../src/db");
   try {
     // No vector extension in portable server; exercise all relational schema, not vector readiness.
     for (const file of (await readdir("drizzle")).filter(x => /^\d{4}_.*\.sql$/.test(x) && !x.startsWith("0006_")).sort()) await pool.query((await readFile(`drizzle/${file}`, "utf8")).replaceAll('"public".', `"${schema}".`));
+    assert.equal((await pool.query("SHOW TimeZone")).rows[0].TimeZone, "UTC");
+    t.diagnostic("Native auth fixture uses UTC for timestamp-without-zone job deadlines.");
     const { auth } = await import("../../src/lib/auth");
     const { profileIdFromToken } = await import("../../src/lib/guest-identity");
     const { withOwnerWork, withCampaignOwnerWork } = await import("../../src/lib/owner-work");
@@ -114,7 +117,14 @@ test("PostgreSQL independent-connection auth claims and ownership fencing", { sk
     };
     try {
       const worker = runMemoryCycle({ sessionId: workerSession, ownerId: workerOwner, source: "worker" });
-      await providerStarted;
+      let providerTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([providerStarted, worker.then(async report => {
+          if (providerCalls) return;
+          const state = (await pool.query("SELECT status,error,next_attempt_at::text,now()::text AS database_now,current_setting('TimeZone') AS timezone FROM memory_jobs WHERE session_id=$1", [workerSession])).rows;
+          throw new Error(`Worker completed before provider admission: ${JSON.stringify({ report, state, applicationNow: new Date().toISOString() })}`);
+        }), new Promise<never>((_, reject) => { providerTimer = setTimeout(() => reject(new Error("Worker did not reach provider admission within 8 seconds")), 8000); })]);
+      } finally { clearTimeout(providerTimer); }
       try { await assert.rejects(() => auth.adopt(workerGuest, account.sessionToken), /OWNER_BUSY/); }
       finally { finishProvider(); }
       assert.equal((await worker).processed, 1);
@@ -122,7 +132,7 @@ test("PostgreSQL independent-connection auth claims and ownership fencing", { sk
       await assert.rejects(() => runMemoryCycle({ sessionId: workerSession, ownerId: workerOwner, source: "worker" }), /owner mismatch/);
       assert.equal(providerCalls, 1);
       assert.equal((await pool.query("SELECT owner_id FROM token_logs WHERE session_id=$1", [workerSession])).rows[0].owner_id, workerOwner);
-    } finally { globalThis.fetch = originalFetch; delete process.env.CHRONICLE_SECRET_ACTIVE_KEY; delete process.env.CHRONICLE_SECRET_KEYS; }
+    } finally { finishProvider(); globalThis.fetch = originalFetch; delete process.env.CHRONICLE_SECRET_ACTIVE_KEY; delete process.env.CHRONICLE_SECRET_KEYS; }
     assert.equal(Number((await pool.query("SELECT count(*) FROM owner_activity")).rows[0].count), 0);
   } finally {
     await pool.end();

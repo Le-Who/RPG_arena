@@ -1,7 +1,8 @@
 import type { TextProvider } from "./text-provider";
+import { normalizeOpenRouterTextPrice, normalizePollinationsPrice, type ModelPrice } from "./model-pricing";
 
 type CatalogProvider = Exclude<TextProvider, "gemini">;
-export type TextModelCatalogEntry = { id: string; name: string; structuredOutput: boolean; streaming: boolean };
+export type TextModelCatalogEntry = { id: string; name: string; structuredOutput: boolean; streaming: boolean; price?: ModelPrice };
 const ENDPOINTS: Record<CatalogProvider, string> = {
   openrouter: "https://openrouter.ai/api/v1/models",
   pollinations: "https://gen.pollinations.ai/text/models",
@@ -29,31 +30,36 @@ export function parseTextModelCatalog(provider: CatalogProvider, payload: unknow
       // response_format alone can mean JSON object only, so it does not establish schema support.
       structuredOutput: parameters.includes("structured_outputs") || parameters.includes("json_schema"),
       streaming: provider === "openrouter" || parameters.includes("stream"),
+      ...(source.pricing ? { price: provider === "openrouter" ? normalizeOpenRouterTextPrice(source.pricing) : normalizePollinationsPrice(source, "text") } : {}),
     });
   }
   return models;
 }
 
 async function fetchCatalog(provider: CatalogProvider): Promise<TextModelCatalogEntry[]> {
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 5000);
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error("CATALOG_UNAVAILABLE")); }, 5000); });
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   const abort = () => { void reader?.cancel().catch(() => {}); };
   controller.signal.addEventListener("abort", abort, { once: true });
   try {
-    const response = await fetch(ENDPOINTS[provider], { signal: controller.signal, redirect: "error", cache: "no-store", headers: { Accept: "application/json" } });
-    if (!response.ok || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error("CATALOG_UNAVAILABLE"); }
-    reader = response.body.getReader();
-    let bytes = 0, body = ""; const decoder = new TextDecoder();
-    while (true) {
-      controller.signal.throwIfAborted();
-      const { done, value } = await reader.read();
-      controller.signal.throwIfAborted();
-      bytes += value?.byteLength ?? 0;
-      if (bytes > 3_000_000) throw new Error("CATALOG_UNAVAILABLE");
-      body += done ? decoder.decode() : decoder.decode(value, { stream: true });
-      if (done) break;
-    }
-    return parseTextModelCatalog(provider, JSON.parse(body));
+    return await Promise.race([timeout, (async () => {
+      const response = await fetch(ENDPOINTS[provider], { signal: controller.signal, redirect: "error", cache: "no-store", headers: { Accept: "application/json" } });
+      if (controller.signal.aborted || !response.ok || !response.body || Number(response.headers.get("content-length")) > 3_000_000) { void response.body?.cancel().catch(() => {}); throw new Error("CATALOG_UNAVAILABLE"); }
+      reader = response.body.getReader();
+      let bytes = 0, body = ""; const decoder = new TextDecoder("utf-8", { fatal: true });
+      while (true) {
+        controller.signal.throwIfAborted();
+        const { done, value } = await reader.read();
+        controller.signal.throwIfAborted();
+        bytes += value?.byteLength ?? 0;
+        if (bytes > 3_000_000) throw new Error("CATALOG_UNAVAILABLE");
+        body += done ? decoder.decode() : decoder.decode(value, { stream: true });
+        if (done) break;
+      }
+      return parseTextModelCatalog(provider, JSON.parse(body));
+    })()]);
   } catch { throw new Error("CATALOG_UNAVAILABLE"); }
   finally {
     clearTimeout(timer); controller.signal.removeEventListener("abort", abort);
@@ -65,11 +71,11 @@ async function fetchCatalog(provider: CatalogProvider): Promise<TextModelCatalog
 export async function loadTextModelCatalog(provider: CatalogProvider): Promise<TextModelCatalogEntry[]> {
   if (provider !== "openrouter" && provider !== "pollinations") throw new Error("CATALOG_UNAVAILABLE");
   const stored = cache.get(provider);
-  if (stored && stored.expires > Date.now()) return stored.models.map(model => ({ ...model }));
+  if (stored && stored.expires > Date.now()) return structuredClone(stored.models);
   let work = pending.get(provider);
   if (!work) {
     work = fetchCatalog(provider).then(models => { cache.set(provider, { expires: Date.now() + 60_000, models }); return models; }).finally(() => { pending.delete(provider); });
     pending.set(provider, work);
   }
-  return (await work).map(model => ({ ...model }));
+  return structuredClone(await work);
 }

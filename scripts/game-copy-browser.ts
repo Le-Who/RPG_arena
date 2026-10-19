@@ -10,7 +10,7 @@ async function main() {
   const output = "output/playwright/game-copy";
   await mkdir(output, { recursive: true });
   const env = { ...process.env };
-  for (const file of readdirSync(".").filter(name => /^\.env(?:\.|$)/.test(name))) {
+  for (const file of process.env.SMOKE_BASE_URL ? [] : readdirSync(".").filter(name => /^\.env(?:\.|$)/.test(name))) {
     for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
       const name = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/)?.[1];
       if (name) env[name] = "";
@@ -18,9 +18,9 @@ async function main() {
   }
   Object.assign(env, { DATABASE_URL: "postgresql://test:test@127.0.0.1:1/chronicle_copy", CHRONICLE_AUTO_MIGRATE: "0", CHRONICLE_TELEMETRY_ENABLED: "0", NEXT_TELEMETRY_DISABLED: "1" });
   const log = createWriteStream(`${output}/server.log`);
-  const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", "3145"], { env, stdio: ["ignore", "pipe", "pipe"] });
-  server.stdout.pipe(log); server.stderr.pipe(log);
-  const base = "http://127.0.0.1:3145";
+  const server = process.env.SMOKE_BASE_URL ? null : spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", "3145"], { env, stdio: ["ignore", "pipe", "pipe"] });
+  server?.stdout?.pipe(log); server?.stderr?.pipe(log);
+  const base = process.env.SMOKE_BASE_URL ?? "http://127.0.0.1:3145";
   const browser = await chromium.launch();
   try {
     await expect.poll(async () => { try { return (await fetch(`${base}/offline.html`)).status; } catch { return 0; } }, { timeout: 45_000 }).toBe(200);
@@ -56,9 +56,13 @@ async function main() {
       expect(await page.locator("main").innerText()).not.toMatch(/requestId|Серверный|Офлайн-движок|Модель предлагает|Подтверждено сервером/);
       await page.screenshot({ path: `${output}/play-${width}.png` });
       await page.getByRole("tab", { name: "Образы", exact: true }).click();
-      await expect(page.getByText(/передаются сервису pollinations/)).toBeVisible();
+      await expect(page.getByText(/описания сцен, людей и мест передаются в Pollinations/)).toBeVisible();
       await expect(page.getByRole("button", { name: "Новый облик", exact: true })).toBeVisible();
-      expect(await page.locator(".lx-gallery").innerText()).not.toMatch(/seed|fixture-image-model|серверный ключ/);
+      expect(await page.locator(".lx-gallery").innerText()).not.toMatch(/seed|серверный ключ/);
+      await expect(page.getByText(/Модель: fixture-image-model/)).toBeVisible();
+      await page.getByRole("button",{name:"Справка: Образы истории",exact:true}).focus();await page.keyboard.press("Enter");
+      await expect(page.getByRole("dialog",{name:"Образы истории",exact:true})).toContainText("Они не меняют события и состояние истории.");
+      await page.keyboard.press("Escape");await expect(page.getByRole("button",{name:"Справка: Образы истории",exact:true})).toBeFocused();
       await page.screenshot({ path: `${output}/visuals-${width}.png` });
       await goto("/memory");
       await expect(page.getByRole("heading", { name: "Печать Хранителей", exact: true })).toBeVisible();
@@ -90,7 +94,7 @@ async function main() {
     console.log("PASS game, memory, gallery, help and release copy; desktop/mobile; text search and source link; keyboard dialogs; privacy disclosure preserved.");
   } finally {
     await browser.close();
-    if (server.exitCode === null) { const stopped = new Promise(resolve => server.once("exit", resolve)); server.kill(); await stopped; }
+    if (server && server.exitCode === null) { const stopped = new Promise(resolve => server.once("exit", resolve)); server.kill(); await stopped; }
     log.end();
   }
 }

@@ -52,6 +52,23 @@ test("catalog transport finishes on deadline when upstream fetch ignores cancell
   } finally { global.fetch = originalFetch; t.mock.timers.reset(); await f.close(); }
 });
 
+test("owner image catalog excludes real text+image edit aliases and preserves prices and optional references", async () => {
+  const f = await accountsDb(), originalFetch = global.fetch;
+  try {
+    const { loadPollinationsModels } = await import("../src/lib/pollinations-model-catalog");
+    const base = { category: "image", input_modalities: ["text", "image"], output_modalities: ["image"], supported_endpoints: ["/image/{prompt}"] };
+    global.fetch = async () => Response.json([
+      { ...base, name: "prunaai/p-image-edit", aliases: ["pruna-edit"] },
+      { ...base, name: "renamed/edit", aliases: ["p-image-edit"] },
+      { ...base, name: "black-forest-labs/flux.1-kontext-pro", aliases: ["kontext"], pricing: { currency: "pollen", completionImageTokens: "0.03" }, flat_rate: true },
+    ]);
+    const catalog = await loadPollinationsModels("capability-owner", "image", true);
+    assert.deepEqual(catalog.models.map(model => model.id), ["black-forest-labs/flux.1-kontext-pro"]);
+    assert.equal(catalog.models[0].price?.amount, 0.03);
+    assert.equal(catalog.models[0].generationSupported, true);
+  } finally { global.fetch = originalFetch; await f.close(); }
+});
+
 test("personal catalogs stay owner-scoped and a session revoked during discovery receives no private models", async () => {
   const f = await accountsDb(), originalFetch = global.fetch;
   process.env.CHRONICLE_SECRET_KEYS = JSON.stringify({ test: Buffer.alloc(32, 42).toString("base64") }); process.env.CHRONICLE_SECRET_ACTIVE_KEY = "test";

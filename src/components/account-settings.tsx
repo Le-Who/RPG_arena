@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { api, jsonBody } from "@/lib/api-client";
 import { parseIdentityResponse } from "@/lib/ui-identity";
 import { useApp } from "./app-shell";
+import { ContextualHelp } from "./contextual-help";
 
 /** Account creation is optional; switching profiles must not discard an open draft. */
 export function AccountSettings({ unsaved }: { unsaved: boolean }) {
@@ -31,10 +32,10 @@ export function AccountSettings({ unsaved }: { unsaved: boolean }) {
   }
   const submit = (event: FormEvent) => { event.preventDefault(); void act(mode, { login, password }, mode === "login"); };
   return <section className="settings-card account-settings" id="account" aria-busy={busy}>
-    <div className="settings-card-heading"><div><h2>{identity.account ? `Аккаунт · ${identity.account.login}` : "Играйте без регистрации"}</h2><p>{identity.account ? "Кампании доступны после входа с другого устройства." : "Гостевые кампании принадлежат этому браузеру. Аккаунт нужен только для доступа с других устройств."}</p></div></div>
+    <div className="settings-card-heading"><div><h2>{identity.account ? `Аккаунт · ${identity.account.login}` : "Можно без регистрации"}</h2><p>{identity.account ? "Войдите с другого устройства, чтобы продолжить свои истории." : "Гостевые истории доступны в этом браузере. Аккаунт даёт доступ с других устройств."}</p></div><ContextualHelp title="Аккаунт и гостевые истории"><p>При регистрации текущие истории и настройки остаются с вами.</p><p>Если войти в существующий аккаунт, гостевые истории можно перенести отдельно. До переноса они доступны в гостевом профиле после выхода из аккаунта.</p><p>При переносе ключи и настройки гостя не заменяют настройки аккаунта.</p></ContextualHelp></div>
     {error && <p className="notice error-notice" role="alert">{error}</p>}
     {identity.kind === "guest" ? <>
-      <p>При регистрации текущие кампании и настройки останутся с вами. При входе в существующий аккаунт перенос кампаний предлагается отдельно.</p>
+      <p>{mode === "register" ? "Ваши гостевые истории и настройки сохранятся в новом аккаунте." : "Гостевые истории можно перенести после входа. Они не добавляются в аккаунт автоматически."}</p>
       <div className="reading-choices"><button type="button" className={`reading-choice ${mode === "register" ? "selected" : ""}`} aria-pressed={mode === "register"} onClick={() => { setMode("register"); setError(""); }}>Новый аккаунт</button><button type="button" className={`reading-choice ${mode === "login" ? "selected" : ""}`} aria-pressed={mode === "login"} onClick={() => { setMode("login"); setError(""); }}>Уже есть аккаунт</button></div>
       <form onSubmit={submit} className="account-form">
         <label className="field"><span>Логин</span><input value={login} onChange={e => setLogin(e.target.value)} required minLength={3} maxLength={40} pattern="[A-Za-z0-9_][A-Za-z0-9_.\-]{2,39}" autoComplete="username" autoCapitalize="none" spellCheck={false} /></label>

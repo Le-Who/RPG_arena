@@ -57,6 +57,11 @@ async function handlePOST(req: Request) {
     }
     const intIn = (v: unknown, lo: number, hi: number, cur: number) => (Number.isFinite(Number(v)) && v !== null && v !== undefined ? Math.max(lo, Math.min(hi, Math.round(Number(v)))) : cur);
     const boolIn = (v: unknown, cur: boolean) => (typeof v === "boolean" ? v : cur);
+    const geminiKeyOperation = typeof body.keysText === "string" || Array.isArray(body.removeIndex) || body.clearKeys === true;
+    const selectedCredentialCount = s.textProvider === "openrouter" ? Number(Boolean(s.openrouterKey)) : s.textProvider === "pollinations" ? Number(Boolean(s.pollinationsKey)) : keys.length;
+    // A missing connection affects readiness, not the saved narrator preference on unrelated writes.
+    // Explicit Live changes and the legacy Gemini key controls retain their credential guards.
+    const useLiveAI = body.useLiveAI === undefined && !geminiKeyOperation ? s.useLiveAI : boolInAuto(body.useLiveAI, s.useLiveAI, selectedCredentialCount);
     const embeddingDims = intIn(body.embeddingDims, 128, 3072, s.embeddingDims);
     const embeddingModel = "gemini-embedding-2";
 
@@ -69,7 +74,7 @@ async function handlePOST(req: Request) {
         customActionModel,
         compactionModel,
         fastTaskModel,
-        useLiveAI: boolInAuto(body.useLiveAI, s.useLiveAI, s.textProvider === "openrouter" ? Number(Boolean(s.openrouterKey)) : s.textProvider === "pollinations" ? Number(Boolean(s.pollinationsKey)) : keys.length),
+        useLiveAI,
         dailyFlashLimit: intIn(body.dailyFlashLimit, 0, 100000, s.dailyFlashLimit),
         dailyLiteLimit: intIn(body.dailyLiteLimit, 0, 1000000, s.dailyLiteLimit),
         dailyEmbeddingLimit: intIn(body.dailyEmbeddingLimit, 0, 1000000, s.dailyEmbeddingLimit),

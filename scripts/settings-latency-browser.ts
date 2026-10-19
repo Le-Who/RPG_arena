@@ -58,7 +58,7 @@ async function main() {
     for (const viewport of [{ name: "desktop", width: 1280, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
       const page = await browser.newPage({ viewport }); active = page; page.on("pageerror", e => errors.push(e.message));
       const writes: Record<string, unknown>[] = [], reads: string[] = []; let state = { ...initial }; let delayed: ReturnType<typeof gate> | null = null; let delayedCanonicalRead: ReturnType<typeof gate> | null = null; let fail = false;
-      const providerWrites: Record<string, unknown>[] = [];
+      const providerWrites: Record<string, unknown>[] = [], connectionWrites: Record<string, unknown>[] = [];
       let providerState = { provider: "gemini", model: "", openrouterConfigured: false, pollinationsConfigured: false, useLiveAI: false };
       await page.route("**/api/**", async route => {
         const path = new URL(route.request().url()).pathname; let body: unknown = {}; let status = 200;
@@ -81,6 +81,10 @@ async function main() {
           }
           body = providerState;
         }
+        else if (path === "/api/settings/provider-connections") {
+          if(route.request().method()==="POST"){const input=route.request().postDataJSON();connectionWrites.push(input);providerState.openrouterConfigured=!input.clearKey;}
+          body={geminiConfigured:state.keysCount>0,openrouterConfigured:providerState.openrouterConfigured,pollinationsConfigured:false};
+        }
         else if (path === "/api/settings/text-provider/models") body = { models: [] };
         else if (path === "/api/settings/visual-provider") body = { accountSource: "application", model: "flux", applicationModel: "flux", applicationConfigured: false, pollinationsConfigured: false };
         else if (path === "/api/settings/narrative") body = { enabled: false, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "jev", credentialSource: "none", administratorAvailable: false };
@@ -92,12 +96,14 @@ async function main() {
       await page.goto(base);
       const save = page.getByRole("button", { name: "Сохранить настройки", exact: true });
       const limit = page.getByText("Flash · на модель в сутки", { exact: true }).locator("..").locator("input");
-      const key = page.getByRole("textbox", { name: "API-ключ Gemini", exact: true });
-      await expect(page.getByRole("button", { name: "Сохранить рассказчика", exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Сохранить настройки иллюстраций", exact: true })).toBeVisible();
+      const key = page.locator('input[aria-label="API-ключ Gemini"]:visible');
+      await expect(page.getByRole("button", { name: "Изменить рассказчика", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Изменить иллюстрации", exact: true })).toBeVisible();
+      await page.getByText("Дополнительные настройки ИИ", {exact:true}).click();
+      await page.getByText("Лимиты обращений к ИИ", {exact:true}).click();
       await limit.fill("30"); await save.focus(); await page.keyboard.press("Enter");
       await expect(save).toBeEnabled({ timeout: 2000 });
-      await expect(page.getByText("Настройки сохранены. Ваш мир готов к новым историям.", { exact: true })).toBeVisible();
+      await expect(page.getByText("Настройки сохранены.", { exact: true })).toBeVisible();
       expect(writes).toHaveLength(1); expect(reads).toEqual([]); expect(await page.getAttribute("body", "data-refreshes")).toBeNull();
       expect(JSON.parse((await page.getAttribute("body", "data-accepted"))!)).toMatchObject({ dailyFlashLimit: 30 });
       checks.push(`${viewport.name}:one-post-canonical-no-refresh`);
@@ -111,13 +117,21 @@ async function main() {
       fail = false; await save.focus(); await page.keyboard.press("Enter"); await expect(key).toHaveValue(""); await expect(limit).toHaveValue("32");
       expect(writes[2]).toEqual(writes[3]); expect(reads).toEqual([]); expect(writes).toHaveLength(4);
       checks.push(`${viewport.name}:failure-retry-retains-key`);
+      await page.getByRole("button",{name:"Подключить OpenRouter",exact:true}).click();
+      await page.getByLabel("API-ключ OpenRouter",{exact:true}).fill("synthetic-router-secret");
+      await page.getByRole("button",{name:"Сохранить подключения",exact:true}).focus();await page.keyboard.press("Enter");
+      await expect.poll(()=>reads.length).toBe(1);
+      expect(connectionWrites).toEqual([{provider:"openrouter",apiKey:"synthetic-router-secret"}]);expect(providerWrites).toEqual([]);expect(writes).toHaveLength(4);
+      expect(await page.getAttribute("body","data-refreshes")).toBeNull();
+      checks.push(`${viewport.name}:shared-credential-only-one-targeted-read`);
+      await page.getByRole("button",{name:"Изменить рассказчика",exact:true}).click();
       await page.getByRole("combobox", { name: "Провайдер рассказчика" }).selectOption("openrouter");
+      await page.locator("#text-provider").getByText("Дополнительные настройки модели",{exact:true}).click();
       await page.getByLabel("Идентификатор модели рассказчика", { exact: true }).fill("vendor/new-model");
-      await page.getByLabel("Новый API-ключ OpenRouter", { exact: true }).fill("synthetic-router-secret");
       await page.getByRole("switch", { name: "Живой рассказчик" }).click();
       await save.click(); await expect(save).toBeEnabled();
-      expect(writes).toHaveLength(4); expect(providerWrites).toEqual([{ provider: "openrouter", model: "vendor/new-model", useLiveAI: true, apiKey: "synthetic-router-secret" }]);
-      expect(reads).toEqual(["/api/settings"]); expect(await page.getAttribute("body", "data-refreshes")).toBeNull();
+      expect(writes).toHaveLength(4); expect(providerWrites).toEqual([{ provider: "openrouter", model: "vendor/new-model", useLiveAI: true }]);
+      expect(reads).toEqual(["/api/settings", "/api/settings"]); expect(await page.getAttribute("body", "data-refreshes")).toBeNull();
       expect(JSON.parse((await page.getAttribute("body", "data-accepted"))!)).toMatchObject({ textProvider: "openrouter", textModel: "vendor/new-model", canUseLive: true });
       checks.push(`${viewport.name}:provider-only-one-targeted-read`);
       delayedCanonicalRead = gate();

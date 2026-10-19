@@ -1,4 +1,34 @@
-export type ImageModelChoice = { id: string; title: string; paidOnly: boolean };
+import { HttpError } from "./http";
+import { normalizePollinationsPrice, type ModelPrice } from "./model-pricing";
+
+export type ImageModelChoice = { id: string; title: string; paidOnly: boolean; price?: ModelPrice };
+
+/** Confirmed exclusions, versioned 2026-10-19. Modality text+image alone does not establish optional references. */
+export const POLLINATIONS_GENERATION_EXCLUSIONS = [
+  { ids: ["prunaai/p-image-edit", "pruna-edit", "pruna-image-edit", "p-image-edit"], reason: "reference", checkedAt: "2026-10-19", source: "https://github.com/pollinations/pollinations/blob/main/gen.pollinations.ai/src/image/models/prunaModel.ts" },
+  { ids: ["recraft/recraft-v4.1-vector", "recraft-vector", "recraft-svg", "recraft-v4.1-svg", "recraft-v4.1-vector"], reason: "svg", checkedAt: "2026-10-19", source: "https://github.com/pollinations/pollinations/blob/main/shared/registry/image.ts" },
+] as const;
+
+export function pollinationsGenerationExcluded(model: string, aliases: string[] = []): boolean {
+  return POLLINATIONS_GENERATION_EXCLUSIONS.some(entry => entry.ids.some(id => [model, ...aliases].some(value => value.trim().toLowerCase() === id)));
+}
+
+/** Shared by save, admission and execution so a manual canonical ID or alias cannot bypass exclusions. */
+export function assertPollinationsGenerationModel(model: string): void {
+  if (pollinationsGenerationExcluded(model)) throw new HttpError(400, "IMAGE_MODEL_INCOMPATIBLE", "Эта модель требует исходное изображение или выдаёт SVG. Выберите модель для создания растровой картинки с нуля.");
+}
+
+/** Optional references verified in the handler, rather than inferred from an edit label. */
+export const POLLINATIONS_OPTIONAL_REFERENCE_MODELS = {
+  checkedAt: "2026-10-19",
+  source: "https://github.com/pollinations/pollinations/blob/main/gen.pollinations.ai/src/image/models/azureFluxKontextModel.ts",
+  ids: ["black-forest-labs/flux.1-kontext-pro", "kontext"],
+};
+
+export function pollinationsGenerationSupported(model: string, inputs: string[], aliases: string[] = []): boolean {
+  if (pollinationsGenerationExcluded(model, aliases) || !inputs.includes("text")) return false;
+  return !inputs.includes("image") || [model, ...aliases].some(id => POLLINATIONS_OPTIONAL_REFERENCE_MODELS.ids.includes(id));
+}
 
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
 const contains = (value: unknown, item: string): boolean => Array.isArray(value) && value.includes(item);
@@ -13,9 +43,10 @@ export function parseImageModels(value: unknown): ImageModelChoice[] {
       || !contains(row.input_modalities, "text") || !contains(row.output_modalities, "image")
       || !contains(row.supported_endpoints, "/image/{prompt}")
       || typeof row.name !== "string" || !/^[a-z0-9][a-z0-9._:/-]{1,100}$/i.test(row.name)
-      || seen.has(row.name)) continue;
+      || seen.has(row.name) || pollinationsGenerationExcluded(row.name, Array.isArray(row.aliases) ? row.aliases.filter((v): v is string => typeof v === "string") : [])) continue;
     seen.add(row.name);
-    choices.push({ id: row.name, title: typeof row.title === "string" ? row.title.slice(0, 100) : row.name, paidOnly: row.paid_only === true });
+    choices.push({ id: row.name, title: typeof row.title === "string" ? row.title.slice(0, 100) : row.name, paidOnly: row.paid_only === true,
+      ...(row.pricing ? { price: normalizePollinationsPrice(row, "image") } : {}) });
   }
   return choices;
 }

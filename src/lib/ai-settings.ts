@@ -34,6 +34,7 @@ export type AIConfig = {
 
 const DEFAULT_ROW = {
   keys: [] as string[],
+  visualEnabled: false,
   useLiveAI: false,
   routingProfile: "balanced",
   narrationModel: "gemini-3.5-flash-lite",

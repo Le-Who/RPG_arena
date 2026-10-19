@@ -1,7 +1,6 @@
 /** Production React fixture with synthetic API/image responses; no database or provider access. */
 import { chromium, expect } from "@playwright/test";
 import { build } from "esbuild";
-import sharp from "sharp";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
@@ -24,7 +23,7 @@ async function main() {
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  const png = await sharp({ create: { width: 1, height: 1, channels: 4, background: "#ffffff" } }).png().toBuffer();
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l1sAAAAASUVORK5CYII=", "base64");
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
@@ -34,11 +33,12 @@ async function main() {
     let enabled = true;
     let status = "failed";
     let accountSource = "application", visualAccountSource = "application", generationBlocked = false;
+    let provider = "pollinations", visualProvider = "pollinations";
     let availableAccounts: { application: boolean; personal: boolean } | undefined;
     const attempts: { retry: string | null; number: string | null }[] = [];
     await page.route("**/api/sessions/fixture/visuals", route => route.fulfill({ json: {
-      visuals: [{ id: "failed-image", kind: "scene", subjectKey: "scene:1", turnNumber: 1, caption: "Чай в кафе", provider: "fixture", model: "synthetic", accountSource: visualAccountSource, generationBlocked, seed: 1, status, error: "Сервис не ответил", width: 320, height: 180 }],
-      identities: [], config: { enabled, authenticated, provider: "fixture", accountSource, availableAccounts, model: "synthetic", dailyLimit: 10 },
+      visuals: [{ id: "failed-image", kind: "scene", subjectKey: "scene:1", turnNumber: 1, caption: "Чай в кафе", provider: visualProvider, model: "synthetic", accountSource: visualAccountSource, generationBlocked, seed: 1, status, error: "Сервис не ответил", width: 320, height: 180 }],
+      identities: [], config: { enabled, authenticated, provider, accountSource, availableAccounts, model: "synthetic", dailyLimit: 10 },
     } }));
     await page.route("**/api/sessions/fixture/visuals/failed-image*", route => {
       const url = new URL(route.request().url());
@@ -48,6 +48,14 @@ async function main() {
         : route.fulfill({ status: 200, contentType: "image/png", body: png });
     });
     await page.goto(base + "/owner");
+    const help = page.getByRole("button", { name: "Справка: Образы истории", exact: true });
+    await help.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("dialog", { name: "Образы истории", exact: true })).toBeVisible();
+    await expect(page.getByText("Иллюстрации помогают представить сцену, персонажа или место. Они не меняют события и состояние истории.", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(help).toBeFocused();
     const retry = page.getByRole("button", { name: "Повторить создание", exact: true });
     await expect(retry).toBeVisible();
     expect(attempts).toEqual([]);
@@ -101,6 +109,13 @@ async function main() {
       await writeFile(`${output}/payer-${width}-geometry.json`, JSON.stringify(geometry, null, 2));
       expect(geometry.documentWidth, JSON.stringify(geometry)).toBeLessThanOrEqual(width);
       await page.screenshot({ path: `${output}/payer-${width}.png`, fullPage: true });
+      await help.click();
+      const helpDialog = page.getByRole("dialog", { name: "Образы истории", exact: true });
+      await expect(helpDialog).toBeVisible();
+      expect(await helpDialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      await page.screenshot({ path: `${output}/help-${width}.png`, fullPage: true });
+      await page.keyboard.press("Escape");
+      await expect(help).toBeFocused();
     }
     await retry.click();
     await expect.poll(() => page.getByRole("img", { name: "Чай в кафе", exact: true }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
@@ -108,8 +123,17 @@ async function main() {
     generationBlocked = true; visualAccountSource = "personal"; availableAccounts.personal = true; authenticated = true;
     await page.goto(base + "/transferred-personal");
     await expect(retry).toHaveCount(0); await expect(page.getByRole("img")).toHaveCount(0); expect(attempts).toHaveLength(4);
+    provider = "openrouter"; visualProvider = "pollinations";
+    await page.goto(base + "/openrouter");
+    await expect(page.getByText("ваш аккаунт OpenRouter, расходуется ваш баланс", { exact: true })).toBeVisible();
+    await expect(page.getByText("Личный аккаунт Pollinations · synthetic", { exact: true })).toBeVisible();
+    await expect(page.getByText(/описания сцен, людей и мест передаются в OpenRouter/)).toBeVisible();
+    authenticated = false;
+    await page.goto(base + "/openrouter-unconfigured");
+    await expect(page.getByText(/Выбранный аккаунт OpenRouter недоступен/)).toBeVisible();
+    expect(attempts).toHaveLength(4);
     expect(errors).toEqual([]);
-    await writeFile(`${output}/result.json`, JSON.stringify({ checks: ["stored-failure-does-not-auto-retry", "keyboard-retry", "failure-can-retry-again", "loaded-real-png", "mobile-no-overflow", "viewer-cannot-generate", "unconfigured-cannot-retry", "disabled-no-retry", "disabled-no-pending-generation", "disabled-keeps-saved-images-readable", "retry-uses-recorded-payer-availability", "transferred-personal-generation-blocked", "payer-layout-1280-390-320"], attempts, errors, scope: "actual gallery; Next Link stubbed, synthetic HTTP/images" }, null, 2));
+    await writeFile(`${output}/result.json`, JSON.stringify({ checks: ["stored-failure-does-not-auto-retry", "keyboard-retry", "failure-can-retry-again", "loaded-real-png", "mobile-no-overflow", "viewer-cannot-generate", "unconfigured-cannot-retry", "disabled-no-retry", "disabled-no-pending-generation", "disabled-keeps-saved-images-readable", "retry-uses-recorded-payer-availability", "transferred-personal-generation-blocked", "payer-layout-1280-390-320", "help-opens-by-keyboard-and-restores-focus", "openrouter-new-payer-pollinations-recorded-payer", "openrouter-unavailable-shows-service"], attempts, errors, scope: "actual gallery; Next Link stubbed, synthetic HTTP/images" }, null, 2));
     console.log(`Visual gallery Chromium checks passed: ${output}`);
   } finally {
     await browser.close();

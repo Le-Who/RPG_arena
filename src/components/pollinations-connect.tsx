@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, LoaderCircle, X } from "lucide-react";
+import { ContextualHelp } from "./contextual-help";
 import { api, jsonBody } from "@/lib/api-client";
 
 const outcomes = {
@@ -25,7 +26,8 @@ export function PollinationsConnectionNotice() {
     const url = new URL(window.location.href);
     url.searchParams.delete("pollinations");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-    (document.querySelector<HTMLElement>("#text-provider select") ?? document.getElementById("text-provider-heading"))?.focus();
+    const select = document.querySelector<HTMLElement>("#text-provider select");
+    (select?.getClientRects().length ? select : document.getElementById("text-provider-heading"))?.focus();
   };
   return <div className={`notice pollinations-result${outcome === "failed" ? " error-notice" : ""}`} role="status" aria-live="polite">
     <div><strong>{outcomes[outcome].title}</strong><p>{outcomes[outcome].text}</p></div>
@@ -57,8 +59,8 @@ export function PollinationsConnect({ disabled, beforeConnect, configured, onCon
   };
   return <div className="pollinations-connect">
     <button type="button" className="button primary" disabled={disabled || busy || available !== true} onClick={() => void connect()}>{busy ? <LoaderCircle aria-hidden="true" className="spin" size={15} /> : <ExternalLink aria-hidden="true" size={15} />}{busy ? "Открываем Pollinations…" : configured ? "Переподключить аккаунт Pollinations" : "Подключить аккаунт Pollinations"}</button>
-    <p className="settings-footnote">Вход, создание ключа, бюджет и срок доступа подтверждаются на сайте Pollinations. Расходы списываются с вашего аккаунта. Этот аккаунт можно использовать для рассказчика и иллюстраций.</p>
-    {available === false && <p className="settings-footnote" role="status">Вход пока не настроен для этого адреса приложения. Администратору нужно настроить публичный HTTPS-адрес либо App Key Pollinations.</p>}
+    <p className="settings-footnote">Расходы списываются с вашего аккаунта Pollinations.</p><ContextualHelp title="Вход через Pollinations"><p>Вход, создание ключа, бюджет и срок доступа подтверждаются на сайте Pollinations. Этот аккаунт можно использовать для рассказчика и иллюстраций.</p><p>Для настройки входа администратору нужен публичный HTTPS-адрес приложения либо App Key Pollinations.</p></ContextualHelp>
+    {available === false && <p className="settings-footnote" role="status">Вход через Pollinations пока недоступен. Можно подключить API-ключ вручную.</p>}
     {available === null && !error && <p role="status" className="settings-footnote">Проверяем доступность входа Pollinations…</p>}
     {error && <><p role="alert">{error}</p><button type="button" className="text-button" disabled={busy} onClick={() => void check()}>Повторить проверку входа</button></>}
   </div>;

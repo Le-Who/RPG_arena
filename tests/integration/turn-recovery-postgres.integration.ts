@@ -72,7 +72,7 @@ test("native process and backend loss recover admitted turns with their original
     control = new Pool({ connectionString: url.toString(), connectionTimeoutMillis: 5000 });
     const sql = control;
     const migrations = (await readdir("drizzle")).filter(file => /^\d{4}_.*\.sql$/.test(file) && !file.startsWith("0006_")).sort();
-    assert.equal(migrations.length, 20);
+    assert.equal(migrations.length, 21);
     for (const file of migrations) await sql.query((await readFile(`drizzle/${file}`, "utf8")).replaceAll('"public".', `"${schema}".`));
     const launch = () => { const item = worker(schema); children.push(item.child); return item; };
     const seed = async (): Promise<TurnInput> => {

@@ -14,7 +14,11 @@ async function handleGET(req: Request, { params }: { params: Promise<{ id: strin
     if (!UUID.test(visualId)) throw new HttpError(400, "INVALID_INPUT", "Некорректный идентификатор изображения.");
     const access = await requireCampaignAccess(id, "read");
     const retry = new URL(req.url).searchParams.get("retry") === "1";
-    const { image, mimeType } = await renderVisual(id, visualId, { retry, allowGenerate: access.isOwner });
+    const { image, mimeType } = await renderVisual(id, visualId, { retry, allowGenerate: access.isOwner,
+      beforeSpend: async () => { await requireCampaignAccess(id, "owner"); },
+    });
+    // Cached public reads remain available to readers; private bytes still require fresh access.
+    await requireCampaignAccess(id, "read");
     return new Response(new Uint8Array(image), { headers: { "Content-Type": mimeType, "Content-Length": String(image.length), "X-Content-Type-Options": "nosniff" } });
   } catch (error) { return httpError(error); }
 }

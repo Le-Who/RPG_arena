@@ -5,6 +5,7 @@ import { LoaderCircle, ShieldCheck } from "lucide-react";
 import { api, jsonBody } from "@/lib/api-client";
 import type { NarrativeSettingsView } from "@/lib/narrative-settings";
 import { NARRATIVE_PROVIDERS, type NarrativeProvider } from "@/lib/narrative-verifier";
+import { ContextualHelp } from "./contextual-help";
 
 export function NarrativeSettings({ onDraftChange, onDirtyChange, onSaveReady }: {
   onDraftChange?: () => void;
@@ -44,17 +45,17 @@ export function NarrativeSettings({ onDraftChange, onDirtyChange, onSaveReady }:
   useEffect(() => { onSaveReady(save); return () => onSaveReady(null); }, [onSaveReady, save]);
   const configured = Boolean(key.trim() || (saved?.configured && !clearKey && provider === saved.provider));
   return <section className="settings-card">
-    <div className="settings-card-heading"><span className="feature-icon violet"><ShieldCheck size={20} /></span><div><h2>Проверка повествования</h2><p>Выборочная проверка последствий действий и утверждений о прошлом.</p></div></div>
+    <div className="settings-card-heading"><span className="feature-icon violet"><ShieldCheck size={20} /></span><div><h2>Проверка повествования</h2><p>Помогает замечать противоречия в истории.</p></div><ContextualHelp title="Как проверяется повествование"><p>Проверяются отдельные утверждения о последствиях действий и прошлом истории. Значимые утверждения появляются после проверки; обычное описание может появляться постепенно.</p><p>Сервис проверки: {NARRATIVE_PROVIDERS[provider].model}. Если ответ неоднозначный, подключается модель вашего рассказчика.</p><p>Если сервис недоступен, история продолжается без этой проверки. Причину можно посмотреть в диагностике. Рассказчик не заменяет недоступный сервис.</p></ContextualHelp></div>
     {!saved ? <>{error ? <><p role="alert">{error}</p><button className="button secondary" onClick={() => void load()}>Повторить загрузку</button></> : <p><LoaderCircle className="spin" size={16} /> Загрузка…</p>}</> : <>
-      <div className="fields"><label className="field"><span>Провайдер проверки</span><select value={provider} disabled={busy} onChange={event => { onDraftChange?.(); setProvider(event.target.value as NarrativeProvider); setKey(""); setMessage(""); }}><option value="openrouter">OpenRouter</option><option value="typesafe">TypeSafe</option></select></label>
+      <div className="fields"><label className="field"><span>Сервис проверки</span><select value={provider} disabled={busy} onChange={event => { onDraftChange?.(); setProvider(event.target.value as NarrativeProvider); setKey(""); setMessage(""); }}><option value="openrouter">OpenRouter</option><option value="typesafe">TypeSafe</option></select></label>
         <label className="field"><span>Отдельный API-ключ {provider === "openrouter" ? "OpenRouter" : "TypeSafe"}</span><input type="password" value={key} disabled={busy} autoComplete="off" spellCheck={false} maxLength={500} placeholder="Вставьте новый ключ" onChange={event => { onDraftChange?.(); setKey(event.target.value); setClearKey(false); setMessage(""); }} /></label></div>
-      <p className="settings-footnote">Модель: {NARRATIVE_PROVIDERS[provider].model}. Ключ используется только вашим профилем. При смене провайдера сохранённый ключ удаляется.</p>
-      <p className="settings-footnote">При неопределённом ответе выполняется дополнительная проверка моделью выбранного рассказчика. Она расходует вашу квоту и может добавить несколько секунд к ходу.</p>
+      <p className="settings-footnote">Ключ доступен только вашему профилю. При смене сервиса сохранённый ключ проверки удаляется.</p>
+      <p className="settings-footnote">Проверка расходует квоту и может замедлить ответ. Дополнительная проверка также использует квоту рассказчика.</p>
       {saved.configured && provider === saved.provider && <div className="saved-key"><code>{saved.maskedKey}</code><button className="button secondary" disabled={busy} onClick={() => { onDraftChange?.(); setClearKey(value => !value); setKey(""); }}>{clearKey ? "Отменить удаление" : "Удалить ключ при сохранении"}</button></div>}
       <div className="settings-divider" />
-      <div className="setting-toggle-row"><div><h3>Включить выборочную проверку</h3><p>Значимые утверждения ожидают результата проверки перед публикацией.</p></div><button className={`toggle-switch ${enabled ? "on" : ""}`} disabled={busy} role="switch" aria-checked={enabled} aria-label="Выборочная проверка повествования" onClick={() => { onDraftChange?.(); setEnabled(value => !value); }}><span /></button></div>
-      <p className="settings-footnote">Проверка включена по умолчанию. Используется ваш ключ, а при его отсутствии — ключ администратора. Если ключей нет или Jev недоступен, игра продолжается без проверки Jev; причина сохраняется в диагностике. Рассказчик не заменяет недоступный Jev. Обычное описание может выводиться потоком без проверки.</p>
-      {enabled && !configured && <p role="status">{saved.administratorAvailable ? "При сохранении будет использоваться ключ администратора." : "Ключей Jev нет: игра продолжится без проверки."}</p>}
+      <div className="setting-toggle-row"><div><h3>Проверять повествование</h3><p>Выборочно сверять важные утверждения с историей.</p></div><button className={`toggle-switch ${enabled ? "on" : ""}`} disabled={busy} role="switch" aria-checked={enabled} aria-label="Выборочная проверка повествования" onClick={() => { onDraftChange?.(); setEnabled(value => !value); }}><span /></button></div>
+      <p className="settings-footnote">Используется ваш ключ проверки, а если его нет — доступный ключ администратора. При недоступности сервиса история продолжается без проверки.</p>
+      {enabled && !configured && <p role="status">{saved.administratorAvailable ? "При сохранении будет использоваться ключ администратора." : "Нет ключа проверки: история продолжится без неё."}</p>}
       {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
       <button className="button secondary" disabled={busy || !dirty} onClick={() => void save()}>{busy ? "Сохранение…" : "Сохранить проверку"}</button>
     </>}

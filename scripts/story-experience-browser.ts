@@ -1,8 +1,20 @@
-import { chromium, expect } from "@playwright/test";
+import { chromium, expect, type Page, type Locator } from "@playwright/test";
 import { installUiMock, mockSessionId, mockSnapshot, settings as mockSettings } from "./ui-mock";
 import { mkdir } from "node:fs/promises";
 import assert from "node:assert/strict";
 
+async function openAdvanced(scope: Page | Locator) {
+  const summary=scope.getByText("Дополнительные настройки ИИ",{exact:true});
+  if(await summary.locator("..").getAttribute("open")===null)await summary.click();
+}
+async function checkHelp(page: Page, scope: Page | Locator, title: string) {
+  const trigger = scope.getByRole("button", { name: `Справка: ${title}`, exact: true });
+  await trigger.focus(); await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: title, exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: title, exact: true })).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+}
 async function main() {
   const browser = await chromium.launch();
   try {
@@ -55,6 +67,9 @@ async function main() {
     await page.locator(".bottom-settings").click();
     const settings = page.getByRole("dialog", { name: "Настройки пространства", exact: true });
     await expect(settings).toBeVisible();
+    await checkHelp(page, settings, "Аккаунт и гостевые истории");
+    await settings.getByText("Дополнительная проверка повествования", { exact: true }).click();
+    await checkHelp(page, settings, "Как проверяется повествование");
     await expect(page).toHaveURL(`${base}/play/${mockSessionId}`);
     await page.keyboard.press("1");
     await settings.getByRole("button", { name: "Вернуться в игру", exact: true }).click();
@@ -62,11 +77,12 @@ async function main() {
     await expect(page.locator("#action-input")).toHaveValue("Мой несохранённый замысел");
     await expect(page.getByRole("button", { name: "Выйти из режима чтения" })).toBeVisible();
     await page.locator(".bottom-settings").click();
-    await settings.getByLabel("API-ключ Gemini", { exact: true }).fill("unsaved-test-key");
+    await openAdvanced(settings);
+    await settings.locator('input[aria-label="API-ключ Gemini"]:visible').fill("unsaved-test-key");
     await settings.getByRole("button", { name: "Вернуться в игру", exact: true }).click();
     await expect(settings.getByText("Есть несохранённые изменения", { exact: true })).toBeVisible();
     await settings.getByRole("button", { name: "Продолжить редактирование" }).click();
-    await expect(settings.getByLabel("API-ключ Gemini", { exact: true })).toHaveValue("unsaved-test-key");
+    await expect(settings.locator('input[aria-label="API-ключ Gemini"]:visible')).toHaveValue("unsaved-test-key");
     await settings.getByRole("button", { name: "Вернуться в игру", exact: true }).click();
     await settings.getByRole("button", { name: "Отбросить и вернуться" }).click();
     await page.getByRole("button", { name: "Выйти из режима чтения" }).click();
@@ -106,7 +122,8 @@ async function main() {
     await expect(page.locator("#action-input")).toBeVisible();
     await page.locator(".bottom-settings").click();
     await settings.getByRole("button", { name: "Для разработки", exact: true }).click();
-    await expect(settings.getByRole("switch", { name: "Теневой пилот TypeSafe" })).toHaveAttribute("aria-checked", "false");
+    await checkHelp(page, settings, "Пробная проверка фактов");
+    await expect(settings.getByRole("switch", { name: "Пробная проверка TypeSafe" })).toHaveAttribute("aria-checked", "false");
     await settings.getByRole("button", { name: "Назад к настройкам" }).click();
     await settings.getByRole("button", { name: "Вернуться в игру" }).click();
 
@@ -137,7 +154,8 @@ async function main() {
     await expect(overlayHistoryPage.locator("#action-input")).toHaveValue("Замысел остаётся в игре");
     await expect.poll(() => overlayHistoryPage.evaluate(() => Boolean(history.state?.chronicleSettingsOverlay || history.state?.chronicleDirtyGuard))).toBe(false);
     await overlayHistoryPage.locator(".bottom-settings").click();
-    await overlaySettings.getByLabel("API-ключ Gemini", { exact: true }).fill("overlay-dirty-key");
+    await openAdvanced(overlaySettings);
+    await overlaySettings.locator('input[aria-label="API-ключ Gemini"]:visible').fill("overlay-dirty-key");
     await overlayHistoryPage.evaluate(() => history.back());
     await expect(overlaySettings.getByText("Есть несохранённые изменения", { exact: true })).toBeVisible();
     await overlaySettings.getByRole("button", { name: "Отбросить и вернуться" }).click();
@@ -146,7 +164,8 @@ async function main() {
     await expect(overlayHistoryPage.locator("#action-input")).toHaveValue("Замысел остаётся в игре");
     await expect.poll(() => overlayHistoryPage.evaluate(() => Boolean(history.state?.chronicleSettingsOverlay || history.state?.chronicleDirtyGuard))).toBe(false);
     await overlayHistoryPage.locator(".bottom-settings").click();
-    await overlaySettings.getByLabel("API-ключ Gemini", { exact: true }).fill("overlay-save-key");
+    await openAdvanced(overlaySettings);
+    await overlaySettings.locator('input[aria-label="API-ключ Gemini"]:visible').fill("overlay-save-key");
     await overlayHistoryPage.evaluate(() => history.back());
     const failedSave = overlayHistoryPage.waitForResponse(response => new URL(response.url()).pathname === "/api/settings" && response.request().method() === "POST");
     await overlaySettings.getByRole("button", { name: "Сохранить и вернуться" }).click();
@@ -155,7 +174,7 @@ async function main() {
     await rejectedSave.finished();
     await expect(overlayHistoryPage.getByText("Синтетическая ошибка сохранения", { exact: true })).toBeVisible();
     await expect(overlaySettings).toBeVisible();
-    await expect(overlaySettings.getByLabel("API-ключ Gemini", { exact: true })).toHaveValue("overlay-save-key");
+    await expect(overlaySettings.locator('input[aria-label="API-ключ Gemini"]:visible')).toHaveValue("overlay-save-key");
     await expect(overlaySettings.getByRole("button", { name: "Сохранить и вернуться" })).toBeEnabled();
     assert.deepEqual(overlayWrites.map(payload => ({ keysText: payload.keysText, append: payload.append })), [{ keysText: "overlay-save-key", append: true }]);
     overlaySaveFails = false;
@@ -172,8 +191,9 @@ async function main() {
       { keysText: "overlay-save-key", append: true }, { keysText: "overlay-save-key", append: true },
     ]);
     await overlayHistoryPage.locator(".bottom-settings").click();
+    await openAdvanced(overlaySettings);
     await expect(overlaySettings.locator(".saved-key code")).toHaveText("••••-key");
-    await expect(overlaySettings.getByLabel("API-ключ Gemini", { exact: true })).toHaveValue("");
+    await expect(overlaySettings.locator('input[aria-label="API-ключ Gemini"]:visible')).toHaveValue("");
     await overlaySettings.getByRole("button", { name: "Вернуться в игру", exact: true }).click();
     await expect(overlaySettings).toHaveCount(0);
     assert.deepEqual(overlayErrors, [], `overlay page errors: ${overlayErrors.join(" | ")}`);
@@ -193,12 +213,12 @@ async function main() {
     await typeSafePage.goto(`${base}/settings`);
     await typeSafePage.getByRole("button", { name: "Для разработки", exact: true }).click();
     await expect(typeSafePage.getByText("Результатов пока нет.", { exact: true })).toBeVisible();
-    await typeSafePage.getByRole("switch", { name: "Теневой пилот TypeSafe" }).click();
+    await typeSafePage.getByRole("switch", { name: "Пробная проверка TypeSafe" }).click();
     await typeSafePage.getByRole("button", { name: "Удалить сохранённый ключ TypeSafe" }).click();
     await expect.poll(() => removeStarted).toBe(true);
     await typeSafePage.getByLabel("API-ключ TypeSafe", { exact: true }).fill("replacement-key-during-delete");
     finishRemove();
-    await expect(typeSafePage.getByRole("switch", { name: "Теневой пилот TypeSafe" })).toHaveAttribute("aria-checked", "true");
+    await expect(typeSafePage.getByRole("switch", { name: "Пробная проверка TypeSafe" })).toHaveAttribute("aria-checked", "true");
     await expect(typeSafePage.getByLabel("API-ключ TypeSafe", { exact: true })).toHaveValue("replacement-key-during-delete");
     await typeSafePage.close();
 
@@ -233,20 +253,22 @@ async function main() {
     await historyPage.goto(base);
     await historyPage.locator(".bottom-settings").click();
     await expect(historyPage).toHaveURL(`${base}/settings`);
+    await openAdvanced(historyPage);
     for (const value of ["first-cycle", "second-cycle"]) {
-      await historyPage.getByLabel("API-ключ Gemini", { exact: true }).fill(value);
-      await historyPage.getByLabel("API-ключ Gemini", { exact: true }).fill("");
+      await historyPage.locator('input[aria-label="API-ключ Gemini"]:visible').fill(value);
+      await historyPage.locator('input[aria-label="API-ключ Gemini"]:visible').fill("");
       await expect.poll(() => historyPage.evaluate(() => history.state?.chronicleDirtyGuard)).toBeUndefined();
     }
     await historyPage.evaluate(() => history.back());
     await expect(historyPage).toHaveURL(`${base}/`);
     await historyPage.locator(".bottom-settings").click();
     await expect(historyPage).toHaveURL(`${base}/settings`);
-    await historyPage.getByLabel("API-ключ Gemini", { exact: true }).fill("unsaved-back-key");
+    await openAdvanced(historyPage);
+    await historyPage.locator('input[aria-label="API-ключ Gemini"]:visible').fill("unsaved-back-key");
     await historyPage.evaluate(() => history.back());
     await expect(historyPage.getByText("Есть несохранённые изменения", { exact: true })).toBeVisible();
     await historyPage.getByRole("button", { name: "Продолжить редактирование" }).click();
-    await expect(historyPage.getByLabel("API-ключ Gemini", { exact: true })).toHaveValue("unsaved-back-key");
+    await expect(historyPage.locator('input[aria-label="API-ключ Gemini"]:visible')).toHaveValue("unsaved-back-key");
     await historyPage.evaluate(() => history.back());
     await historyPage.getByRole("button", { name: "Отбросить и вернуться" }).click();
     await expect(historyPage).toHaveURL(`${base}/`);

@@ -117,3 +117,52 @@ html[data-motion="reduced"] *::after{animation-duration:.01ms!important;animatio
 .published-campaigns{margin-top:40px}
 .campaign-copy{display:grid;gap:8px;margin-top:16px}
 .campaign-copy small{font-size:var(--t-xs);color:var(--ink-3);line-height:1.5}
+/* Provider choices: concise summaries, one editor at a time, shared connections. */
+.ai-services { min-width: 0; }
+.ai-services-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.ai-services-heading h2 { font-size: 20px; margin-bottom: 5px; }
+.ai-services-heading p { color: var(--ink-3); font-size: 13px; }
+.ai-task-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 14px; }
+.ai-task-card { min-width: 0; margin: 0; }
+.ai-task-card .settings-card-heading { flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.ai-task-card .settings-card-heading > div { min-width: 0; flex: 1; }
+.ai-task-card .settings-card-heading p { overflow-wrap: anywhere; }
+.ai-task-card h3 { font-size: 16px; }
+.ai-task-price { color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ai-task-status { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--ink-3); }
+.ai-task-editor { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
+.ai-task-editor[hidden], .service-connection-editor[hidden] { display: none; }
+.ai-task-editor .field, .service-connection-editor .field { margin-bottom: 14px; }
+.ai-task-editor .field input, .ai-task-editor .field select, .service-connection-editor input { width: 100%; min-width: 0; }
+.ai-task-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+.ai-task-actions .button { max-width: 100%; white-space: normal; height: auto; min-height: 42px; text-align: left; }
+.ai-payer { font-size: 13px; margin-top: 16px; }
+.model-choice { margin: 14px 0; min-width: 0; }
+.model-choice-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.model-choice-list { border: 0; padding: 0; margin: 0; min-width: 0; }
+.model-choice-row { display: grid; grid-template-columns: 18px minmax(0,1fr); align-items: start; gap: 10px; border-bottom: 1px solid var(--line); padding: 14px 0; min-height: 48px; }
+.model-choice-row input { margin-top: 4px; accent-color: var(--accent); }
+.model-choice-row > span { min-width: 0; }
+.model-choice-row strong { display: block; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.model-choice-price, .model-choice-row small { display: block; font-size: 12px; margin-top: 5px; color: var(--ink-3); overflow-wrap: anywhere; }
+.model-choice-current { display: grid; gap: 6px; padding: 12px 0; font-size: 12px; overflow-wrap: anywhere; }
+.service-connections { margin-top: 14px; }
+.service-connection-row + .service-connection-row { border-top: 1px solid var(--line); }
+.service-connection-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; min-height: 48px; padding: 8px 0; }
+.service-connection-summary strong { font-size: 13px; }
+.service-connection-summary > span { color: var(--ink-3); font-size: 12px; }
+.service-connection-summary > button { margin-left: auto; }
+.service-connection-editor { padding: 10px 0 18px; }
+.service-connection-links { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 12px; }
+.settings-advanced { margin-top: 18px; }
+.settings-advanced > summary { padding: 14px 0; font-size: 14px; }
+.settings-advanced > .settings-card { margin-top: 14px; }
+.contextual-help { flex-shrink: 0; min-width: 44px; min-height: 44px; }
+.help-content { font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.help-content > p + p, .help-content > h3, .help-content > a { margin-top: 14px; }
+.help-content h3 { font-size: 16px; }
+@media (max-width: 760px) { .ai-task-grid { grid-template-columns: minmax(0,1fr); } }
+.ai-price-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-price-summary .ai-task-price { min-width: 0; }
+.help-content ul { padding-left: 20px; }
+.help-content li + li { margin-top: 8px; }

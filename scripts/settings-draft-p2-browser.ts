@@ -66,7 +66,7 @@ async function main() {
         const url = new URL(route.request().url());
         let body: unknown = {}, status = 200;
         if (url.pathname === "/api/settings/pollinations/connect") body = { available: false };
-        else if (url.pathname === "/api/settings/pollinations/models") body = { models: [{ id: "openai", name: "Модель фикстуры", structuredOutput: true, streaming: true }] };
+        else if (url.pathname === "/api/settings/pollinations/models" || url.pathname === "/api/settings/visual-provider/models") body = { models: [{ id: "openai", name: "Модель фикстуры", structuredOutput: true, streaming: true }] };
         else if (url.pathname === "/api/settings/text-provider/models") body = { models: [{ id: url.searchParams.get("provider") === "openrouter" ? "vendor/draft" : "openai", name: "Модель фикстуры", structuredOutput: true, streaming: true }] };
         else if (url.pathname === "/api/settings/text-provider") {
           if (route.request().method() === "GET") body = providerState;
@@ -75,28 +75,26 @@ async function main() {
             if (providerWrites.length === 1) { status = 503; body = { code: "UNAVAILABLE", message: "Сохранение временно недоступно" }; }
             else if (providerWrites.length === 2) { status = 409; body = { code: "STALE_SETTINGS", message: "Настройки изменились в другой вкладке" }; }
             else if (providerWrites.length === 3) body = providerState = { provider: "openrouter", model: "vendor/canonical", openrouterConfigured: true, pollinationsConfigured: false, useLiveAI: false };
-            else if (providerWrites.length === 4) body = providerState = { provider: "pollinations", model: "openai", openrouterConfigured: true, pollinationsConfigured: true, useLiveAI: true };
-            else if (providerWrites.length === 5) { status = 503; body = { code: "UNAVAILABLE", message: "Удаление ключа временно недоступно" }; }
-            else if (providerWrites.length === 6) body = providerState = { provider: "pollinations", model: "openai", openrouterConfigured: true, pollinationsConfigured: false, useLiveAI: false };
             else { unexpected.push("extra provider write"); status = 500; }
           }
         } else { unexpected.push(url.pathname); status = 500; }
         await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
       });
       await page.goto(`${base}/provider`);
+      await page.getByRole("button", { name: "Изменить рассказчика", exact: true }).click();
       const provider = page.getByRole("combobox", { name: "Провайдер рассказчика" });
       await expect(provider).toHaveValue("gemini");
       await provider.focus(); await page.keyboard.press("Home"); await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
       await expect(provider).toHaveValue("openrouter");
       const model = page.getByLabel("Идентификатор модели рассказчика", { exact: true });
-      const key = page.getByLabel("Новый API-ключ", { exact: false });
-      await model.fill(" vendor/draft "); await key.fill("synthetic-browser-router");
+      await page.getByText("Дополнительные настройки модели", { exact: true }).click();
+      await model.fill(" vendor/draft ");
       await page.getByRole("switch", { name: "Живой рассказчик" }).click();
       const save = page.getByRole("button", { name: "Сохранить рассказчика", exact: true });
       for (const message of ["Сохранение временно недоступно", "Настройки изменились в другой вкладке"]) {
         await save.focus(); await page.keyboard.press("Enter");
         await expect(page.getByRole("alert")).toHaveText(message);
-        await expect(model).toHaveValue(" vendor/draft "); await expect(key).toHaveValue("synthetic-browser-router");
+        await expect(model).toHaveValue(" vendor/draft ");
         await expect(provider).toHaveValue("openrouter"); await expect(page.getByRole("switch", { name: "Живой рассказчик" })).toHaveAttribute("aria-checked", "true");
         await expect(page.getByLabel("Черновик", { exact: true })).toHaveText("изменён");
         await expect(page.getByLabel("События сохранения")).toHaveText("[]");
@@ -104,35 +102,22 @@ async function main() {
         await page.screenshot({ path: `${output}/${viewport.name}-${providerWrites.length === 1 ? "provider-failed" : "provider-conflict"}.png`, fullPage: true });
       }
       await save.click();
-      await expect(model).toHaveValue("vendor/canonical"); await expect(key).toHaveValue("");
+      await expect(model).toHaveValue("vendor/canonical");
       await expect(page.getByRole("switch", { name: "Живой рассказчик" })).toHaveAttribute("aria-checked", "false");
       await expect(page.getByLabel("Черновик", { exact: true })).toHaveText("сохранён");
       await expect(page.getByLabel("События сохранения")).toHaveText("[false]");
-      const expectedRouter = { provider: "openrouter", model: "vendor/draft", apiKey: "synthetic-browser-router", useLiveAI: true };
+      const expectedRouter = { provider: "openrouter", model: "vendor/draft", useLiveAI: true };
       expect(providerWrites).toEqual([expectedRouter, expectedRouter, expectedRouter]);
-      await page.reload(); await expect(provider).toHaveValue("openrouter"); await expect(model).toHaveValue("vendor/canonical");
-      await provider.selectOption("pollinations");
-      await page.getByText("Ввести ID модели вручную", { exact: true }).click();
-      await page.getByText("Ввести API-ключ вручную", { exact: true }).click();
-      await model.fill("openai"); await key.fill("synthetic-browser-pollen");
-      await page.getByRole("switch", { name: "Живой рассказчик" }).click(); await save.click();
-      await expect(page.getByText("Ключ настроен", { exact: true })).toBeVisible();
-      await page.getByRole("button", { name: "Удалить ключ рассказчика" }).click(); await save.click();
-      await expect(page.getByRole("alert")).toHaveText("Удаление ключа временно недоступно");
-      await expect(page.getByRole("button", { name: "Отменить удаление ключа" })).toBeVisible();
-      await expect(page.getByLabel("Черновик", { exact: true })).toHaveText("изменён");
-      await save.click(); await expect(page.getByText("Ключ не настроен", { exact: true })).toBeVisible();
-      await expect(page.getByRole("switch", { name: "Живой рассказчик" })).toHaveAttribute("aria-checked", "false");
-      expect(providerWrites.slice(3)).toEqual([
-        { provider: "pollinations", model: "openai", apiKey: "synthetic-browser-pollen", useLiveAI: true },
-        { provider: "pollinations", model: "openai", clearKey: true, useLiveAI: true },
-        { provider: "pollinations", model: "openai", clearKey: true, useLiveAI: true },
-      ]);
+      await page.reload(); await page.getByRole("button", { name: "Изменить рассказчика", exact: true }).click();
+      await expect(provider).toHaveValue("openrouter");
+      await page.getByText("Дополнительные настройки модели", { exact: true }).click();
+      await expect(model).toHaveValue("vendor/canonical");
+      expect(providerWrites).toEqual([expectedRouter, expectedRouter, expectedRouter]);
       expect(unexpected).toEqual([]);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: `${output}/${viewport.name}-provider-saved.png`, fullPage: true });
-      checks.push(`${viewport.name}:provider-503-retains`, `${viewport.name}:provider-409-retains`, `${viewport.name}:provider-keyboard-retry-canonical`, `${viewport.name}:provider-reload`, `${viewport.name}:provider-clear-retry`, `${viewport.name}:provider-no-overflow`);
-      console.log(`${viewport.name} TextProviderSettings: 6 checks passed, 6 exact POST payloads`);
+      checks.push(`${viewport.name}:provider-503-retains`, `${viewport.name}:provider-409-retains`, `${viewport.name}:provider-keyboard-retry-canonical`, `${viewport.name}:provider-reload`, `${viewport.name}:provider-no-overflow`);
+      console.log(`${viewport.name} TextProviderSettings: 5 checks passed, 3 exact role-only POST payloads`);
       await page.close();
 
       const panel = await browser.newPage({ viewport, reducedMotion: "reduce" }); active = panel; watch(panel);
@@ -141,7 +126,8 @@ async function main() {
       const settingsWrites: Record<string, unknown>[] = [];
       await panel.route("**/api/**", async route => {
         const url = new URL(route.request().url()); let body: unknown; let status = 200;
-        if (url.pathname === "/api/settings/text-provider") body = emptyProvider;
+        if (url.pathname === "/api/settings/provider-connections") body = { geminiConfigured: false, openrouterConfigured: false, pollinationsConfigured: false };
+        else if (url.pathname === "/api/settings/text-provider") body = emptyProvider;
         else if (url.pathname === "/api/settings/visual-provider") body = { accountSource: "application", model: "fixture/image", applicationModel: "fixture/image", applicationConfigured: false, pollinationsConfigured: false };
         else if (url.pathname === "/api/settings/pollinations/connect") body = { available: false };
         else if (url.pathname === "/api/settings/narrative") body = { enabled: false, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "typesafe/jev-1.13", credentialSource: "none", administratorAvailable: false };
@@ -164,9 +150,11 @@ async function main() {
         await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
       });
       await panel.goto(`${base}/panel`);
-      await expect(panel.getByRole("combobox", { name: "Провайдер рассказчика" })).toHaveValue("gemini");
+      await expect(panel.getByRole("button", { name: "Изменить рассказчика" })).toBeVisible();
+      await panel.getByText("Дополнительные настройки ИИ", { exact: true }).click();
+      await panel.getByText("Лимиты обращений к ИИ", { exact: true }).click();
       const limit = panel.getByRole("spinbutton", { name: "Flash · на модель в сутки", exact: true });
-      const gemini = panel.getByLabel("API-ключ Gemini", { exact: true });
+      const gemini = panel.locator('input[aria-label="API-ключ Gemini"]:visible');
       await limit.fill("30"); await gemini.fill("synthetic-gemini-draft-a");
       const saveAll = panel.getByRole("button", { name: "Сохранить настройки", exact: true });
       await panel.getByRole("button", { name: "Вернуться в историю", exact: true }).click();
@@ -180,7 +168,7 @@ async function main() {
       await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("synthetic-gemini-draft-b");
       await expect(panel.getByText("••••draft-a", { exact: true })).toBeVisible();
       await expect(panel.getByText("Сохранён отправленный вариант. Новые изменения ещё не сохранены.", { exact: true })).toBeVisible();
-      await expect(panel.getByText("Настройки сохранены. Ваш мир готов к новым историям.", { exact: true })).toHaveCount(0);
+      await expect(panel.getByText("Настройки сохранены.", { exact: true })).toHaveCount(0);
       await expect(panel.getByRole("alert")).toContainText("Есть несохранённые изменения");
       expect(await panel.getAttribute("body", "data-closed")).toBeNull();
       await panel.getByRole("button", { name: "Продолжить редактирование" }).click();
@@ -190,8 +178,9 @@ async function main() {
       await saveAll.focus(); await panel.keyboard.press("Enter");
       await expect(panel.getByText("••••draft-b", { exact: true })).toBeVisible();
       await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("");
-      const submittedA = { ...initialSettings, dailyFlashLimit: 30, keysText: "synthetic-gemini-draft-a", append: true };
-      const submittedB = { ...initialSettings, dailyFlashLimit: 41, keysCount: 1, keysMasked: ["••••draft-a"], keysText: "synthetic-gemini-draft-b", append: true };
+      const generalSettings = Object.fromEntries(Object.entries(initialSettings).filter(([key]) => key !== "useLiveAI"));
+      const submittedA = { ...generalSettings, dailyFlashLimit: 30, keysText: "synthetic-gemini-draft-a", append: true };
+      const submittedB = { ...generalSettings, dailyFlashLimit: 41, keysCount: 1, keysMasked: ["••••draft-a"], keysText: "synthetic-gemini-draft-b", append: true };
       expect(settingsWrites).toEqual([submittedA, submittedB, submittedB]);
       expect(unexpected).toEqual([]);
       expect(await panel.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -206,14 +195,15 @@ async function main() {
       let crossImages = { accountSource: "application", model: "vendor/image-a", applicationModel: "vendor/shared", applicationConfigured: true, pollinationsConfigured: true };
       await crossSection.route("**/api/**", async route => {
         const url = new URL(route.request().url()); let body: unknown;
-        if (url.pathname === "/api/settings/text-provider") {
+        if (url.pathname === "/api/settings/provider-connections") body = { geminiConfigured: false, openrouterConfigured: false, pollinationsConfigured: true };
+        else if (url.pathname === "/api/settings/text-provider") {
           if (route.request().method() === "POST") crossNarrator = { ...crossNarrator, ...route.request().postDataJSON() };
           body = crossNarrator;
         } else if (url.pathname === "/api/settings/visual-provider") {
           if (route.request().method() === "POST") { imageSaveHeld = true; const submitted = route.request().postDataJSON(); await imageSave.promise; crossImages = { ...crossImages, ...submitted }; }
           body = crossImages;
         } else if (url.pathname === "/api/settings/pollinations/connect") body = { available: false };
-        else if (url.pathname === "/api/settings/pollinations/models") body = { models: ["a", "b"].map(suffix => ({ id: `vendor/${url.searchParams.get("kind")}-${suffix}`, name: `Модель ${suffix}`, structuredOutput: true, streaming: true })) };
+        else if (url.pathname === "/api/settings/pollinations/models" || url.pathname === "/api/settings/visual-provider/models") body = { models: ["a", "b"].map(suffix => ({ id: `vendor/${url.searchParams.get("kind")}-${suffix}`, name: `Модель ${suffix}`, structuredOutput: true, streaming: true })) };
         else if (url.pathname === "/api/settings/narrative") body = { enabled: false, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "typesafe/jev-1.13", credentialSource: "none", administratorAvailable: false };
         else if (url.pathname === "/api/tokens/stats") body = { today: { totalReq: 0, totalTokens: 0, errors: 0, embeddingReq: 0 }, quotas: { note: "Фикстура" } };
         else if (url.pathname === "/api/settings" && route.request().method() === "GET") body = { ...initialSettings, textProvider: crossNarrator.provider, textModel: crossNarrator.model };
@@ -221,22 +211,27 @@ async function main() {
         await route.fulfill({ json: body });
       });
       await crossSection.goto(`${base}/panel`);
-      const crossModel = crossSection.getByRole("combobox", { name: "Модель рассказчика", exact: true });
-      await expect(crossModel).toHaveValue("vendor/text-a"); await crossModel.selectOption("vendor/text-b");
+      await crossSection.getByRole("button", { name: "Изменить рассказчика" }).click();
+      const crossModel = crossSection.locator('#text-provider input[type="radio"][value="vendor/text-a"]');
+      await expect(crossModel).toBeChecked();
+      await crossSection.locator('#text-provider input[type="radio"][value="vendor/text-b"]').check();
+      await crossSection.getByRole("button", { name: "Изменить иллюстрации" }).click();
       await crossSection.getByRole("combobox", { name: "Аккаунт для иллюстраций", exact: true }).selectOption("personal");
       await crossSection.getByRole("button", { name: "Вернуться в историю", exact: true }).click();
       await crossSection.getByRole("button", { name: "Сохранить и вернуться", exact: true }).click();
       await expect.poll(() => imageSaveHeld).toBe(true);
       expect(crossNarrator.model).toBe("vendor/text-b");
-      await crossModel.selectOption("vendor/text-a");
+      await crossSection.getByRole("button", { name: "Изменить рассказчика" }).click();
+      await crossModel.check();
       await crossSection.screenshot({ path: `${output}/${viewport.name}-cross-section-newer-draft.png`, fullPage: true });
       imageSave.open();
       await expect(crossSection.getByRole("button", { name: "Сохранить настройки", exact: true })).toBeEnabled();
-      await expect(crossModel).toHaveValue("vendor/text-a");
+      await expect(crossModel).toBeChecked();
       expect(await crossSection.getAttribute("body", "data-closed"), "Late narrator edits while the image save is pending must keep the settings open").toBeNull();
       await expect(crossSection.getByRole("alert")).toContainText("Есть несохранённые изменения");
       checks.push(`${viewport.name}:cross-section-late-edit-keeps-save-and-return-open`);
       await crossSection.goto(`${base}/panel?keep=fixture&pollinations=cancelled#text-provider`);
+      await crossSection.getByText("Лимиты обращений к ИИ", { exact: true }).click();
       const historyLimit = crossSection.getByRole("spinbutton", { name: "Flash · на модель в сутки", exact: true });
       await historyLimit.fill("37");
       await expect.poll(() => crossSection.evaluate(() => Boolean(history.state?.chronicleDirtyGuard))).toBe(true);

@@ -82,7 +82,9 @@ export async function installUiMock(page: Page, { admin = false, initialSettings
     else if (path === "/api/sessions") body = { sessions: [mockSession] };
     else if (path === "/api/settings") body = initialSettings;
     else if (path === "/api/settings/text-provider") body = { provider: "gemini", model: "", openrouterConfigured: false, pollinationsConfigured: false, useLiveAI: initialSettings.useLiveAI };
-    else if (path === "/api/settings/visual-provider") body = { accountSource: "application", model: "flux", applicationModel: "flux", applicationConfigured: false, pollinationsConfigured: false };
+    else if (path === "/api/settings/provider-connections") body = { geminiConfigured: initialSettings.keysCount > 0 || initialSettings.envKeysCount > 0, openrouterConfigured: false, pollinationsConfigured: false };
+    else if (path === "/api/settings/visual-provider") body = { enabled: false, provider: "pollinations", endpoint: null, accountSource: "application", model: "flux", applicationModel: "flux", applicationConfigured: false, pollinationsConfigured: false, openrouterConfigured: false };
+    else if (path === "/api/settings/visual-provider/models" || path === "/api/settings/pollinations/models") body = { models: [] };
     else if (path === "/api/settings/text-provider/models") body = { models: [] };
     else if (path === "/api/settings/pollinations/connect") body = { available: false };
     else if (path === "/api/settings/narrative") body = { enabled: true, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "typesafe/jev-1.13", credentialSource: "none", administratorAvailable: false };

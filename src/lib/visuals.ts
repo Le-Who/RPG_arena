@@ -8,7 +8,8 @@ import { gameSessions, gameTurns, npcs, sceneObjects, sceneVisuals, visualIdenti
 import { HttpError } from "./http";
 import { normName } from "./world-life";
 import { PROVIDERS, buildVisualPrompt, clip, fetchFromProvider, seedFor, visualConfig } from "./visual-provider";
-import { readVisualConfig, visualCredential, type VisualAccountSource } from "./visual-settings";
+import { assertVisualGenerationSelection, readVisualConfig, visualCredential, type VisualAccountSource } from "./visual-settings";
+import type { VisualOutputFormat } from "./visual-provider";
 
 // ─────────────────────────────────────────────────────────────
 //  Паспорта внешности (VIS-2)
@@ -47,10 +48,10 @@ export async function updateIdentity(sessionId: string, subjectKey: string, patc
 // ─────────────────────────────────────────────────────────────
 const LIST_COLUMNS = {
   id: sceneVisuals.id, kind: sceneVisuals.kind, subjectKey: sceneVisuals.subjectKey, turnNumber: sceneVisuals.turnNumber, caption: sceneVisuals.caption,
-  provider: sceneVisuals.provider, accountSource: sceneVisuals.accountSource, model: sceneVisuals.model, seed: sceneVisuals.seed, status: sceneVisuals.status, error: sceneVisuals.error,
+  provider: sceneVisuals.provider, accountSource: sceneVisuals.accountSource, model: sceneVisuals.model, endpoint: sceneVisuals.endpoint, outputFormat: sceneVisuals.outputFormat, seed: sceneVisuals.seed, status: sceneVisuals.status, error: sceneVisuals.error,
   attempts: sceneVisuals.attempts, latencyMs: sceneVisuals.latencyMs, width: sceneVisuals.width, height: sceneVisuals.height, createdAt: sceneVisuals.createdAt,
 };
-export type VisualView = { id: string; kind: VisualKind; subjectKey: string; turnNumber: number; caption: string; provider: string; accountSource: VisualAccountSource; generationBlocked?: boolean; model: string; seed: number; status: string; error: string | null; attempts: number; latencyMs: number | null; width: number; height: number; createdAt: Date };
+export type VisualView = { id: string; kind: VisualKind; subjectKey: string; turnNumber: number; caption: string; provider: string; accountSource: VisualAccountSource; generationBlocked?: boolean; model: string; endpoint: string | null; outputFormat: VisualOutputFormat | null; seed: number; status: string; error: string | null; attempts: number; latencyMs: number | null; width: number; height: number; createdAt: Date };
 
 export async function listVisuals(sessionId: string) {
   const [session] = await db.select({ ownerId: gameSessions.ownerId }).from(gameSessions).where(eq(gameSessions.id, sessionId));
@@ -61,7 +62,7 @@ export async function listVisuals(sessionId: string) {
   ]);
   // Old rows may contain provider exception text. Gallery data is user-visible, so expose
   // the same safe Russian message as render failures without rewriting historical records.
-  return { visuals: visuals.map(({ payerOwnerId, ...visual }) => ({ ...visual, generationBlocked: visual.accountSource === "personal" && payerOwnerId !== session?.ownerId, error: visual.error ? visualFailureMessage : null })) as VisualView[], identities, config: { enabled: cfg.enabled, provider: cfg.provider.id, accountSource: cfg.accountSource, availableAccounts: cfg.availableAccounts, model: cfg.model, dailyLimit: cfg.dailyLimit, authenticated: cfg.authenticated, capabilities: cfg.provider.capabilities } };
+  return { visuals: visuals.map(({ payerOwnerId, ...visual }) => ({ ...visual, generationBlocked: visual.accountSource === "personal" && payerOwnerId !== session?.ownerId, error: visual.error ? visualFailureMessage : null })) as VisualView[], identities, config: { enabled: cfg.enabled, provider: cfg.provider.id, accountSource: cfg.accountSource, availableAccounts: cfg.availableAccounts, model: cfg.model, endpoint: cfg.endpoint, dailyLimit: cfg.dailyLimit, authenticated: cfg.authenticated, capabilities: cfg.provider.capabilities } };
 }
 
 function heroPassport(c: CharacterState) {
@@ -72,8 +73,9 @@ export async function createVisual(sessionId: string, input: { kind: VisualKind;
   const [session] = await db.select().from(gameSessions).where(eq(gameSessions.id, sessionId));
   if (!session) throw new HttpError(404, "NOT_FOUND", "Кампания не найдена.");
   const cfg = await readVisualConfig(session.ownerId);
-  if (!cfg.enabled) throw new HttpError(503, "VISUALS_DISABLED", "Визуализация отключена администратором.");
-  if (!cfg.authenticated) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Выбранный аккаунт Pollinations недоступен. Проверьте подключение в настройках иллюстраций.");
+  if (!cfg.enabled) throw new HttpError(503, "VISUALS_DISABLED", "Иллюстрации выключены. Включите их в настройках, если хотите добавить изображение.");
+  if (!cfg.authenticated) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", `Выбранный аккаунт ${cfg.provider.id === "openrouter" ? "OpenRouter" : "Pollinations"} недоступен. Проверьте подключение в настройках иллюстраций.`);
+  const selection = await assertVisualGenerationSelection(cfg.provider.id, cfg.model, cfg.endpoint);
   const world = session.worldState as WorldState;
   const character = session.character as CharacterState;
   const { partOfDay, readLife } = await import("./world-life");
@@ -134,7 +136,7 @@ export async function createVisual(sessionId: string, input: { kind: VisualKind;
     const [{ used }] = await tx.select({ used: sql<number>`count(*)::int` }).from(visualQuotaReservations)
       .where(and(scope, gte(visualQuotaReservations.createdAt, since)));
     if (Number(used ?? 0) >= cfg.dailyLimit) throw new HttpError(429, "VISUAL_QUOTA", `Дневной лимит иллюстраций (${cfg.dailyLimit}) исчерпан. Попробуйте завтра.`, { retryAfter: 3600 });
-    const [row] = await tx.insert(sceneVisuals).values({ sessionId, ownerId: session.ownerId, kind: input.kind, subjectKey, turnNumber, caption: clip(caption, 160), prompt, provider: cfg.provider.id, accountSource: cfg.accountSource, model: cfg.model, seed, width, height }).returning(LIST_COLUMNS);
+    const [row] = await tx.insert(sceneVisuals).values({ sessionId, ownerId: session.ownerId, kind: input.kind, subjectKey, turnNumber, caption: clip(caption, 160), prompt, provider: cfg.provider.id, accountSource: cfg.accountSource, model: cfg.model, endpoint: cfg.endpoint, outputFormat: selection.outputFormat, seed, width, height }).returning(LIST_COLUMNS);
     await tx.insert(visualQuotaReservations).values({ quotaScope, visualId: row.id });
     return row as VisualView;
   });
@@ -151,7 +153,7 @@ function safeVisualError(error: unknown): string {
 const visualFailureMessage = "Провайдер не вернул изображение. Попробуйте повторить генерацию.";
 
 /** Ленивая генерация при первом просмотре: результат сохраняется в БД, повторы идут тем же провайдером/seed. */
-export async function renderVisual(sessionId: string, visualId: string, opts: { retry?: boolean; allowGenerate?: boolean } = {}): Promise<{ image: Buffer; mimeType: string }> {
+export async function renderVisual(sessionId: string, visualId: string, opts: { retry?: boolean; allowGenerate?: boolean; beforeSpend?: () => Promise<void> } = {}): Promise<{ image: Buffer; mimeType: string }> {
   const [row] = await db.select().from(sceneVisuals).where(and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId)));
   if (!row) throw new HttpError(404, "NOT_FOUND", "Изображение не найдено.");
   if (row.status === "ready" && row.image && row.mimeType) return { image: row.image, mimeType: row.mimeType };
@@ -162,13 +164,14 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
   const provider = PROVIDERS[row.provider];
   if (!provider) throw new HttpError(502, "VISUAL_FAILED", `Провайдер ${row.provider} недоступен.`);
   const [session] = await db.select({ ownerId: gameSessions.ownerId }).from(gameSessions).where(eq(gameSessions.id, sessionId));
-  if (row.accountSource === "personal" && row.ownerId !== session?.ownerId) throw new HttpError(409, "VISUAL_PAYER_CHANGED", "Владелец этой иллюстрации изменился. Создайте новую иллюстрацию с выбранным аккаунтом Pollinations.");
-  const apiKey = provider.id === "pollinations" ? await visualCredential(session?.ownerId ?? null, row.accountSource) : undefined;
+  if (row.accountSource === "personal" && row.ownerId !== session?.ownerId) throw new HttpError(409, "VISUAL_PAYER_CHANGED", "Владелец этой иллюстрации изменился. Создайте новую иллюстрацию с выбранным аккаунтом.");
+  await assertVisualGenerationSelection(row.provider, row.model, row.endpoint);
   let job = inflight.get(visualId);
   if (!job) {
     job = (async () => {
       const waitUntil = Date.now() + visualWaitMs;
       let claimed: typeof row;
+      let apiKey: string;
       while (true) {
         const [current] = await db.select().from(sceneVisuals).where(and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId)));
         if (!current) throw new HttpError(404, "NOT_FOUND", "Изображение не найдено.");
@@ -182,6 +185,14 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
         }
         if (current.status === "failed" && !opts.retry) throw new HttpError(502, "VISUAL_FAILED", visualFailureMessage);
         if (current.attempts >= 4) throw new HttpError(502, "VISUAL_FAILED", "Лимит повторов для этого изображения исчерпан.");
+        // The HTTP caller owns request identity. Revalidate it after catalogue IO and lease waits,
+        // before resolving credentials or claiming an attempt; pure library callers need no request context.
+        await opts.beforeSpend?.();
+        // Resolve the payer and current shared credential after catalogue IO and any lease wait.
+        // A removed/rotated key must not remain captured while a queued request waits to spend it.
+        const [payerSession] = await db.select({ ownerId: gameSessions.ownerId }).from(gameSessions).where(eq(gameSessions.id, sessionId));
+        if (current.accountSource === "personal" && current.ownerId !== payerSession?.ownerId) throw new HttpError(409, "VISUAL_PAYER_CHANGED", "Владелец этой иллюстрации изменился. Создайте новую иллюстрацию с выбранным аккаунтом.");
+        apiKey = await visualCredential(payerSession?.ownerId ?? null, current.accountSource, current.provider);
         // The attempt counter is monotonic, so CAS both reserves and fences work.
         const [reservation] = await db.update(sceneVisuals).set({ attempts: current.attempts + 1, status: "pending", updatedAt: new Date() })
           .where(and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId), eq(sceneVisuals.attempts, current.attempts), eq(sceneVisuals.status, current.status))).returning();
@@ -190,7 +201,7 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
       const started = Date.now();
       const fence = and(eq(sceneVisuals.id, visualId), eq(sceneVisuals.sessionId, sessionId), eq(sceneVisuals.attempts, claimed.attempts), eq(sceneVisuals.status, "pending"));
       try {
-        const result = await fetchFromProvider(provider, { prompt: claimed.prompt, seed: claimed.seed, width: claimed.width, height: claimed.height, model: claimed.model }, fetch, apiKey);
+        const result = await fetchFromProvider(provider, { prompt: claimed.prompt, seed: claimed.seed, width: claimed.width, height: claimed.height, model: claimed.model, endpoint: claimed.endpoint, outputFormat: claimed.outputFormat }, fetch, apiKey);
         await db.update(sceneVisuals).set({ status: "ready", image: result.image, mimeType: result.mimeType, error: null, latencyMs: Date.now() - started, updatedAt: new Date() }).where(fence);
         return result;
       } catch (error) {

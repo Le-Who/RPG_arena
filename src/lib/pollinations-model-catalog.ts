@@ -4,8 +4,10 @@ import { aiSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { HttpError } from "./http";
 import { openSecret, secretContext } from "./secret-vault";
+import { normalizePollinationsPrice, type ModelPrice } from "./model-pricing";
+import { pollinationsGenerationExcluded, pollinationsGenerationSupported } from "./visual-models";
 
-export type PollinationsModel = { id: string; name: string; structuredOutput: boolean; streaming: boolean; paidOnly: boolean };
+export type PollinationsModel = { id: string; name: string; structuredOutput: boolean; streaming: boolean; paidOnly: boolean; price?: ModelPrice; generationSupported?: boolean; community?: boolean };
 type Kind = "text" | "image";
 type Entry = { models: (PollinationsModel & { aliases: string[] })[]; checkedAt: number };
 const cache = new Map<string, Entry>();
@@ -43,17 +45,21 @@ async function json(url: string, apiKey?: string): Promise<unknown> {
   finally { clearTimeout(timer); void reader?.cancel().catch(() => {}); reader?.releaseLock(); }
 }
 
-function parse(payload: unknown, kind: Kind): Entry["models"] {
+function parse(payload: unknown, kind: Kind, checkedAt: string): Entry["models"] {
   if (!Array.isArray(payload) || payload.length > 2000) throw unavailable();
   const seen = new Set<string>(); const result: Entry["models"] = [];
   for (const value of payload) {
     const row = record(value), id = row.name;
     if (row.category !== kind || !strings(row.input_modalities).includes("text") || !strings(row.output_modalities).includes(kind)
       || !strings(row.supported_endpoints).includes(kind === "text" ? "/v1/chat/completions" : "/image/{prompt}")
-      || typeof id !== "string" || !/^[a-z0-9][a-z0-9._:/@+-]{0,199}$/i.test(id) || seen.has(id)) continue;
+      || typeof id !== "string" || !/^[a-z0-9][a-z0-9._:/@+-]{0,199}$/i.test(id) || seen.has(id)
+      || (kind === "image" && pollinationsGenerationExcluded(id, strings(row.aliases)))) continue;
     seen.add(id); const parameters = strings(row.supported_parameters);
     result.push({ id, name: typeof row.title === "string" ? row.title.slice(0, 200) : id, aliases: strings(row.aliases), paidOnly: row.paid_only === true,
-      structuredOutput: row.supports_structured_output === true || parameters.includes("structured_outputs") || parameters.includes("json_schema"), streaming: parameters.includes("stream") });
+      structuredOutput: row.supports_structured_output === true || parameters.includes("structured_outputs") || parameters.includes("json_schema"), streaming: parameters.includes("stream"),
+      ...(row.pricing ? { price: normalizePollinationsPrice(row, kind, checkedAt) } : {}),
+      ...(kind === "image" ? { generationSupported: pollinationsGenerationSupported(id, strings(row.input_modalities), strings(row.aliases)) } : {}),
+      ...(typeof row.community === "boolean" ? { community: row.community } : {}) });
   }
   if (!result.length) throw unavailable();
   return result;
@@ -76,7 +82,7 @@ export async function loadPollinationsModels(ownerId: string, kind: Kind, refres
     let work = pending.get(scope);
     if (!work) {
       work = json(`https://gen.pollinations.ai/${kind}/models`, apiKey).then(payload => {
-        const value = { models: parse(payload, kind), checkedAt: Date.now() };
+        const checkedAt = Date.now(), value = { models: parse(payload, kind, new Date(checkedAt).toISOString()), checkedAt };
         cache.delete(scope); cache.set(scope, value);
         if (cache.size > 128) cache.delete(cache.keys().next().value!);
         return value;
@@ -88,6 +94,7 @@ export async function loadPollinationsModels(ownerId: string, kind: Kind, refres
   }
   const allowed = permissions === null ? null : strings(permissions);
   const models: PollinationsModel[] = entry.models.filter(model => (!allowed || [kind, model.id, ...model.aliases].some(id => allowed.includes(id)))
-    && !(key?.questPollenOnly === true && model.paidOnly)).map(model => ({ id: model.id, name: model.name, structuredOutput: model.structuredOutput, streaming: model.streaming, paidOnly: model.paidOnly }));
+    && !(key?.questPollenOnly === true && model.paidOnly)).map(({ aliases: _aliases, ...model }) => ({ ...structuredClone(model), ...(model.price ? { price: { ...structuredClone(model.price), stale } } : {}) }));
+  models.sort((a, b) => Number(a.community === true) - Number(b.community === true));
   return { models, checkedAt: new Date(entry.checkedAt).toISOString(), stale, personal };
 }

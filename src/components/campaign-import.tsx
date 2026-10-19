@@ -48,7 +48,7 @@ export function CampaignImport() {
     finally { setBusy(false); }
   }
   return <><button className="button secondary" disabled={loading || !identity} onClick={() => setOpen(true)}>Импорт кампании</button>{open && <Dialog title="Импорт кампании" onClose={() => { if (!busy) setOpen(false); }}>
-    <p className="dialog-intro">Продолжите историю из JSON-экспорта Chronicle. Новая кампания будет приватной. Ключи, настройки аккаунта и расходы не переносятся; поиск по памяти переиндексируется отдельно.</p>
+    <p className="dialog-intro">Продолжите историю из файла кампании Chronicle (.json). Новая история будет приватной. Ключи, настройки аккаунта и расходы не переносятся. Поиск по перенесённой памяти станет доступен после обработки.</p>
     {!canImport && <p className="settings-footnote">Для импорта кампании нужен аккаунт. <Link href="/settings#account" className="text-link" onClick={() => setOpen(false)}>Войти или создать аккаунт</Link>.</p>}
     <label className="field"><span>JSON-файл · до 4 МиБ</span><input type="file" accept="application/json,.json" disabled={busy || !canImport} onChange={event => void select(event.target.files?.[0])} /></label>
     {name && <p className="settings-footnote">Выбран файл: {name}</p>}{error && <p role="alert" className="notice error-notice">{error}</p>}
