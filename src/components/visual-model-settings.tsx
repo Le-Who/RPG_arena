@@ -1,4 +1,5 @@
 "use client";
+import { useFeedbackState } from "./feedback";
 import { useCallback, useEffect, useState } from "react";
 import { Camera, LoaderCircle, RefreshCw, Save } from "lucide-react";
 import { api } from "@/lib/api-client";
@@ -12,7 +13,7 @@ export function VisualModelSettings() {
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [saved, setSaved] = useState("");
+  const [saved, setSaved] = useFeedbackState<string>("", value => Boolean(value));
   const load = useCallback(async () => {
     setError("");
     try {
@@ -37,8 +38,8 @@ export function VisualModelSettings() {
       {!data && !error && <p role="status"><LoaderCircle size={14} className="spin" /> Загружаем каталог моделей…</p>}
       {data && <>
         <p>Текущая модель: <strong>{data.model}</strong>.</p>
-        {!data.keyConfigured && <p className="notice">Генерация сейчас недоступна: серверный <code>POLLINATIONS_API_KEY</code> не настроен. Выбранная модель сохранится до подключения ключа.</p>}
-        {data.catalogError && <p className="notice amber" role="status">{data.catalogError}</p>}
+        {!data.keyConfigured && <p className="notice amber" role="alert">Генерация сейчас недоступна: серверный <code>POLLINATIONS_API_KEY</code> не настроен. Выбранная модель сохранится до подключения ключа.</p>}
+        {data.catalogError && <p className="notice amber" role="alert">{data.catalogError}</p>}
         <label className="field"><span>Модель для новых изображений</span><select value={selected} disabled={busy || !data.models.length} onChange={event => { setSelected(event.target.value); setSaved(""); }}>
           {!data.models.some(model => model.id === selected) && <option value={selected}>{selected} (нет в текущем каталоге)</option>}
           {data.models.map(model => <option key={model.id} value={model.id}>{model.title} · {model.id}{model.paidOnly ? " · платная" : ""}</option>)}

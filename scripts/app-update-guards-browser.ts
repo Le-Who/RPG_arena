@@ -60,12 +60,12 @@ async function main() {
     await page.reload(); await expect(update).toBeVisible();
     await page.context().setOffline(true);
     await update.click();
-    await expect(page.getByRole("status")).toContainText("Нет связи");
+    await expect(page.getByRole("alert")).toContainText("Нет связи");
     await page.context().setOffline(false);
     const beforeStorage = navigations;
     await page.evaluate(() => { Storage.prototype.setItem = () => { throw new Error("Storage denied"); }; });
     await update.click();
-    await expect(page.getByRole("status")).toContainText("Storage denied");
+    await expect(page.getByRole("alert")).toContainText("Storage denied");
     expect(navigations).toBe(beforeStorage);
     await expect(page.getByRole("textbox", { name: "Действие" })).toHaveValue("Черновик «Ключ»");
     await page.reload(); await expect(update).toBeVisible();
@@ -75,7 +75,7 @@ async function main() {
     });
     await page.reload(); await expect(update).toBeVisible();
     const beforePending = navigations;
-    await update.click(); await expect(page.getByRole("status")).toContainText("Восстанавливаем ход");
+    await update.click(); await expect(page.getByRole("alert")).toContainText("Восстанавливаем ход");
     expect(navigations).toBe(beforePending);
     expect(await page.evaluate(() => sessionStorage.getItem("chronicle:update-draft:v1"))).not.toBeNull();
     await page.getByRole("button", {name:"Завершить восстановление"}).click();
@@ -89,7 +89,7 @@ async function main() {
     expect(await page.title()).not.toBe("turn-started");
     await page.getByRole("button", { name: "Внешний ход" }).click();
     release(); hold = null;
-    await expect(page.getByRole("status")).toContainText("Восстанавливаем ход");
+    await expect(page.getByRole("alert")).toContainText("Восстанавливаем ход");
     expect(navigations).toBe(beforePending);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: `${output}/mobile.png`, fullPage: true });

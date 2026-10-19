@@ -189,8 +189,8 @@ async function main() {
       checks.push(`${viewport.name}:connection-loading-disabled`, `${viewport.name}:connection-unconfigured-manual-fallback`, `${viewport.name}:connection-availability-keyboard-retry`, `${viewport.name}:connection-open-failure-visible`);
       for (const [result, title] of [["connected", "Аккаунт Pollinations подключён"], ["cancelled", "Подключение Pollinations отменено"], ["failed", "Подключение Pollinations не завершено"]]) {
         await page.goto(`${base}/settings?keep=fixture&pollinations=${result}#text-provider`);
-        const notice = page.getByRole("status").filter({ hasText: title });
-        await expect(notice).toBeVisible(); await expect(notice).toHaveAttribute("aria-live", "polite");
+        const notice = page.getByRole(result === "failed" ? "alert" : "status").filter({ hasText: title });
+        await expect(notice).toBeVisible(); await expect(notice).toHaveAttribute("aria-live", result === "failed" ? "assertive" : "polite");
         const dismiss = page.getByRole("button", { name: "Закрыть сообщение Pollinations", exact: true });
         await dismiss.focus(); await expect(dismiss).toBeFocused();
         await page.screenshot({ path: `${output}/${viewport.name}-return-${result}-focus.png`, fullPage: true });

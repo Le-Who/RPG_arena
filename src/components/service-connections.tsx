@@ -1,4 +1,5 @@
 "use client";
+import { useFeedbackState } from "./feedback";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyRound, LoaderCircle, Save } from "lucide-react";
 import { api, jsonBody } from "@/lib/api-client";
@@ -12,7 +13,7 @@ type Draft={apiKey:string;clearKey:boolean};
 const names:Record<Provider,string>={gemini:"Gemini",openrouter:"OpenRouter",pollinations:"Pollinations"};
 const links:Record<Provider,string>={gemini:"https://aistudio.google.com/apikey",openrouter:"https://openrouter.ai/settings/keys",pollinations:"https://enter.pollinations.ai/keys"};
 export function ServiceConnections({onDraftChange,onDirtyChange,onSaveReady,onSaved,beforeConnect, advancedKeyRevision = 0}:{onDraftChange?:()=>void;onDirtyChange:(dirty:boolean)=>void;onSaveReady:(save:(()=>Promise<boolean>)|null)=>void;onSaved:()=>void;beforeConnect:()=>Promise<boolean>;advancedKeyRevision?:number}) {
-  const [data,setData]=useState<Connections|null>(null),[drafts,setDrafts]=useState<Partial<Record<Provider,Draft>>>({}),[editing,setEditing]=useState<Provider|null>(null),[busy,setBusy]=useState(false),[connecting,setConnecting]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState(""),[remove,setRemove]=useState<Provider|null>(null),[clock,setClock]=useState(()=>Date.now());
+  const [data,setData]=useState<Connections|null>(null),[drafts,setDrafts]=useState<Partial<Record<Provider,Draft>>>({}),[editing,setEditing]=useState<Provider|null>(null),[busy,setBusy]=useState(false),[connecting,setConnecting]=useState(false),[error,setError]=useState(""),[message,setMessage]=useFeedbackState<string>("", value => Boolean(value)),[remove,setRemove]=useState<Provider|null>(null),[clock,setClock]=useState(()=>Date.now());
   const request=useRef(0),lock=useRef(false);
   const dirty=Object.values(drafts).some(value=>value?.apiKey.trim()||value?.clearKey);
   const expiry=data?.pollinationsKeyExpiresAt?Date.parse(data.pollinationsKeyExpiresAt):NaN;
@@ -22,7 +23,7 @@ export function ServiceConnections({onDraftChange,onDirtyChange,onSaveReady,onSa
   useEffect(()=>{let active=true;void Promise.resolve().then(()=>{if(active)void load();});return()=>{active=false;cancelRequests();};},[load,cancelRequests]);
   useEffect(()=>{if(advancedKeyRevision)void Promise.resolve().then(load);},[advancedKeyRevision,load]);
   useEffect(()=>{onDirtyChange(dirty);},[dirty,onDirtyChange]);
-  const change=useCallback((provider:Provider,value:Draft)=>{onDraftChange?.();setDrafts(old=>({...old,[provider]:value}));setMessage("");},[onDraftChange]);
+  const change=useCallback((provider:Provider,value:Draft)=>{onDraftChange?.();setDrafts(old=>({...old,[provider]:value}));setMessage("");},[onDraftChange,setMessage]);
   const save=useCallback(async()=>{
     if(!data)return false;if(!dirty)return true;if(lock.current||connecting)return false;
     lock.current=true;let wrote=false;setBusy(true);setError("");setMessage("");
@@ -32,7 +33,7 @@ export function ServiceConnections({onDraftChange,onDirtyChange,onSaveReady,onSa
     }setMessage("Подключения сохранены.");return true;
     }catch(cause){setError(cause instanceof Error?cause.message:"Не удалось сохранить подключение.");return false;}
     finally{lock.current=false;setBusy(false);if(wrote)onSaved();}
-  },[data,dirty,connecting,drafts,onSaved]);
+  },[data,dirty,connecting,drafts,onSaved,setMessage]);
   useEffect(()=>{onSaveReady(save);return()=>onSaveReady(null);},[save,onSaveReady]);
   return <section className="settings-card service-connections" id="service-connections"><div className="settings-card-heading"><span className="feature-icon teal"><KeyRound size={20}/></span><div><h3>Подключённые сервисы</h3><p>Один ключ на сервис.</p></div><ContextualHelp title="Подключение сервисов"><p>OpenRouter и Pollinations могут одновременно обслуживать рассказчика и иллюстрации. Подключение ключа не меняет выбранные модели и не запускает генерацию.</p><p>Ключи хранятся зашифрованными на сервере и не возвращаются в браузер. Если удалить ключ сервиса, обе задачи потеряют доступ к нему до нового подключения.</p><p>Ключ Gemini также используется для поиска воспоминаний по смыслу. Несколько ключей Google и отдельная проверка повествования доступны в дополнительных настройках.</p></ContextualHelp></div>
     {!data&&!error&&<p role="status">Загружаем подключения…</p>}

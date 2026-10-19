@@ -21,7 +21,7 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
   const [retryKey, setRetryKey] = useState<Record<string, number>>({});
   const [failed, setFailed] = useState<Record<string, boolean>>({});
   const [portraitSubject, setPortraitSubject] = useState("hero");
-  const load = useCallback(async () => { try { setData(await api<Gallery>(`/api/sessions/${sessionId}/visuals`)); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить галерею"); } }, [sessionId]);
+  const load = useCallback(async () => { setError(""); try { setData(await api<Gallery>(`/api/sessions/${sessionId}/visuals`)); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить галерею"); } }, [sessionId]);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
   const create = async (kind: Visual["kind"], subject?: string) => {
     setBusy(kind); setError("");
@@ -38,14 +38,14 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
   const src = (v: Visual) => `/api/sessions/${sessionId}/visuals/${v.id}${retryKey[v.id] ? `?retry=1&n=${retryKey[v.id]}` : ""}`;
   const canRender = (v: Gallery["visuals"][number]) => !v.generationBlocked && data?.config.enabled && (data.config.availableAccounts?.[v.accountSource ?? "application"] ?? data.config.authenticated);
 
-  if (!data) return <div className="gx-side-section"><p className="gx-side-hint">{error || "Загрузка галереи…"}</p></div>;
+  if (!data) return <div className="gx-side-section">{error ? <div className="notice error-notice" role="alert"><p>{error}</p><button type="button" className="button secondary" onClick={() => void load()}>Повторить загрузку галереи</button></div> : <p className="gx-side-hint" role="status">Загрузка галереи…</p>}</div>;
   const reference = (v: Visual) => data.identities.find((i) => i.subjectKey === v.subjectKey)?.referenceVisualId === v.id;
   return <div className="gx-side-section lx-gallery">
     <div className="gx-side-title"><Camera size={13} />Образы истории<ContextualHelp title="Образы истории"><p>Иллюстрации помогают представить сцену, персонажа или место. Они не меняют события и состояние истории.</p><p>У готового изображения сохраняются сервис, модель и источник оплаты. Повторное создание использует эти настройки, даже если для новых изображений вы выбрали другие.</p><p>Описание внешности и выбранный эталон помогают сохранить узнаваемость. «Новый облик» меняет вариант для следующих иллюстраций; готовые изображения сохраняются.</p></ContextualHelp></div>
     <p className="gx-side-hint">Для создания иллюстраций описания сцен, людей и мест передаются в {serviceName(data.config.provider)}. До {data.config.dailyLimit} изображений в сутки.</p>
     {isOwner && <p className="gx-side-hint">Оплата новых изображений: <strong>{data.config.accountSource === "personal" ? `ваш аккаунт ${serviceName(data.config.provider)}, расходуется ваш ${data.config.provider === "pollinations" ? "Pollen" : "баланс"}` : `аккаунт приложения ${serviceName(data.config.provider)}`}</strong>. Модель: {data.config.model}. <Link href="/settings#visual-provider">Настроить иллюстрации</Link></p>}
-    {!data.config.enabled && <p className="lx-error">Визуализация отключена администратором.</p>}
-    {data.config.enabled && !data.config.authenticated && <p className="lx-error">Выбранный аккаунт {serviceName(data.config.provider)} недоступен. {isOwner && "Проверьте подключение в настройках иллюстраций. "}Уже созданные изображения остаются доступны.</p>}
+    {!data.config.enabled && <p className="gx-side-hint" role="status">Создание иллюстраций выключено. Уже созданные изображения остаются доступны.</p>}
+    {data.config.enabled && !data.config.authenticated && <p className="notice amber" role="alert">Выбранный аккаунт {serviceName(data.config.provider)} недоступен. {isOwner && "Проверьте подключение в настройках иллюстраций. "}Уже созданные изображения остаются доступны.</p>}
     {isOwner && data.config.enabled && data.config.authenticated && <div className="lx-gallery-actions">
       <button type="button" className="button secondary" disabled={!!busy || lastTurn < 1} onClick={() => void create("scene")}>{busy === "scene" ? <LoaderCircle size={14} className="spin" /> : <Camera size={14} />}Сцена хода {lastTurn || "—"}</button>
       <button type="button" className="button secondary" disabled={!!busy || !currentLocationId} onClick={() => void create("location", currentLocationId ?? undefined)}>{busy === "location" ? <LoaderCircle size={14} className="spin" /> : <MapPin size={14} />}Это место</button>

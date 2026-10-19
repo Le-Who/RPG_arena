@@ -84,7 +84,7 @@ async function main() {
     await page.waitForURL("**/play/**");
     expect(new URL(page.url()).pathname).not.toBe(`/play/${original}`);
     await page.getByRole("textbox", { name: "Ваше действие", exact: true }).waitFor();
-    await page.locator(".toast").waitFor({ state: "hidden" });
+    await page.locator(".feedback-notification").waitFor({ state: "hidden" });
 
     await page.keyboard.press("Control+k");
     dialog = page.getByRole("dialog", { name: "Командная палитра", exact: true });

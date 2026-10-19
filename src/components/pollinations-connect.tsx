@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, LoaderCircle, X } from "lucide-react";
 import { ContextualHelp } from "./contextual-help";
+import { SUCCESS_NOTICE_MS } from "./feedback";
 import { api, jsonBody } from "@/lib/api-client";
 
 const outcomes = {
@@ -20,18 +21,29 @@ export function PollinationsConnectionNotice() {
     });
     return () => { active = false; };
   }, []);
-  if (!outcome) return null;
-  const dismiss = () => {
+  const [hovered, setHovered] = useState(false), [focused, setFocused] = useState(false);
+  const dismiss = useCallback((restoreFocus = false) => {
     setOutcome(null);
     const url = new URL(window.location.href);
-    url.searchParams.delete("pollinations");
-    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-    const select = document.querySelector<HTMLElement>("#text-provider select");
-    (select?.getClientRects().length ? select : document.getElementById("text-provider-heading"))?.focus();
-  };
-  return <div className={`notice pollinations-result${outcome === "failed" ? " error-notice" : ""}`} role="status" aria-live="polite">
+    if (url.searchParams.get("pollinations") === outcome) {
+      url.searchParams.delete("pollinations");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+    if (restoreFocus) {
+      const select = document.querySelector<HTMLElement>("#text-provider select");
+      (select?.getClientRects().length ? select : document.getElementById("text-provider-heading"))?.focus();
+    }
+  }, [outcome]);
+  useEffect(() => {
+    if (!outcome || outcome === "failed" || hovered || focused) return;
+    const timer = window.setTimeout(() => dismiss(), SUCCESS_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [outcome, hovered, focused, dismiss]);
+  if (!outcome) return null;
+  return <div className={`notice pollinations-result${outcome === "failed" ? " error-notice" : ""}`} role={outcome === "failed" ? "alert" : "status"} aria-live={outcome === "failed" ? "assertive" : "polite"}
+    onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} onFocus={() => setFocused(true)} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
     <div><strong>{outcomes[outcome].title}</strong><p>{outcomes[outcome].text}</p></div>
-    <button type="button" className="icon-button" aria-label="Закрыть сообщение Pollinations" onClick={dismiss}><X aria-hidden="true" size={18} /></button>
+    <button type="button" className="icon-button" aria-label="Закрыть сообщение Pollinations" onClick={() => dismiss(true)}><X aria-hidden="true" size={18} /></button>
   </div>;
 }
 

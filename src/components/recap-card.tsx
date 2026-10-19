@@ -5,17 +5,17 @@ import { api } from "@/lib/api-client";
 import type { Recap } from "@/lib/recap";
 
 /** NARR-9: «Ранее в истории» — детерминированное резюме перед продолжением. */
-export function RecapCard({ sessionId, onClose, onNotify }: { sessionId: string; onClose: () => void; onNotify?: (message: string, error?: boolean) => void }) {
+export function RecapCard({ sessionId, onClose, onNotify }: { sessionId: string; onClose: () => void; onNotify?: (message: string, error?: boolean, scope?: string) => void }) {
   const [recap, setRecap] = useState<Recap | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     let cancelled = false;
-    api<{ recap: Recap }>(`/api/sessions/${sessionId}/recap`).then((r) => { if (!cancelled) setRecap(r.recap); }).catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Не удалось собрать резюме"); });
+    api<{ recap: Recap }>(`/api/sessions/${sessionId}/recap`).then((r) => { if (!cancelled) { setRecap(r.recap); setError(""); } }).catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Не удалось собрать резюме"); });
     return () => { cancelled = true; };
   }, [sessionId]);
   const copy = async () => {
     if (!recap) return;
-    try { await navigator.clipboard.writeText(recap.markdown); onNotify?.("Резюме скопировано"); } catch { onNotify?.("Не удалось скопировать", true); }
+    try { await navigator.clipboard.writeText(recap.markdown); onNotify?.("Резюме скопировано", false, `recap-copy:${sessionId}`); } catch { onNotify?.("Не удалось скопировать", true, `recap-copy:${sessionId}`); }
   };
   return <section className="gx-recap" aria-labelledby="recap-title" aria-live="polite">
     <div className="gx-recap-head">

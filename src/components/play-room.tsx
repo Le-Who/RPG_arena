@@ -81,7 +81,7 @@ const FeedTurns = memo(function FeedTurns({ turns, heroName }: { turns: FeedTurn
 });
 
 export function PlayRoom({ sessionId }: { sessionId: string }) {
-  const { settings, sessions, refresh, notify, setPlayCommands, workspace, identity, loadError: workspaceLoadError } = useApp();
+  const { settings, sessions, refresh, notify, resolveNotification, setPlayCommands, workspace, identity, loadError: workspaceLoadError } = useApp();
   const profileId = identity?.profileId;
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -235,10 +235,11 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
   }, []);
+  useEffect(() => { resolveNotification(`action-limit:${sessionId}`); }, [action, sessionId, resolveNotification]);
   const appendPhrase = (phrase: string, bindings: ItemBinding[] = []) => {
     if (!draftReady) return;
     const next = appendActionPhrase(action, phrase);
-    if (next === null) { notify("В действии уже много текста. Освободите место перед добавлением фразы (лимит — 2000 символов).", true); return; }
+    if (next === null) { notify("В действии уже много текста. Освободите место перед добавлением фразы (лимит — 2000 символов).", "warning", `action-limit:${sessionId}`); return; }
     setAction(next);
     setItemBindings(old => [...new Map([...retainedItemBindings(next, old), ...bindings].map(item => [item.id, item])).values()].slice(0, 4));
     requestAnimationFrame(() => { composerRef.current?.focus(); composerRef.current?.setSelectionRange(next.length, next.length); });
@@ -246,8 +247,8 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const addItemToAction = (name: string, id: string) => appendPhrase(`Использовать «${name}»: `, [{ id, name }]);
   const loadEarlier = async () => {
     setHistoryRequests(count => count + 1);
-    try { if (!(await history.loadEarlier())) notify("Более ранних ходов нет."); }
-    catch (e) { if (mounted.current && !(e instanceof DOMException && e.name === "AbortError")) notify(e instanceof Error ? e.message : "Не удалось загрузить ходы", true); }
+    try { const loaded = await history.loadEarlier(); if (mounted.current) { resolveNotification(`history-earlier:${sessionId}`); if (!loaded) notify("Более ранних ходов нет."); } }
+    catch (e) { if (mounted.current && !(e instanceof DOMException && e.name === "AbortError")) notify(e instanceof Error ? e.message : "Не удалось загрузить ходы", true, `history-earlier:${sessionId}`); }
     finally { if (mounted.current) setHistoryRequests(count => Math.max(0, count - 1)); }
   };
   const jumpToTurn = useCallback(async (turnNumber: number) => {
@@ -257,19 +258,20 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
       const found = await history.ensureTurn(turnNumber);
       if (!mounted.current || request !== navigation.current) return;
       if (found) setPendingTarget({ turnNumber });
-      else notify(`Ход ${turnNumber} не найден в сохранённой истории.`, true);
+      else notify(`Ход ${turnNumber} не найден в сохранённой истории.`, true, `history-jump:${sessionId}`);
     } catch (e) {
-      if (mounted.current && request === navigation.current) notify(e instanceof Error ? e.message : "Не удалось загрузить ходы", true);
+      if (mounted.current && request === navigation.current) notify(e instanceof Error ? e.message : "Не удалось загрузить ходы", true, `history-jump:${sessionId}`);
     } finally { if (mounted.current) setHistoryRequests(count => Math.max(0, count - 1)); }
-  }, [history, notify]);
+  }, [history, notify, sessionId]);
   useEffect(() => {
     if (pendingTarget === null) return;
     const target = document.getElementById(`turn-${pendingTarget.turnNumber}`) ?? document.getElementById(`turn-${pendingTarget.turnNumber}-player`);
     if (target) {
+      resolveNotification(`history-jump:${sessionId}`);
       target.focus({ preventScroll: true });
       target.scrollIntoView({ block: "start", behavior: workspace.reading.motion === "reduced" || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-    } else notify(`Ход ${pendingTarget.turnNumber} не найден в ленте.`, true);
-  }, [pendingTarget, workspace.reading.motion, notify]);
+    } else notify(`Ход ${pendingTarget.turnNumber} не найден в ленте.`, true, `history-jump:${sessionId}`);
+  }, [pendingTarget, workspace.reading.motion, notify, resolveNotification, sessionId]);
   useEffect(() => {
     const listener = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -300,7 +302,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     }).catch((e) => { if (active) setLoadError(e.message); });
     return () => { active = false; };
   }, [profileId, sessionId, history]);
-  const compact = useCallback(async () => { if (updateContext?.isReloading()) return; compactingRef.current = true; setCompacting(true); try { await api(`/api/sessions/${sessionId}/compact`, jsonBody({})); await reload(); setCompactNeeded(false); notify("Новые главы сохранены в долгосрочной памяти"); } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить память", true); } finally { compactingRef.current = false; setCompacting(false); } }, [sessionId, reload, notify, updateContext]);
+  const compact = useCallback(async () => { if (updateContext?.isReloading()) return; compactingRef.current = true; setCompacting(true); try { await api(`/api/sessions/${sessionId}/compact`, jsonBody({})); await reload(); setCompactNeeded(false); notify("Новые главы сохранены в долгосрочной памяти", false, `memory-save:${sessionId}`); } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить память", true, `memory-save:${sessionId}`); } finally { compactingRef.current = false; setCompacting(false); } }, [sessionId, reload, notify, updateContext]);
   const commandOwner = snapshot?.isOwner !== false;
   const commandReady = !!snapshot && !loadError;
   const commandActive = snapshot?.session.status === "active";
@@ -322,7 +324,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     setPlayCommands(commands);
     return () => setPlayCommands([]);
   }, [commandReady, commandOwner, commandActive, commandTurn, busy, compacting, compact, setPlayCommands, workspace.reading.motion, sessionId, jumpToTurn]);
-  const restore = async () => { try { await api(`/api/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) }); await reload(); void refresh(); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } };
+  const restore = async () => { try { await api(`/api/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) }); await reload(); void refresh(); notify("История возвращена из архива", false, `campaign-archive:${sessionId}`); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true, `campaign-archive:${sessionId}`); } };
 
   const feedTurns = useMemo(() => snapshot ? buildNarrativeFeed(withCommittedTurn(mergeHistoryTurns(older, snapshot.turns), committedTurn, sessionId), turnRequest.pending, turnRequest.preview) : [],
     [snapshot, older, committedTurn, sessionId, turnRequest.pending, turnRequest.preview]);
@@ -408,7 +410,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             {lastNarrator?.choices?.length ? <div className="gx-choices">{lastNarrator.choices.map((choice, i) => <button className="gx-choice" key={`${i}-${choice}`} onClick={() => void act(choice)} disabled={busy} style={{ animationDelay: `${i * 55}ms` }}><span className="gx-choice-no">{selectedChoice === i ? <LoaderCircle size={14} className="spin" /> : i + 1}</span><p>{choice}</p><ArrowRight className="gx-choice-arrow" size={16} /></button>)}</div> : <p className="gx-free-note">Первое слово — за вами. Опишите действие, с которого начнётся история.</p>}
             <div className="gx-or"><span />или напишите своё<span /></div>
             <form onSubmit={submit} className="gx-input">
-              <ActionEntityInput inputRef={composerRef} value={action} state={interactionState} disabled={busy || !draftReady} onChange={text => { setAction(text); setItemBindings(old => retainedItemBindings(text, old)); }} onItemPick={(id, name) => setItemBindings(old => [...new Map([...old, { id, name }].map(item => [item.id, item])).values()].slice(0, 4))} onSubmit={() => { void act(action); }} onLimit={() => notify("Подсказка не помещается в действие. Лимит — 2000 символов.", true)} />
+              <ActionEntityInput inputRef={composerRef} value={action} state={interactionState} disabled={busy || !draftReady} onChange={text => { setAction(text); setItemBindings(old => retainedItemBindings(text, old)); }} onItemPick={(id, name) => setItemBindings(old => [...new Map([...old, { id, name }].map(item => [item.id, item])).values()].slice(0, 4))} onSubmit={() => { void act(action); }} onLimit={() => notify("Подсказка не помещается в действие. Лимит — 2000 символов.", "warning", `action-limit:${sessionId}`)} />
               <div className="gx-input-foot">
                 <span className="gx-action-kind">{((turnRequest.pending?.action === action.trim() ? turnRequest.pending.custom : classifyAction(action, choices).custom)) ? "Свободное действие" : "Предложенное действие"}</span><span className="gx-counter">{action.length ? `${action.length} / 2000` : "Любое действие имеет значение"}</span>
                 <div className="gx-input-cta"><span className="gx-hint"><CornerDownLeft size={12} />Ctrl + Enter</span><button className="button primary" disabled={busy || !draftReady || !action.trim()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Send size={15} />}Сделать ход</button></div>

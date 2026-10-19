@@ -1,4 +1,5 @@
 "use client";
+import { useFeedbackState } from "./feedback";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LoaderCircle, Save, Sparkles } from "lucide-react";
 import { api, jsonBody } from "@/lib/api-client";
@@ -15,14 +16,15 @@ export function TextProviderSettings({ onDraftChange, onDirtyChange, onSaveReady
   onSaved: (live: boolean, connectionChanged?: boolean) => void; connectionRevision?: number; expanded?: boolean; onEdit?: () => void;
   geminiConfigured?: boolean; geminiProfile?: string; geminiModel?: string; onGeminiProfileChange?: (profile: string) => void; geminiProfileDirty?: boolean; onSaveGeminiProfile?: () => Promise<boolean>; onCancelGeminiProfile?: () => void;
 }) {
+  const [pendingWarning, setPendingWarning] = useState("");
   const [saved,setSaved] = useState<ProviderSettings|null>(null), [provider,setProvider] = useState<Provider>("gemini"), [model,setModel] = useState(""), [live,setLive] = useState(false);
   const [editing,setEditing] = useState(false), [busy,setBusy] = useState(false), [loadingCatalog,setLoadingCatalog] = useState(false);
-  const [error,setError] = useState(""), [message,setMessage] = useState(""), [catalogError,setCatalogError] = useState("");
+  const [error,setError] = useState(""), [message,setMessage] = useFeedbackState<string>("", value => Boolean(value)), [catalogError,setCatalogError] = useState("");
   const [models,setModels] = useState<ModelChoiceEntry[]>([]);
   const [catalogProvider,setCatalogProvider] = useState<Provider|null>(null);
   const revision = useRef(0), catalogRequest = useRef(0), preferenceRequest = useRef(0), loaded = useRef(false), connectingRevision = useRef(0);
   const opened = expanded ?? editing;
-  const changed = () => { revision.current++; onDraftChange?.(); setMessage(""); };
+  const changed = () => { revision.current++; onDraftChange?.(); setMessage("");setPendingWarning(""); };
   const dirty = Boolean(saved && (provider !== saved.provider || model !== saved.model || live !== saved.useLiveAI));
   const load = useCallback(async (connectionOnly = false) => {
     const request = ++preferenceRequest.current;
@@ -49,17 +51,17 @@ export function TextProviderSettings({ onDraftChange, onDirtyChange, onSaveReady
     if (!saved) return false; if (!dirty && !geminiProfileDirty) return true; if (busy) return false;
     if (provider !== "gemini" && !model.trim()) { setError("Выберите модель рассказчика."); return false; }
     const submitted = revision.current, submittedConnection = preferenceRequest.current;
-    setBusy(true); setError(""); setMessage("");
+    setBusy(true); setError(""); setMessage("");setPendingWarning("");
     try { if (provider === "gemini" && geminiProfileDirty && onSaveGeminiProfile && !await onSaveGeminiProfile()) return false;
       if (!dirty) { setMessage("Настройки рассказчика сохранены."); return true; }
       const data = await api<ProviderSettings>("/api/settings/text-provider",jsonBody({provider,model:model.trim(),useLiveAI:live}));
       setSaved(old => submittedConnection !== preferenceRequest.current && old ? {...data,openrouterConfigured:old.openrouterConfigured,pollinationsConfigured:old.pollinationsConfigured,pollinationsKeyExpiresAt:old.pollinationsKeyExpiresAt} : data);
       onSaved(data.useLiveAI);
-      if (submitted !== revision.current) { setMessage("Сохранено. Новые изменения ещё не применены."); return false; }
+      if (submitted !== revision.current) { setPendingWarning("Сохранено. Новые изменения ещё не применены."); return false; }
       setProvider(data.provider); setModel(data.model); setLive(data.useLiveAI); setMessage("Настройки рассказчика сохранены."); return true;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Не удалось сохранить рассказчика."); return false; }
     finally { setBusy(false); }
-  }, [saved,dirty,busy,provider,model,live,onSaved,geminiProfileDirty,onSaveGeminiProfile]);
+  }, [saved,dirty,busy,provider,model,live,onSaved,geminiProfileDirty,onSaveGeminiProfile,setMessage]);
   useEffect(() => { onSaveReady(save); return () => onSaveReady(null); }, [save,onSaveReady]);
   const [clock,setClock] = useState(() => Date.now());
   const expiry = saved?.pollinationsKeyExpiresAt ? Date.parse(saved.pollinationsKeyExpiresAt) : NaN;
@@ -75,10 +77,10 @@ export function TextProviderSettings({ onDraftChange, onDirtyChange, onSaveReady
     {!saved && error && <><p role="alert">{error}</p><button type="button" className="button secondary" onClick={()=>void load()}>Повторить загрузку рассказчика</button></>}
     <div hidden={!opened || !saved} className="ai-task-editor">
       <label className="field"><span>Сервис</span><select aria-label="Провайдер рассказчика" value={provider} disabled={busy} onChange={event=>{changed();const next=event.target.value as Provider;setProvider(next);setModel(next===saved?.provider ? saved.model : "");setError("");}}>{Object.entries(names).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
-      {provider === "gemini" ? <><label className="field"><span>Профиль Gemini</span><select aria-label="Профиль Gemini" value={geminiProfile} onChange={event=>{onDraftChange?.();onGeminiProfileChange?.(event.target.value);}} disabled={!onGeminiProfileChange || busy}><option value="economy">Лёгкое перо · Flash-Lite</option><option value="balanced">Золотая середина · Flash-Lite и Flash</option><option value="flagship">Большой роман · Flash</option>{geminiProfile === "custom" && <option value="custom">Свои модели</option>}</select></label></> : <><ModelChoice models={activeModels} selected={model} label="Модель рассказчика" disabled={busy} onChange={item=>{changed();setModel(item.id);}}/>{loadingCatalog && <p role="status"><LoaderCircle size={14} className="spin"/> Загружаем модели…</p>}{catalogError && <p role="status">{catalogError}</p>}<button type="button" className="text-button" disabled={loadingCatalog} onClick={()=>void loadCatalog()}>Обновить модели рассказчика</button><details className="advanced-models"><summary>Дополнительные настройки модели</summary><label className="field"><span>ID модели</span><input aria-label="Идентификатор модели рассказчика" value={model} maxLength={200} disabled={busy} onChange={event=>{changed();setModel(event.target.value);}} /></label></details></>}
+      {provider === "gemini" ? <><label className="field"><span>Профиль Gemini</span><select aria-label="Профиль Gemini" value={geminiProfile} onChange={event=>{onDraftChange?.();onGeminiProfileChange?.(event.target.value);}} disabled={!onGeminiProfileChange || busy}><option value="economy">Лёгкое перо · Flash-Lite</option><option value="balanced">Золотая середина · Flash-Lite и Flash</option><option value="flagship">Большой роман · Flash</option>{geminiProfile === "custom" && <option value="custom">Свои модели</option>}</select></label></> : <><ModelChoice models={activeModels} selected={model} label="Модель рассказчика" disabled={busy} onChange={item=>{changed();setModel(item.id);}}/>{loadingCatalog && <p role="status"><LoaderCircle size={14} className="spin"/> Загружаем модели…</p>}{catalogError && <p className="notice amber" role="alert">{catalogError}</p>}<button type="button" className="text-button" disabled={loadingCatalog} onClick={()=>void loadCatalog()}>Обновить модели рассказчика</button><details className="advanced-models"><summary>Дополнительные настройки модели</summary><label className="field"><span>ID модели</span><input aria-label="Идентификатор модели рассказчика" value={model} maxLength={200} disabled={busy} onChange={event=>{changed();setModel(event.target.value);}} /></label></details></>}
       <div className="setting-toggle-row"><div><h3>Живой рассказчик</h3><p>Создавать новые ходы с выбранным ИИ.</p></div><button type="button" className={`toggle-switch ${live ? "on" : ""}`} role="switch" aria-checked={live} aria-label="Живой рассказчик" disabled={busy} onClick={()=>{changed();setLive(value=>!value);}}><span/></button></div>
       {!configured && <p className="notice">Подключите сервис в разделе «Подключённые сервисы».</p>}
-      {error && saved && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
+      {error && saved && <p role="alert">{error}</p>}{pendingWarning && <p className="notice amber" role="alert">{pendingWarning}</p>}{message && <p role="status">{message}</p>}
       <div className="ai-task-actions"><button type="button" className="button secondary" disabled={busy || (!dirty && !(provider === "gemini" && geminiProfileDirty))} onClick={()=>void save()}>{busy ? <LoaderCircle size={14} className="spin"/> : <Save size={14}/>}Сохранить рассказчика</button><button type="button" className="text-button" disabled={busy || (!dirty && !(provider === "gemini" && geminiProfileDirty))} onClick={()=>{if(!saved)return;changed();onCancelGeminiProfile?.();setProvider(saved.provider);setModel(saved.model);setLive(saved.useLiveAI);setError("");}}>Отменить выбор рассказчика</button><ContextualHelp title="Рассказчик и память"><p>Настройка рассказчика не меняет иллюстрации. Ключи подключаются отдельно и используются обеими задачами там, где это поддерживается.</p><p>Поиск воспоминаний по смыслу требует отдельного подключения Gemini. Проверка повествования включается в дополнительных настройках и может расходовать свою квоту.</p></ContextualHelp></div>
     </div>
   </section>;

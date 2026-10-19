@@ -1,4 +1,5 @@
 "use client";
+import { useFeedbackState } from "./feedback";
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -67,7 +68,7 @@ export function DeveloperSettings({ onClose, returnLabel = "Вернуться",
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useFeedbackState<{ ok: boolean; text: string } | null>(null, value => value?.ok === true);
   const [confirmClose, setConfirmClose] = useState(false);
   const [pendingTarget, setPendingTarget] = useState<string | null>(null);
   const pendingHistoryLeave = useRef<(() => void) | null>(null);
@@ -81,7 +82,7 @@ export function DeveloperSettings({ onClose, returnLabel = "Вернуться",
       .then(([value, recent]) => { setSettings(value); setPilotEnabled(value.pilotEnabled); setResults(recent.results.filter(isTypeSafeResult)); })
       .catch((error) => setMessage({ ok: false, text: error instanceof Error ? error.message : "Не удалось загрузить настройки TypeSafe." }))
       .finally(() => setLoading(false));
-  }, []);
+  }, [setMessage]);
 
   const dirty = settings !== null && (pilotEnabled !== settings.pilotEnabled || Boolean(key.trim()));
   const releaseHistory = useDirtyHistory(dirty, (leave) => {
@@ -171,7 +172,7 @@ export function DeveloperSettings({ onClose, returnLabel = "Вернуться",
         {settings.maskedKey && <div className="saved-key"><ShieldCheck size={13} /><code>{settings.maskedKey}</code><span>{settings.source === "env" ? "TYPESAFE_API_KEY · приоритет" : "Сохранён на сервере"}</span>{settings.storedConfigured && <button className="icon-button" onClick={() => void removeKey()} disabled={saving} aria-label="Удалить сохранённый ключ TypeSafe"><Trash2 size={13} /></button>}</div>}
         <div className="settings-divider" /><div className="setting-toggle-row"><div><h3>Пробная проверка</h3><p>Сохранять оценки фактов для изучения качества.</p></div><button className={`toggle-switch ${pilotEnabled ? "on" : ""}`} role="switch" aria-checked={pilotEnabled} aria-label="Пробная проверка TypeSafe" onClick={() => setPilotEnabled((value) => !value)}><span /></button></div>
         <div className="connection-test"><button className="button secondary" disabled={testing || !settings.configured} onClick={() => void testConnection()}>{testing ? <LoaderCircle className="spin" size={14} /> : <Wifi size={14} />}{testing ? "Проверяем…" : "Проверить подключение"}</button><span>Отправляет запрос в TypeSafe и расходует квоту, даже если пробная проверка выключена</span></div>
-        {message && <div className={`notice ${message.ok ? "" : "error-notice"}`} role="status">{message.ok ? <Check size={15} /> : <ShieldCheck size={15} />}<p>{message.text}</p></div>}
+        {message && <div className={`notice ${message.ok ? "" : "error-notice"}`} role={message.ok ? "status" : "alert"}>{message.ok ? <Check size={15} /> : <ShieldCheck size={15} />}<p>{message.text}</p></div>}
       </section>
       <section className="settings-card"><div className="settings-card-heading"><span className="feature-icon teal"><RefreshCw size={20} /></span><div><h2>Последние проверки</h2><p>До 20 завершённых заданий с диагностикой Jev.</p></div><button className="button secondary" onClick={() => void loadResults().catch(() => setMessage({ ok: false, text: "Не удалось обновить результаты." }))}><RefreshCw size={13} />Обновить</button></div>
         {results.length === 0 ? <p className="settings-footnote">Результатов пока нет.</p> : results.map((item) => <details className="advanced-models" key={item.id}><summary><span><strong>{item.campaignTitle} · ход {item.turnNumber}</strong><small>{statusLabels[item.report.status]} · {item.report.evaluations.length} оценок · {item.report.latencyMs} мс</small></span><span>{new Date(item.completedAt).toLocaleString("ru-RU")}</span></summary><div className="fields">{item.report.error && <div className="notice error-notice"><p>{item.report.error}</p></div>}{item.report.evaluations.map((evaluation) => <div className="setting-explainer" key={evaluation.factIndex}><div><strong>{verdictLabel(evaluation.choice)} · {Math.round(evaluation.confidence * 100)}%</strong><p>{evaluation.fact}</p><small>Цитата: «{evaluation.evidence}»</small><small>Подтверждение {Math.round(evaluation.probabilities.supports * 100)}% · противоречие {Math.round(evaluation.probabilities.contradicts * 100)}% · недостаточно данных {Math.round(evaluation.probabilities.unsupported * 100)}%</small></div></div>)}</div></details>)}

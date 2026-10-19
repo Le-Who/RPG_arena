@@ -286,3 +286,9 @@ kbd,.kbd{display:inline-flex;align-items:center;justify-content:center;min-width
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+
+/* Action failures share a visible surface even when rendered by a small inline form. */
+[role="alert"]:not(.amber):not(.feedback-warning){padding:12px 16px;border:1px solid var(--bad-line);border-inline-start:4px solid var(--bad);border-radius:var(--r-sm);background:var(--bad-soft);color:var(--bad);line-height:1.6;overflow-wrap:anywhere}
+[role="alert"]:not(.form-error):not(.feedback-notification){display:block}
+[role="alert"] p{color:inherit}
+.notice.amber[role="alert"]{border-inline-start:4px solid var(--warn)}

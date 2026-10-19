@@ -26,7 +26,7 @@ export function AccountSettings({ unsaved }: { unsaved: boolean }) {
       const next = parseIdentityResponse(await api(`/api/auth/${action}`, jsonBody(body)));
       setPassword(""); setOldPassword(""); setNewPassword(""); setAdopting(false);
       await applyIdentityChange(next);
-      notify(action === "password" ? "Пароль изменён. Войдите заново на нужных устройствах." : action === "adopt-guest" ? "Гостевые кампании перенесены в аккаунт." : action === "login" ? "Вы вошли в аккаунт." : action === "register" ? "Аккаунт создан." : action === "logout" || action === "logout-all" ? "Вы вышли из аккаунта." : "Профиль обновлён.");
+      notify(action === "password" ? "Пароль изменён. Войдите заново на нужных устройствах." : action === "adopt-guest" ? "Гостевые кампании перенесены в аккаунт." : action === "login" ? "Вы вошли в аккаунт." : action === "register" ? "Аккаунт создан." : action === "logout" || action === "logout-all" ? "Вы вышли из аккаунта." : "Профиль обновлён.", false, "identity", next.profileId);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Не удалось обновить профиль."); }
     finally { setBusy(false); }
   }

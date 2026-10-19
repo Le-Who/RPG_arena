@@ -57,8 +57,8 @@ export function StoryRecords({ mode }: { mode: "memory" | "journal" }) {
   };
   const reindex = async () => {
     setIndexing(true);
-    try { const result = await api<{ indexed: number; failed: number; pending: number; indexing?: { indexed: number } }>(`/api/sessions/${sessionId}/memory/reindex`, jsonBody({})); await load(); notify(`Подготовлено к поиску: ${result.indexed ?? result.indexing?.indexed ?? 0} новых записей.`); }
-    catch (e) { notify(e instanceof Error ? e.message : "Не удалось подготовить записи к поиску", true); } finally { setIndexing(false); }
+    try { const result = await api<{ indexed: number; failed: number; pending: number; indexing?: { indexed: number } }>(`/api/sessions/${sessionId}/memory/reindex`, jsonBody({})); await load(); notify(`Подготовлено к поиску: ${result.indexed ?? result.indexing?.indexed ?? 0} новых записей.`, false, `memory-index:${sessionId}`); }
+    catch (e) { notify(e instanceof Error ? e.message : "Не удалось подготовить записи к поиску", true, `memory-index:${sessionId}`); } finally { setIndexing(false); }
   };
 
   const memories = useMemo(() => {

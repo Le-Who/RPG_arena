@@ -29,6 +29,7 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
     const errors: string[] = [];
     page.on("pageerror", error => { errors.push(error.message); console.error(`Gallery browser error: ${error.message}`); });
+    let failLoad = true;
     let authenticated = true;
     let enabled = true;
     let status = "failed";
@@ -36,7 +37,7 @@ async function main() {
     let provider = "pollinations", visualProvider = "pollinations";
     let availableAccounts: { application: boolean; personal: boolean } | undefined;
     const attempts: { retry: string | null; number: string | null }[] = [];
-    await page.route("**/api/sessions/fixture/visuals", route => route.fulfill({ json: {
+    await page.route("**/api/sessions/fixture/visuals", route => failLoad ? route.fulfill({ status: 503, json: { message: "Галерея временно недоступна" } }) : route.fulfill({ json: {
       visuals: [{ id: "failed-image", kind: "scene", subjectKey: "scene:1", turnNumber: 1, caption: "Чай в кафе", provider: visualProvider, model: "synthetic", accountSource: visualAccountSource, generationBlocked, seed: 1, status, error: "Сервис не ответил", width: 320, height: 180 }],
       identities: [], config: { enabled, authenticated, provider, accountSource, availableAccounts, model: "synthetic", dailyLimit: 10 },
     } }));
@@ -48,6 +49,10 @@ async function main() {
         : route.fulfill({ status: 200, contentType: "image/png", body: png });
     });
     await page.goto(base + "/owner");
+    await expect(page.getByRole("alert")).toContainText("Галерея временно недоступна");
+    failLoad = false;
+    await page.getByRole("button", { name: "Повторить загрузку галереи", exact: true }).click();
+    await expect(page.getByRole("alert")).toHaveCount(0);
     const help = page.getByRole("button", { name: "Справка: Образы истории", exact: true });
     await help.focus();
     await page.keyboard.press("Enter");
@@ -86,7 +91,7 @@ async function main() {
     authenticated = true;
     enabled = false;
     await page.goto(base + "/disabled-failed");
-    await expect(page.getByText("Визуализация отключена администратором.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Создание иллюстраций выключено. Уже созданные изображения остаются доступны.", { exact: true })).toBeVisible();
     await expect(retry).toHaveCount(0);
     await expect(page.getByRole("img")).toHaveCount(0);
     expect(attempts).toHaveLength(2);
@@ -133,7 +138,7 @@ async function main() {
     await expect(page.getByText(/Выбранный аккаунт OpenRouter недоступен/)).toBeVisible();
     expect(attempts).toHaveLength(4);
     expect(errors).toEqual([]);
-    await writeFile(`${output}/result.json`, JSON.stringify({ checks: ["stored-failure-does-not-auto-retry", "keyboard-retry", "failure-can-retry-again", "loaded-real-png", "mobile-no-overflow", "viewer-cannot-generate", "unconfigured-cannot-retry", "disabled-no-retry", "disabled-no-pending-generation", "disabled-keeps-saved-images-readable", "retry-uses-recorded-payer-availability", "transferred-personal-generation-blocked", "payer-layout-1280-390-320", "help-opens-by-keyboard-and-restores-focus", "openrouter-new-payer-pollinations-recorded-payer", "openrouter-unavailable-shows-service"], attempts, errors, scope: "actual gallery; Next Link stubbed, synthetic HTTP/images" }, null, 2));
+    await writeFile(`${output}/result.json`, JSON.stringify({ checks: ["initial-load-failure-is-visible-and-retryable", "stored-failure-does-not-auto-retry", "keyboard-retry", "failure-can-retry-again", "loaded-real-png", "mobile-no-overflow", "viewer-cannot-generate", "unconfigured-cannot-retry", "disabled-no-retry", "disabled-no-pending-generation", "disabled-keeps-saved-images-readable", "retry-uses-recorded-payer-availability", "transferred-personal-generation-blocked", "payer-layout-1280-390-320", "help-opens-by-keyboard-and-restores-focus", "openrouter-new-payer-pollinations-recorded-payer", "openrouter-unavailable-shows-service"], attempts, errors, scope: "actual gallery; Next Link stubbed, synthetic HTTP/images" }, null, 2));
     console.log(`Visual gallery Chromium checks passed: ${output}`);
   } finally {
     await browser.close();

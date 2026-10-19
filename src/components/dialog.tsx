@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
@@ -47,6 +47,10 @@ const ParentDialog = createContext<RefObject<DialogLayer | null> | null>(null);
 // Portals are body siblings even when dialogs are nested in React. One owner must
 // restore background attributes and scroll locking only after the last active layer.
 const layers: DialogLayer[] = [];
+const layerSubscribers = new Set<() => void>();
+const subscribeLayers = (listener: () => void) => { layerSubscribers.add(listener); return () => { layerSubscribers.delete(listener); }; };
+const activeDialog = () => topLayer()?.element ?? null;
+export function useActiveDialogElement() { return useSyncExternalStore(subscribeLayers, activeDialog, () => null); }
 const backgroundInert = new Map<Element, string | null>();
 let observer: MutationObserver | null = null;
 let originalOverflow = "";
@@ -121,6 +125,7 @@ function syncModalBackground() {
     document.removeEventListener("keydown", onModalKey);
     document.removeEventListener("focusin", keepModalFocus);
   }
+  for (const listener of layerSubscribers) listener();
 }
 
 function registerLayer(layer: DialogLayer) {

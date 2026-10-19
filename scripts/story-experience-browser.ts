@@ -23,6 +23,34 @@ async function main() {
     const errors: string[] = [];
     page.on("pageerror", e => errors.push(e.message));
     const base = process.env.SMOKE_BASE_URL ?? "http://localhost:3010";
+    const retryPage = await browser.newPage({ viewport: { width: 390, height: 740 } });
+    await installUiMock(retryPage); retryPage.on("pageerror", e => errors.push(e.message));
+    let failProfile = true;
+    await retryPage.route("**/api/workspace", route => {
+      if (route.request().method() === "PATCH" && failProfile) { failProfile = false; return route.fulfill({ status: 503, json: { message: "Не удалось сохранить имя: проверка повтора" } }); }
+      if (route.request().method() === "PATCH") { expect(route.request().postDataJSON()).toEqual({ displayName: "Искатель историй" }); return route.fulfill({ json: { ok: true } }); }
+      return route.fallback();
+    });
+    await retryPage.goto(`${base}/settings`);
+    await retryPage.locator("#profile").getByRole("button", { name: "Сохранить", exact: true }).click();
+    await expect(retryPage.getByRole("alert").filter({ hasText: "Не удалось сохранить имя: проверка повтора" })).toBeInViewport();
+    await retryPage.locator("#profile").getByRole("button", { name: "Сохранить", exact: true }).click();
+    await expect(retryPage.getByText("Имя профиля сохранено", { exact: true })).toBeVisible();
+    await expect(retryPage.getByText("Не удалось сохранить имя: проверка повтора", { exact: true })).toHaveCount(0);
+    await retryPage.getByRole("button", { name: "Изменить рассказчика", exact: true }).click();
+    await retryPage.getByLabel("Профиль Gemini", { exact: true }).selectOption("economy");
+    let failGemini = true;
+    await retryPage.route("**/api/settings", route => {
+      if (route.request().method() === "POST" && failGemini) { failGemini = false; return route.fulfill({ status: 503, json: { message: "Профиль Gemini: проверка повторного общего сохранения" } }); }
+      if (route.request().method() === "POST") { const submitted = route.request().postDataJSON(); expect(submitted.routingProfile).toBe("economy"); return route.fulfill({ json: { ...mockSettings, ...submitted } }); }
+      return route.fallback();
+    });
+    await retryPage.getByRole("button", { name: "Сохранить рассказчика", exact: true }).click();
+    await expect(retryPage.getByText("Профиль Gemini: проверка повторного общего сохранения", { exact: true })).toBeVisible();
+    await retryPage.getByRole("button", { name: "Сохранить настройки", exact: true }).click();
+    await expect(retryPage.getByText("Настройки сохранены.", { exact: true })).toBeVisible();
+    await expect(retryPage.getByText("Профиль Gemini: проверка повторного общего сохранения", { exact: true })).toHaveCount(0);
+    await retryPage.close(); console.log("PASS successful profile retry resolves its persistent error in actual Next application");
     for (const width of [1440, 390]) {
       const repaired = await browser.newPage({ viewport: { width, height: 900 } });
       await installUiMock(repaired);
@@ -172,7 +200,7 @@ async function main() {
     const rejectedSave = await failedSave;
     assert.equal(rejectedSave.status(), 503);
     await rejectedSave.finished();
-    await expect(overlayHistoryPage.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true }).getByRole("alert")).toBeVisible();
+    await expect(overlayHistoryPage.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true }).getByRole("alert").filter({ hasText: "Не все изменения сохранены" })).toBeVisible();
     await expect(overlayHistoryPage.getByText("Синтетическая ошибка сохранения", { exact: true })).toBeVisible();
     await expect(overlaySettings).toBeVisible();
     await expect(overlaySettings.locator('input[aria-label="API-ключ Gemini"]:visible')).toHaveValue("overlay-save-key");

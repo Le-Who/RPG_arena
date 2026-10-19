@@ -10,6 +10,7 @@ import { DEFAULT_READING, cacheReading, clearCachedReading, normalizeReading, re
 import { canSeeAdministration, createWorkspaceLoadGate, parseWorkspaceSnapshot, profileChanged, type IdentityView } from "@/lib/ui-identity";
 import type { ReadingPreferences } from "@/db/schema";
 import { Dialog } from "./dialog";
+import { NotificationViewport, useNotifications } from "./feedback";
 import { SettingsOverlay } from "./settings-overlay";
 import { CommandPalette } from "./command-palette";
 import { InstallAppButton } from "./pwa";
@@ -18,7 +19,7 @@ import { AppUpdateProvider, useAppUpdateGuard } from "./app-update";
 import { UPDATE_DRAFT_KEY } from "@/lib/update-draft";
 import { PRODUCT_INFO, PRODUCT_REVIEWED_LABEL } from "@/lib/product-info";
 export type PlayCommand = { id: string; label: string; run: () => void; jumpToTurn?: (turn: number) => void; maxTurn?: number };
-type AppContext = { playCommands: PlayCommand[]; setPlayCommands: (commands: PlayCommand[]) => void; identity: IdentityView | null; administration: boolean; hasOpenDraft: boolean; applyIdentityChange: (identity: IdentityView) => Promise<void>; settingsOpen: boolean; openSettings: (section?: string) => void; sessions: Session[]; settings: Settings | null; acceptSettings: (settings: Settings, profileId: string | undefined) => void; workspace: Workspace; loading: boolean; loadError: string; refresh: () => Promise<void>; newStory: (id?: string, mode?: "preset" | "free") => void; notify: (message: string, error?: boolean) => void; toggleFavorite: (id: string) => Promise<void>; updateReading: (reading: ReadingPreferences) => Promise<void>; showGuide: () => void };
+type AppContext = { playCommands: PlayCommand[]; setPlayCommands: (commands: PlayCommand[]) => void; identity: IdentityView | null; administration: boolean; hasOpenDraft: boolean; applyIdentityChange: (identity: IdentityView) => Promise<void>; settingsOpen: boolean; openSettings: (section?: string) => void; sessions: Session[]; settings: Settings | null; acceptSettings: (settings: Settings, profileId: string | undefined) => void; workspace: Workspace; loading: boolean; loadError: string; refresh: () => Promise<void>; newStory: (id?: string, mode?: "preset" | "free") => void; notify: (message: string, error?: boolean | "warning", scope?: string, ownerProfileId?: string) => void; resolveNotification: (scope: string) => void; toggleFavorite: (id: string) => Promise<void>; updateReading: (reading: ReadingPreferences) => Promise<void>; showGuide: () => void };
 const Context = createContext<AppContext | null>(null);
 export function useApp() { const value = useContext(Context); if (!value) throw new Error("App context missing"); return value; }
 const navigation = [
@@ -73,9 +74,16 @@ function AppShellContent({ children }: { children: ReactNode }) {
     const url = new URL(anchor.getAttribute("href")!, window.location.href);
     if (url.origin === window.location.origin && url.pathname === "/settings") { event.preventDefault(); event.stopPropagation(); openSettings(url.hash.slice(1)); }
   };
-  const [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
+  const { notifications, publish, dismiss: dismissNotification, clear: clearNotifications, clearScope } = useNotifications();
   const [favoriteBusy, setFavoriteBusy] = useState(false);
-  const notify = useCallback((text: string, error = false) => setToast({ text, error }), []);
+  const notificationOwner = identity?.profileId;
+  const notify = useCallback((text: string, error: boolean | "warning" = false, scope?: string, ownerProfileId = notificationOwner) => {
+    if (ownerProfileId !== identityRef.current?.profileId) return;
+    publish(text, error, scope);
+  }, [notificationOwner, publish]);
+  const resolveNotification = useCallback((scope: string) => {
+    if (notificationOwner === identityRef.current?.profileId) clearScope(scope);
+  }, [notificationOwner, clearScope]);
   const clearPrivateWorkspace = useCallback((profileId?: string) => {
       setContentGeneration(value => value + 1);
       settingsRevision.current++;
@@ -84,9 +92,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
       for (const [name, value] of Object.entries(readingAttributes(DEFAULT_READING))) document.documentElement.setAttribute(name, value);
       setWorkspaceLoaded(false);
       setSessions([]); setSettings(null); setWorkspace({ id: profileId, displayName: "Искатель историй", favorites: [], reading: DEFAULT_READING });
-      setCreator(null); setDialog(null); setPlayCommands([]); setToast(null); setFavoriteBusy(false);
+      setCreator(null); setDialog(null); setPlayCommands([]); clearNotifications(); setFavoriteBusy(false);
       if (window.location.pathname.startsWith("/play/")) router.replace("/");
-  }, [router]);
+  }, [router, clearNotifications]);
   const acceptIdentity = useCallback((next: IdentityView) => {
     if (profileChanged(identityRef.current, next)) clearPrivateWorkspace(next.profileId);
     identityRef.current = next;
@@ -147,7 +155,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
     const attributes = readingAttributes(workspace.reading);
     for (const [name, value] of Object.entries(attributes)) root.setAttribute(name, value);
   }, [workspaceLoaded, workspace.reading]);
-  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 4500); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => { const key = (e: KeyboardEvent) => { if (!document.querySelector('[role="dialog"]:not([hidden])') && (e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setDialog("search"); } }; document.addEventListener("keydown", key); return () => document.removeEventListener("keydown", key); }, []);
   const newStory = useCallback((id?: string, mode: "preset" | "free" = "preset") => { setDialog(null); setCreator({ id, mode }); }, []);
   const closeCreator = useCallback(() => setCreator(null), []);
@@ -159,8 +166,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
     const profileId = identityRef.current?.profileId;
     const favorites = workspace.favorites.includes(id) ? workspace.favorites.filter((s) => s !== id) : [...workspace.favorites, id];
     setWorkspace({ ...workspace, favorites });
-    try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ favorites }) }); }
-    catch (error) { if (profileId === identityRef.current?.profileId) { setWorkspace(previous); notify(error instanceof Error ? error.message : "Не удалось сохранить", true); } }
+    try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ favorites }) }); if (profileId === identityRef.current?.profileId) clearScope("favorites"); }
+    catch (error) { if (profileId === identityRef.current?.profileId) { setWorkspace(previous); notify(error instanceof Error ? error.message : "Не удалось сохранить", true, "favorites"); } }
     finally { if (profileId === identityRef.current?.profileId) setFavoriteBusy(false); }
   };
   const updateReading = useCallback(async (reading: ReadingPreferences) => {
@@ -170,9 +177,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
     let previous: Workspace | null = null;
     setWorkspace((old) => { previous = old; return { ...old, reading: next }; });
     cacheReading(next);
-    try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ reading: next }) }); }
-    catch (error) { if (profileId === identityRef.current?.profileId) { if (previous) setWorkspace(previous); cacheReading(previousReading); notify(error instanceof Error ? error.message : "Не удалось сохранить настройки чтения", true); } }
-  }, [notify, workspace.reading]);
+    try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ reading: next }) }); if (profileId === identityRef.current?.profileId) clearScope("reading"); }
+    catch (error) { if (profileId === identityRef.current?.profileId) { if (previous) setWorkspace(previous); cacheReading(previousReading); notify(error instanceof Error ? error.message : "Не удалось сохранить настройки чтения", true, "reading"); } }
+  }, [notify, workspace.reading, clearScope]);
   const title = [...navigation, ...tools, { href: "/settings", label: "Настройки" }, { href: "/blueprint", label: "О движке" }].find((item) => item.href === pathname)?.label ?? "Ваша история";
   const live = canUseLiveNarrator(settings);
   const activeCount = sessions.filter((s) => s.status === "active").length;
@@ -183,7 +190,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
     return null;
   } });
   const navItem = (item: (typeof navigation)[number]) => <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} onClick={() => setSidebar(false)}><item.icon size={18} strokeWidth={1.65} /><span>{item.label}</span>{item.href === "/campaigns" && activeCount > 0 && <span className="nav-count">{activeCount}</span>}{item.href === "/worlds" && <span className="nav-count neutral">{WORLDS.length}</span>}</Link>;
-  return <Context.Provider value={{ playCommands, setPlayCommands, identity, administration, hasOpenDraft: creator !== null, applyIdentityChange, settingsOpen, openSettings, sessions, settings, acceptSettings, workspace, loading, loadError, refresh, newStory, notify, toggleFavorite, updateReading, showGuide: () => setDialog("guide") }}>
+  return <Context.Provider value={{ playCommands, setPlayCommands, identity, administration, hasOpenDraft: creator !== null, applyIdentityChange, settingsOpen, openSettings, sessions, settings, acceptSettings, workspace, loading, loadError, refresh, newStory, notify, resolveNotification, toggleFavorite, updateReading, showGuide: () => setDialog("guide") }}>
     <div className="shell-root" data-sidebar-collapsed={!mobile && desktopCollapsed ? "true" : "false"} onClickCapture={interceptSettings}><div inert={settingsOpen || !!creator || !!dialog}>
     <a className="skip-link" href="#main-content">Перейти к содержимому</a>
     {sidebar && <div className="mobile-shade" onClick={() => setSidebar(false)} />}
@@ -208,7 +215,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
     {dialog === "guide" && <Dialog onClose={closeDialog} title="Как это работает" suspended={settingsOpen}><span className="dialog-emblem"><Compass size={27} /></span><div className="eyebrow">ВАША ИСТОРИЯ, ВАШИ ПРАВИЛА</div><h2>Здесь нет неправильного пути</h2><p className="dialog-intro">Chronicle Engine — интерактивная история, в которой вы не зритель, а главный герой.</p><div className="guide-steps">{[{ n: "01", title: "Найдите свой мир", text: "Выберите авторский сценарий или придумайте собственный сеттинг — от уютной драмы до далёких галактик." }, { n: "02", title: "Сделайте первый шаг", text: "Выбирайте предложенные действия или пишите свои. Продолжение и последствия появятся в истории." }, { n: "03", title: "Оставьте след в истории", text: "Предметы, отношения и принятые решения сохраняются. К важным событиям можно вернуться в журнале и памяти мира." }].map((step) => <div key={step.n}><span>{step.n}</span><section><h3>{step.title}</h3><p>{step.text}</p></section></div>)}</div><div className="notice"><Sparkles size={17} /><p>Готовые сценарии доступны в базовом режиме. Для свободной истории подключите рассказчика в настройках.</p></div><button className="button primary full-width" onClick={() => newStory()}>Отправиться в приключение <ArrowRight size={16} /></button></Dialog>}
     {dialog === "updates" && <Dialog onClose={closeDialog} title="Обновления" suspended={settingsOpen}><span className="pill violet">CHRONICLE {PRODUCT_INFO.version}</span><h2>Ваши истории<br />и новые возможности.</h2><p className="dialog-intro">Обновление {PRODUCT_INFO.version} · сведения проверены {PRODUCT_REVIEWED_LABEL}.</p><div className="update-list">{["В «Жизни» можно отметить исход договорённости, перенести её или открыть заново", "Подробности последствий показывают прежние и новые значения ресурсов", "Введите «ход 12» в палитре Ctrl/⌘ K, чтобы перейти к записи", "Скачайте HTML-книгу, чтобы читать историю без сети", "Новую версию можно применить по кнопке с сохранением черновика; незавершённый ход защищён от перезагрузки"].map((text) => <p key={text}><Check size={17} />{text}</p>)}</div><Link href="/blueprint" onClick={closeDialog} className="button secondary full-width">Заглянуть под капот <ArrowRight size={16} /></Link></Dialog>}
     {dialog === "search" && <CommandPalette key={identity?.profileId} onClose={closeDialog} suspended={settingsOpen} />}
-    {toast && <div className={`toast ${toast.error ? "toast-error" : ""}`} role="status" inert={settingsOpen || !!creator || !!dialog}>{toast.error ? <HelpCircle size={18} /> : <Check size={18} />}<span>{toast.text}</span><button className="icon-button" aria-label="Закрыть уведомление" onClick={() => setToast(null)}><X size={15} /></button></div>}
+    <NotificationViewport notifications={notifications} dismiss={dismissNotification} />
     </div>
   </Context.Provider>;
 }

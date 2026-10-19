@@ -1,4 +1,5 @@
 "use client";
+import { useFeedbackState } from "./feedback";
 
 import { useCallback, useEffect, useState } from "react";
 import { LoaderCircle, ShieldCheck } from "lucide-react";
@@ -19,7 +20,7 @@ export function NarrativeSettings({ onDraftChange, onDirtyChange, onSaveReady }:
   const [clearKey, setClearKey] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useFeedbackState<string>("", value => Boolean(value));
   const dirty = Boolean(saved && (provider !== saved.provider || enabled !== saved.enabled || key.trim() || clearKey));
   const load = useCallback(() => {
     return api<NarrativeSettingsView>("/api/settings/narrative").then(result => {
@@ -41,7 +42,7 @@ export function NarrativeSettings({ onDraftChange, onDirtyChange, onSaveReady }:
       setError(cause instanceof Error ? cause.message : "Не удалось сохранить настройки проверки.");
       return false;
     } finally { setBusy(false); }
-  }, [busy, clearKey, dirty, enabled, key, provider]);
+  }, [busy, clearKey, dirty, enabled, key, provider, setMessage]);
   useEffect(() => { onSaveReady(save); return () => onSaveReady(null); }, [onSaveReady, save]);
   const configured = Boolean(key.trim() || (saved?.configured && !clearKey && provider === saved.provider));
   return <section className="settings-card">

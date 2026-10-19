@@ -134,7 +134,7 @@ async function main() {
     await expect(composer).toHaveValue(draft);
     expect(await second.evaluate(id => sessionStorage.getItem(`chronicle:pending:${id}`), mockSessionId)).toBe(pendingBefore);
     await second.getByRole("button", { name: "Обновить приложение", exact: true }).click();
-    await expect(second.getByRole("status").filter({ hasText: "Дождитесь завершения или восстановления хода" })).toBeVisible();
+    await expect(second.getByRole("alert").filter({ hasText: "Дождитесь завершения или восстановления хода" })).toBeVisible();
     expect([navigationCounts.get(first), navigationCounts.get(second)]).toEqual(navigationBefore);
     await second.getByRole("button", { name: "Отложить действие", exact: true }).click();
     expect(await second.evaluate(async url => (await fetch(url)).text(), oldAsset)).toBe(oldScript);

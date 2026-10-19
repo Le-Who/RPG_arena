@@ -10,7 +10,7 @@ import { parseTurnQuery } from "@/lib/command-query";
 
 type Command = { id: string; label: string; detail: string; keywords?: string; icon: LucideIcon; run: () => void };
 export function CommandPalette({ onClose, suspended = false }: { onClose: () => void; suspended?: boolean }) {
-  const { sessions, newStory, openSettings, workspace, updateReading, notify, identity, administration, playCommands } = useApp();
+  const { sessions, newStory, openSettings, workspace, updateReading, notify, resolveNotification, identity, administration, playCommands } = useApp();
   const router = useRouter();
   const storageKey = identity ? profileStorageKey(identity, "recent-commands") : null;
   const [query, setQuery] = useState("");
@@ -55,7 +55,7 @@ export function CommandPalette({ onClose, suspended = false }: { onClose: () => 
   const active = Math.min(selected, Math.max(0, filtered.length - 1));
   const execute = (command: Command) => {
     try { if (storageKey) localStorage.setItem(storageKey, JSON.stringify([command.id, ...recentIds.filter(id => id !== command.id)].slice(0, 5))); } catch {}
-    try { command.run(); } catch { notify("Не удалось выполнить команду. Попробуйте ещё раз.", true); }
+    try { command.run(); resolveNotification(`command:${command.id}`); } catch { notify("Не удалось выполнить команду. Попробуйте ещё раз.", true, `command:${command.id}`); }
   };
   const move = (next: number) => {
     if (!filtered.length) return;

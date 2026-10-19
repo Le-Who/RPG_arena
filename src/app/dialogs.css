@@ -91,3 +91,5 @@
   .settings-card-heading>.pill{margin-left:auto}
   .checkpoint-content,.checkpoint-hero,.map-dialog>.dialog-body{padding:16px}
 }
+
+.creator-submit>.form-error{flex:1 0 100%;margin:0;max-height:25dvh;overflow-y:auto}
