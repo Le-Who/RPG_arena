@@ -27,7 +27,11 @@ export async function proxy(req: NextRequest) {
     const response = NextResponse.next(); response.headers.set("Cache-Control", "no-store"); return response;
   }
   const existing = req.cookies.get(GUEST_COOKIE)?.value;
-  const token = profileIdFromToken(existing) && await auth.guestProfile(existing) ? existing! : newGuestToken();
+  // Repair at identity boundaries, not independently in parallel data requests:
+  // otherwise an old consumed token can receive several competing replacements.
+  // Ordinary APIs still resolve fresh identity and reject consumed guests in handlers.
+  const needsDatabaseIdentity = req.nextUrl.pathname === "/api/bootstrap" || req.nextUrl.pathname.startsWith("/api/auth/") || req.nextUrl.pathname.startsWith("/system");
+  const token = profileIdFromToken(existing) && (!needsDatabaseIdentity || await auth.guestProfile(existing)) ? existing! : newGuestToken();
   req.cookies.set(GUEST_COOKIE, token);
   const response = NextResponse.next({ request: { headers: req.headers } });
   if (token !== existing) response.cookies.set(GUEST_COOKIE, token, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production" || req.nextUrl.protocol === "https:", path: "/", maxAge: GUEST_MAX_AGE });

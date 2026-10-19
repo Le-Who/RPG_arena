@@ -29,8 +29,9 @@ async function main() {
       const [settings,setSettings]=useState(${JSON.stringify(initialSettings)});
       const [notices,setNotices]=useState([]);
       const refresh=useCallback(async()=>{const r=await fetch('/api/settings');setSettings(await r.json())},[]);
+      const acceptSettings=useCallback(value=>setSettings(value),[]);
       const notify=useCallback((message,error=false)=>setNotices(old=>[...old,{message,error}]),[]);
-      const value={settings,workspace:{displayName:'Гость',favorites:[],reading:{textScale:'normal',measure:'normal',theme:'midnight',motion:'reduced'}},identity:null,administration:false,loading:false,hasOpenDraft:false,refresh,notify,updateReading:async()=>{}};
+      const value={settings,workspace:{displayName:'Гость',favorites:[],reading:{textScale:'normal',measure:'normal',theme:'midnight',motion:'reduced'}},identity:null,administration:false,loading:false,hasOpenDraft:false,refresh,acceptSettings,notify,updateReading:async()=>{}};
       return <Context.Provider value={value}>{children}<aside aria-label="Уведомления фикстуры">{notices.map((n,i)=><p key={i} data-error={n.error}>{n.message}</p>)}</aside></Context.Provider>
     }`;
   const bundle = await build({ stdin: { contents: `
@@ -147,11 +148,11 @@ async function main() {
             if (settingsWrites.length === 1) {
               await firstSave.promise;
               settingsState = { ...initialSettings, dailyFlashLimit: 30, keysCount: 1, keysMasked: ["••••draft-a"] };
-              body = { ok: true };
+              body = { ok: true, ...settingsState };
             } else if (settingsWrites.length === 2) { status = 503; body = { code: "UNAVAILABLE", message: "Общие настройки временно недоступны" }; }
             else if (settingsWrites.length === 3) {
               settingsState = { ...initialSettings, dailyFlashLimit: 41, keysCount: 2, keysMasked: ["••••draft-a", "••••draft-b"] };
-              body = { ok: true };
+              body = { ok: true, ...settingsState };
             } else { unexpected.push("extra settings write"); status = 500; body = {}; }
           }
         } else { unexpected.push(url.pathname); status = 500; body = {}; }

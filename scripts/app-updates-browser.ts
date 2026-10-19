@@ -193,7 +193,7 @@ async function main() {
     await offlinePage.screenshot({ path: `${output}/offline-public-shell.png` });
     await expect(first.getByRole("textbox", { name: "Ваше действие", exact: true })).toHaveValue("Отложенный черновик после восстановления");
     await context.setOffline(false);
-    await expect(offlinePage.getByRole("status")).toHaveText("Сеть снова доступна — можно вернуться к истории.");
+    await expect(offlinePage.getByRole("status")).toHaveText("Устройство видит сеть. Попробуйте снова открыть историю.");
     await offlinePage.getByRole("button", { name: "Повторить", exact: true }).click();
     await expect(offlinePage.locator('meta[name="chronicle-build"]')).toHaveAttribute("content", "update-fixture-b");
     await expect(offlinePage.getByRole("textbox", { name: "Ваше действие", exact: true })).toBeEditable();

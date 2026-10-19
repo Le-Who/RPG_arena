@@ -14,6 +14,13 @@ test("route templates never store campaign identifiers or unknown paths", () => 
   assert.equal(routeTemplate(42), "other");
 });
 
+test("first-screen bootstrap latency is accepted and aggregated without identity data", () => {
+  const { samples, rejected } = parseVitalBatch({ samples: [{ metric: "API_BOOTSTRAP", value: 123, route: "/", profileId: "must-not-be-stored" }] });
+  assert.equal(rejected, 0);
+  assert.deepEqual(samples, [{ metric: "API_BOOTSTRAP", value: 123, route: "/", rating: "unknown", device: "unknown", navigationType: "" }]);
+  assert.equal(buildVitalsReport(samples).timings.find(timing => String(timing.metric) === "API_BOOTSTRAP")?.summary.p50, 123);
+});
+
 test("vital batches are bounded, re-rated on the server and reject invalid values", () => {
   const { samples, rejected } = parseVitalBatch({ samples: [
     { metric: "LCP", value: 1800, rating: "poor", route: "/play/0f8fad5b-d9cb-469f-a165-70867728950e", device: "mobile", navigationType: "navigate" },

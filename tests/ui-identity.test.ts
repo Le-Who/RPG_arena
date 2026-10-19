@@ -1,9 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canSeeAdministration, createWorkspaceLoadGate, parseIdentityResponse, profileStorageKey, profileChanged } from "../src/lib/ui-identity";
+import { canSeeAdministration, createWorkspaceLoadGate, parseIdentityResponse, parseWorkspaceSnapshot, profileStorageKey, profileChanged } from "../src/lib/ui-identity";
 
 const guest = { kind: "guest", profileId: "guest:a", account: null, guestProfileId: "guest:a", isAdmin: false, pendingGuestCampaigns: 0, capabilities: { administration: false }, passwordRecoveryAvailable: false };
 const account = { ...guest, kind: "account", account: { id: "account-a", login: "alice", profileId: "guest:a" } };
+
+test("bootstrap client rejects mixed-owner payloads before applying workspace data", () => {
+  const valid = { ok: true, identity: guest, sessions: [{ ownerId: "guest:a" }], settings: {}, workspace: { id: "guest:a", displayName: "Мой профиль", favorites: [], reading: {} } };
+  assert.equal(parseWorkspaceSnapshot(valid).identity.profileId, "guest:a");
+  for (const invalid of [{ ...valid, workspace: { ...valid.workspace, id: "guest:b" } }, { ...valid, sessions: [{ ownerId: "guest:b" }] }, { ...valid, sessions: [null] }, { ...valid, settings: null }]) assert.throws(() => parseWorkspaceSnapshot(invalid), /профиль/i);
+});
 
 test("administrative navigation defaults closed for loading, guests and ordinary accounts", () => {
   assert.equal(canSeeAdministration(null), false);

@@ -41,7 +41,7 @@ test("proxy repairs consumed guest cookies without granting access and keeps hea
     const { proxy } = await import("../src/proxy");
     const guest = "6".repeat(64);
     const a = await auth.register(guest, "claimed", "correct horse battery staple");
-    const response = await proxy(new NextRequest("https://game.test/", { headers: { cookie: `chronicle_guest=${guest}` } }));
+    const response = await proxy(new NextRequest("https://game.test/api/bootstrap", { headers: { cookie: `chronicle_guest=${guest}` } }));
     const token = response.cookies.get("chronicle_guest")?.value;
     assert.ok(token);
     assert.notEqual(token, guest);
@@ -71,7 +71,7 @@ test("initial and repaired guest cookies are Secure in production even behind an
     await auth.register(oldGuest, "cookieflags", "correct horse battery staple");
     process.env[environmentName] = "production";
     for (const cookie of [undefined, `chronicle_guest=${oldGuest}`]) {
-      const response = await proxy(new NextRequest("http://game.test/", { headers: cookie ? { cookie } : {} }));
+      const response = await proxy(new NextRequest("http://game.test/api/bootstrap", { headers: cookie ? { cookie } : {} }));
       assert.match(response.headers.get("set-cookie") ?? "", /; Secure(?:;|$)/i);
       assert.match(response.headers.get("set-cookie") ?? "", /; HttpOnly(?:;|$)/i);
       assert.match(response.headers.get("set-cookie") ?? "", /SameSite=lax/i);

@@ -81,7 +81,8 @@ const FeedTurns = memo(function FeedTurns({ turns, heroName }: { turns: FeedTurn
 });
 
 export function PlayRoom({ sessionId }: { sessionId: string }) {
-  const { settings, sessions, refresh, notify, setPlayCommands, workspace, identity } = useApp();
+  const { settings, sessions, refresh, notify, setPlayCommands, workspace, identity, loadError: workspaceLoadError } = useApp();
+  const profileId = identity?.profileId;
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loadError, setLoadError] = useState("");
   const [action, setAction] = useState("");
@@ -289,13 +290,16 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     if (match) void jumpToTurn(Number(match[1]));
   });
   useEffect(() => {
+    // Bootstrap owns guest-cookie repair. Starting a data request before it can
+    // leave a consumed guest on a permanent 401 instead of opening a public story.
+    if (!profileId) return;
     let active = true;
     api<Snapshot>(`/api/sessions/${sessionId}?memories=8`).then((result) => {
-      if (!active) return; history.setCurrent(result.turns); jumpToInitialLink(); setSnapshot(old => old && old.session.turnCount > result.session.turnCount ? old : result);
+      if (!active) return; setLoadError(""); history.setCurrent(result.turns); jumpToInitialLink(); setSnapshot(old => old && old.session.turnCount > result.session.turnCount ? old : result);
       setRecapState(state => state === "idle" ? (!window.location.hash && shouldOfferRecap({ turnCount: result.session.turnCount, updatedAt: recapLastTurnAt(result.turns, result.session.updatedAt) }) ? "auto" : "closed") : state);
     }).catch((e) => { if (active) setLoadError(e.message); });
     return () => { active = false; };
-  }, [sessionId, history]);
+  }, [profileId, sessionId, history]);
   const compact = useCallback(async () => { if (updateContext?.isReloading()) return; compactingRef.current = true; setCompacting(true); try { await api(`/api/sessions/${sessionId}/compact`, jsonBody({})); await reload(); setCompactNeeded(false); notify("Новые главы сохранены в долгосрочной памяти"); } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить память", true); } finally { compactingRef.current = false; setCompacting(false); } }, [sessionId, reload, notify, updateContext]);
   const commandOwner = snapshot?.isOwner !== false;
   const commandReady = !!snapshot && !loadError;
@@ -327,7 +331,8 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const snapshotCurrentLocation = snapshot?.session.worldState.currentLocation;
   const currentLocationObjects = useMemo(() => snapshotSceneObjects?.filter(object => object.locationName === snapshotCurrentLocation) ?? [],
     [snapshotSceneObjects, snapshotCurrentLocation]);
-  if (loadError) return <div className="empty-state gx-fallback"><BookOpen size={34} /><h3>Не удалось открыть эту главу</h3><p>{loadError}</p><button className="button secondary" onClick={() => void reload().catch((e) => setLoadError(e.message))}><RefreshCw size={15} />Попробовать снова</button><Link className="text-link" href="/campaigns">Вернуться к кампаниям</Link></div>;
+  const openingError = loadError || (!identity ? workspaceLoadError : "");
+  if (openingError) return <div className="empty-state gx-fallback"><BookOpen size={34} /><h3>Не удалось открыть эту главу</h3><p>{openingError}</p><button className="button secondary" onClick={() => { if (!identity) void refresh(); else void reload().catch((e) => setLoadError(e.message)); }}><RefreshCw size={15} />Попробовать снова</button><Link className="text-link" href="/campaigns">Вернуться к кампаниям</Link></div>;
   if (!snapshot) return <div className="gx-loading"><span className="gx-loading-orb"><LoaderCircle size={30} className="spin" /></span><h2>Открываем вашу историю…</h2><p>Загружаем мир, персонажей и сохранённые решения.</p></div>;
 
   const { session, inventory, memories, locations, quests, npcs, sceneObjects } = snapshot;

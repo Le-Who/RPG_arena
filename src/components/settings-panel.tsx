@@ -27,7 +27,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
 }
 function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseReady, onDeveloper }: SettingsPanelProps & { onDeveloper: () => void }) {
   const router = useRouter();
-  const { settings, workspace, refresh, notify, updateReading, identity, administration } = useApp();
+  const { settings, workspace, refresh, acceptSettings, notify, updateReading, identity, administration } = useApp();
   const [draft, setDraft] = useState<Settings>(settings!);
   const [baseline, setBaseline] = useState(JSON.stringify(settings));
   const [confirmClose, setConfirmClose] = useState(false);
@@ -37,6 +37,9 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
   const [name, setName] = useState(workspace.displayName);
   const [saving, setSaving] = useState(false);
   const draftRevision = useRef(0);
+  const savingAll = useRef(false);
+  const providerSavedDuringBatch = useRef(false);
+  const canonicalRequest = useRef(0);
   const [narrativeDirty, setNarrativeDirty] = useState(false);
   const [textProviderDirty, setTextProviderDirty] = useState(false);
   const textProviderSave = useRef<(() => Promise<boolean>) | null>(null);
@@ -44,8 +47,14 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
   const onTextProviderSaved = useCallback((useLiveAI: boolean) => {
     setDraft(old => ({ ...old, useLiveAI }));
     setBaseline(old => JSON.stringify({ ...JSON.parse(old), useLiveAI }));
-    void refresh();
-  }, [refresh]);
+    if (savingAll.current) { providerSavedDuringBatch.current = true; return; }
+    const request = ++canonicalRequest.current;
+    const profileId = identity?.profileId;
+    void api<Settings>("/api/settings").then(saved => {
+      if (request !== canonicalRequest.current) return;
+      acceptSettings(saved, profileId);
+    }).catch(() => notify("Рассказчик сохранён. Не удалось обновить состояние подключения.", true));
+  }, [acceptSettings, identity?.profileId, notify]);
   const narrativeSave = useRef<(() => Promise<boolean>) | null>(null);
   const onNarrativeSaveReady = useCallback((save: (() => Promise<boolean>) | null) => { narrativeSave.current = save; }, []);
   const [testing, setTesting] = useState(false);
@@ -54,30 +63,44 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
   useEffect(() => { api<Usage>("/api/tokens/stats").then(setUsage).catch(() => {}); }, []);
   function change<K extends keyof Settings>(key: K, value: Settings[K]) { draftRevision.current++; setDraft((old) => ({ ...old, [key]: value })); }
   const save = async () => {
-    if (!draft) return false; setSaving(true);
+    if (!draft || savingAll.current) return false; setSaving(true); savingAll.current = true;
+    providerSavedDuringBatch.current = false;
+    canonicalRequest.current++;
+    const profileId = identity?.profileId;
     const submittedRevision = draftRevision.current;
     try {
       if (narrativeSave.current && !await narrativeSave.current()) return false;
-      await api("/api/settings", jsonBody({ ...draft, embeddingModel: "gemini-embedding-2", ...(keyText.trim() ? { keysText: keyText, append: true } : {}) }));
+      let saved: Settings | undefined;
+      if (JSON.stringify(draft) !== baseline || keyText.trim()) {
+        const result = await api<Settings & { ok?: boolean }>("/api/settings", jsonBody({ ...draft, embeddingModel: "gemini-embedding-2", ...(keyText.trim() ? { keysText: keyText, append: true } : {}) }));
+        delete result.ok;
+        saved = result;
+      }
       if (textProviderSave.current && !await textProviderSave.current()) return false;
-      const saved = await api<Settings>("/api/settings");
+      // Narrator settings share useLiveAI with the main form. Read their final
+      // projection once after a narrator write, without reloading campaigns/auth.
+      if (providerSavedDuringBatch.current) saved = await api<Settings>("/api/settings");
       // Editable controls can change while the request is in flight. Accept canonical
       // values only for fields that still match the submitted snapshot.
-      setDraft(current => Object.fromEntries(Object.entries(saved).map(([key, value]) => [
-        key, JSON.stringify(current[key as keyof Settings]) !== JSON.stringify(draft[key as keyof Settings]) ? current[key as keyof Settings] : value,
-      ])) as Settings);
-      setBaseline(JSON.stringify(saved));
-      setKeyText(current => current === keyText ? "" : current); await refresh();
+      if (saved) {
+        const canonical = saved;
+        setDraft(current => Object.fromEntries(Object.entries(canonical).map(([key, value]) => [
+          key, JSON.stringify(current[key as keyof Settings]) !== JSON.stringify(draft[key as keyof Settings]) ? current[key as keyof Settings] : value,
+        ])) as Settings);
+        setBaseline(JSON.stringify(canonical));
+        acceptSettings(canonical, profileId);
+      }
+      setKeyText(current => current === keyText ? "" : current);
       if (draftRevision.current !== submittedRevision) { notify("Сохранён отправленный вариант. Новые изменения ещё не сохранены."); return false; }
       notify("Настройки сохранены. Ваш мир готов к новым историям."); return true;
-    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить настройки", true); return false; } finally { setSaving(false); }
+    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить настройки", true); return false; } finally { savingAll.current = false; setSaving(false); }
   };
   const test = async () => {
     setTesting(true); setConnection(null);
     try { const result = await api<{ model: string; dims: number; latencyMs: number }>("/api/settings/test", jsonBody({})); setConnection({ ok: true, message: `Подключение работает · ${result.model} · ${result.dims} измерений · ${result.latencyMs} мс` }); }
     catch (e) { setConnection({ ok: false, message: e instanceof Error ? e.message : "Подключение не удалось" }); } finally { setTesting(false); }
   };
-  const removeKey = async (index: number) => { try { await api("/api/settings", jsonBody({ removeIndex: [index] })); const saved = await api<Settings>("/api/settings"); setDraft(old => ({ ...old, keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, useLiveAI: old.useLiveAI !== JSON.parse(baseline).useLiveAI ? old.useLiveAI : saved.useLiveAI })); setBaseline(old => JSON.stringify({ ...JSON.parse(old), keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, useLiveAI: saved.useLiveAI })); await refresh(); notify("Ключ удалён"); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } };
+  const removeKey = async (index: number) => { canonicalRequest.current++; const profileId = identity?.profileId; try { const result = await api<Settings & { ok?: boolean }>("/api/settings", jsonBody({ removeIndex: [index] })); delete result.ok; const saved = result; canonicalRequest.current++; setDraft(old => ({ ...old, keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, useLiveAI: old.useLiveAI !== JSON.parse(baseline).useLiveAI ? old.useLiveAI : saved.useLiveAI })); setBaseline(old => JSON.stringify({ ...JSON.parse(old), keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, useLiveAI: saved.useLiveAI })); acceptSettings(saved, profileId); notify("Ключ удалён"); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } };
   const saveProfile = async () => { setSaving(true); try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ displayName: name }) }); await refresh(); notify("Имя профиля сохранено"); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true); } finally { setSaving(false); } };
   const dirty = JSON.stringify(draft) !== baseline || !!keyText.trim() || name !== workspace.displayName || narrativeDirty || textProviderDirty;
   const releaseHistory = useDirtyHistory(dirty, leave => { closeAction.current = leave; setConfirmClose(true); }, onClose);

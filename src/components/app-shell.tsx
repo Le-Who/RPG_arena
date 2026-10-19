@@ -4,10 +4,10 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, createContext, useCallback, useContext, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Activity, ArrowRight, Bell, BookOpen, BookOpenText, BrainCircuit, Check, ChevronRight, Compass, Globe2, HelpCircle, LayoutGrid, Menu, MoreHorizontal, Plus, Search, Settings2, Sparkles, UserRound, UsersRound, X } from "lucide-react";
-import { api } from "@/lib/api-client";
+import { api, ApiError } from "@/lib/api-client";
 import { canUseLiveNarrator, WORLDS, coverFor, type Session, type Settings, type Workspace } from "@/lib/ui-data";
 import { DEFAULT_READING, cacheReading, clearCachedReading, normalizeReading, readingAttributes } from "@/lib/reading-preferences";
-import { canSeeAdministration, createWorkspaceLoadGate, parseIdentityResponse, profileChanged, type IdentityView } from "@/lib/ui-identity";
+import { canSeeAdministration, createWorkspaceLoadGate, parseWorkspaceSnapshot, profileChanged, type IdentityView } from "@/lib/ui-identity";
 import type { ReadingPreferences } from "@/db/schema";
 import { Dialog } from "./dialog";
 import { SettingsOverlay } from "./settings-overlay";
@@ -18,7 +18,7 @@ import { AppUpdateProvider, useAppUpdateGuard } from "./app-update";
 import { UPDATE_DRAFT_KEY } from "@/lib/update-draft";
 import { PRODUCT_INFO, PRODUCT_REVIEWED_LABEL } from "@/lib/product-info";
 export type PlayCommand = { id: string; label: string; run: () => void; jumpToTurn?: (turn: number) => void; maxTurn?: number };
-type AppContext = { playCommands: PlayCommand[]; setPlayCommands: (commands: PlayCommand[]) => void; identity: IdentityView | null; administration: boolean; hasOpenDraft: boolean; applyIdentityChange: (identity: IdentityView) => Promise<void>; settingsOpen: boolean; openSettings: (section?: string) => void; sessions: Session[]; settings: Settings | null; workspace: Workspace; loading: boolean; loadError: string; refresh: () => Promise<void>; newStory: (id?: string, mode?: "preset" | "free") => void; notify: (message: string, error?: boolean) => void; toggleFavorite: (id: string) => Promise<void>; updateReading: (reading: ReadingPreferences) => Promise<void>; showGuide: () => void };
+type AppContext = { playCommands: PlayCommand[]; setPlayCommands: (commands: PlayCommand[]) => void; identity: IdentityView | null; administration: boolean; hasOpenDraft: boolean; applyIdentityChange: (identity: IdentityView) => Promise<void>; settingsOpen: boolean; openSettings: (section?: string) => void; sessions: Session[]; settings: Settings | null; acceptSettings: (settings: Settings, profileId: string | undefined) => void; workspace: Workspace; loading: boolean; loadError: string; refresh: () => Promise<void>; newStory: (id?: string, mode?: "preset" | "free") => void; notify: (message: string, error?: boolean) => void; toggleFavorite: (id: string) => Promise<void>; updateReading: (reading: ReadingPreferences) => Promise<void>; showGuide: () => void };
 const Context = createContext<AppContext | null>(null);
 export function useApp() { const value = useContext(Context); if (!value) throw new Error("App context missing"); return value; }
 const navigation = [
@@ -33,6 +33,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [playCommands, setPlayCommands] = useState<PlayCommand[]>([]);
   const [identity, setIdentity] = useState<IdentityView | null>(null);
+  const [contentGeneration, setContentGeneration] = useState(0);
+  const settingsRevision = useRef(0);
   const identityRef = useRef<IdentityView | null>(null);
   const loadGate = useRef(createWorkspaceLoadGate());
   const identityChannel = useRef<BroadcastChannel | null>(null);
@@ -74,41 +76,48 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const notify = useCallback((text: string, error = false) => setToast({ text, error }), []);
-  const acceptIdentity = useCallback((next: IdentityView) => {
-    if (profileChanged(identityRef.current, next)) {
+  const clearPrivateWorkspace = useCallback((profileId?: string) => {
+      setContentGeneration(value => value + 1);
+      settingsRevision.current++;
       if (identityRef.current) { try { sessionStorage.removeItem(UPDATE_DRAFT_KEY); } catch {} }
       clearCachedReading();
       for (const [name, value] of Object.entries(readingAttributes(DEFAULT_READING))) document.documentElement.setAttribute(name, value);
       setWorkspaceLoaded(false);
-      setSessions([]); setSettings(null); setWorkspace({ id: next.profileId, displayName: "Искатель историй", favorites: [], reading: DEFAULT_READING });
+      setSessions([]); setSettings(null); setWorkspace({ id: profileId, displayName: "Искатель историй", favorites: [], reading: DEFAULT_READING });
       setCreator(null); setDialog(null); setPlayCommands([]); setToast(null); setFavoriteBusy(false);
       if (window.location.pathname.startsWith("/play/")) router.replace("/");
-    }
+  }, [router]);
+  const acceptIdentity = useCallback((next: IdentityView) => {
+    if (profileChanged(identityRef.current, next)) clearPrivateWorkspace(next.profileId);
     identityRef.current = next;
     setIdentity(next);
-  }, [router]);
+  }, [clearPrivateWorkspace]);
+  const acceptSettings = useCallback((saved: Settings, profileId: string | undefined) => {
+    if (!profileId || profileId !== identityRef.current?.profileId) return;
+    settingsRevision.current++;
+    setSettings(saved);
+  }, []);
   const refresh = useCallback(async () => {
     const ticket = loadGate.current.begin();
+    const revision = settingsRevision.current;
     try {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const before = parseIdentityResponse(await api("/api/auth/me"));
-        if (!loadGate.current.isCurrent(ticket)) return;
-        acceptIdentity(before);
-        const [s, a, w] = await Promise.all([api<{ sessions: Session[] }>("/api/sessions"), api<Settings>("/api/settings"), api<Workspace>("/api/workspace")]);
-        const after = parseIdentityResponse(await api("/api/auth/me"));
-        if (!loadGate.current.isCurrent(ticket)) return;
-        acceptIdentity(after);
-        if (before.profileId !== after.profileId || w.id !== after.profileId || !Array.isArray(s.sessions) || s.sessions.some(session => session.ownerId !== after.profileId)) {
-          setSessions([]); setSettings(null);
-          if (attempt === 0) continue;
-          throw new Error("Профиль изменился во время загрузки. Обновите пространство.");
+      const snapshot = parseWorkspaceSnapshot(await api("/api/bootstrap"));
+      if (!loadGate.current.isCurrent(ticket)) return;
+      const changed = profileChanged(identityRef.current, snapshot.identity);
+      acceptIdentity(snapshot.identity);
+      setSessions(snapshot.sessions);
+      if (changed || settingsRevision.current === revision) setSettings(snapshot.settings);
+      cacheReading(snapshot.workspace.reading); setWorkspace(snapshot.workspace); setWorkspaceLoaded(true); setLoadError("");
+    } catch (error) {
+      if (loadGate.current.isCurrent(ticket)) {
+        if (error instanceof ApiError && error.status === 401) {
+          clearPrivateWorkspace(); identityRef.current = null; setIdentity(null);
         }
-        setSessions(s.sessions); setSettings(a); cacheReading(w.reading); setWorkspace(w); setWorkspaceLoaded(true); setLoadError("");
-        return;
+        setLoadError(error instanceof Error ? error.message : "Не удалось загрузить пространство");
       }
-    } catch (error) { if (loadGate.current.isCurrent(ticket)) setLoadError(error instanceof Error ? error.message : "Не удалось загрузить пространство"); }
+    }
     finally { loadGate.current.finish(ticket); if (loadGate.current.isCurrent(ticket)) setLoading(false); }
-  }, [acceptIdentity]);
+  }, [acceptIdentity, clearPrivateWorkspace]);
   const applyIdentityChange = useCallback(async (next: IdentityView) => {
     loadGate.current.invalidate();
     acceptIdentity(next); setLoading(true);
@@ -174,7 +183,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
     return null;
   } });
   const navItem = (item: (typeof navigation)[number]) => <Link key={item.href} href={item.href} className={`nav-item ${pathname === item.href ? "active" : ""}`} onClick={() => setSidebar(false)}><item.icon size={18} strokeWidth={1.65} /><span>{item.label}</span>{item.href === "/campaigns" && activeCount > 0 && <span className="nav-count">{activeCount}</span>}{item.href === "/worlds" && <span className="nav-count neutral">{WORLDS.length}</span>}</Link>;
-  return <Context.Provider value={{ playCommands, setPlayCommands, identity, administration, hasOpenDraft: creator !== null, applyIdentityChange, settingsOpen, openSettings, sessions, settings, workspace, loading, loadError, refresh, newStory, notify, toggleFavorite, updateReading, showGuide: () => setDialog("guide") }}>
+  return <Context.Provider value={{ playCommands, setPlayCommands, identity, administration, hasOpenDraft: creator !== null, applyIdentityChange, settingsOpen, openSettings, sessions, settings, acceptSettings, workspace, loading, loadError, refresh, newStory, notify, toggleFavorite, updateReading, showGuide: () => setDialog("guide") }}>
     <div className="shell-root" data-sidebar-collapsed={!mobile && desktopCollapsed ? "true" : "false"} onClickCapture={interceptSettings}><div inert={settingsOpen || !!creator || !!dialog}>
     <a className="skip-link" href="#main-content">Перейти к содержимому</a>
     {sidebar && <div className="mobile-shade" onClick={() => setSidebar(false)} />}
@@ -192,7 +201,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {!pathname.startsWith("/play/") && <div className="imagination-card"><span className="imagination-spark"><Sparkles size={22} strokeWidth={1.4} /></span><strong>Не находите свой мир?</strong><p>Там, где заканчиваются шаблоны, начинается ваша история.</p><button onClick={() => newStory(undefined, "free")}>Создать свой мир <ArrowRight size={14} /></button><div className="card-orbit" /></div>}
       </div>
     </aside>
-    <div className="app-body"><header className="topbar"><button className="icon-button menu-toggle" onClick={toggleSidebar} aria-controls="app-navigation" aria-expanded={mobile ? sidebar : !desktopCollapsed} aria-label={(mobile ? sidebar : !desktopCollapsed) ? "Скрыть меню" : "Открыть меню"}><Menu size={21} /></button><div className="breadcrumbs"><Compass size={15} /><span>Пространство</span><ChevronRight size={13} /><strong>{title}</strong></div><div className="topbar-actions"><button className="global-search" onClick={() => setDialog("search")} aria-label="Поиск по пространству"><Search size={16} /><span>Быстрый поиск</span><kbd>⌘ K</kbd></button><Link className={`connection-status ${live ? "live" : ""}`} href="/settings"><i />{live ? "Рассказчик подключён" : "Базовый режим"}</Link><div className="topbar-divider" /><button className="icon-button" onClick={() => setDialog("guide")} aria-label="Как это работает"><HelpCircle size={19} /></button><button className="icon-button notification-button" onClick={() => setDialog("updates")} aria-label="Обновления движка"><Bell size={18} /><i /></button></div></header><main className="main-content" id="main-content"><Fragment key={identity?.profileId ?? "initial"}>{children}</Fragment></main></div>
+    <div className="app-body"><header className="topbar"><button className="icon-button menu-toggle" onClick={toggleSidebar} aria-controls="app-navigation" aria-expanded={mobile ? sidebar : !desktopCollapsed} aria-label={(mobile ? sidebar : !desktopCollapsed) ? "Скрыть меню" : "Открыть меню"}><Menu size={21} /></button><div className="breadcrumbs"><Compass size={15} /><span>Пространство</span><ChevronRight size={13} /><strong>{title}</strong></div><div className="topbar-actions"><button className="global-search" onClick={() => setDialog("search")} aria-label="Поиск по пространству"><Search size={16} /><span>Быстрый поиск</span><kbd>⌘ K</kbd></button><Link className={`connection-status ${live ? "live" : ""}`} href="/settings"><i />{live ? "Рассказчик подключён" : "Базовый режим"}</Link><div className="topbar-divider" /><button className="icon-button" onClick={() => setDialog("guide")} aria-label="Как это работает"><HelpCircle size={19} /></button><button className="icon-button notification-button" onClick={() => setDialog("updates")} aria-label="Обновления движка"><Bell size={18} /><i /></button></div></header><main className="main-content" id="main-content"><Fragment key={contentGeneration}>{children}</Fragment></main></div>
     </div>
     {settingsOpen && <SettingsOverlay key={identity?.profileId} section={settingsSection} onClose={closeSettings} returnLabel={creator ? "Вернуться к истории" : "Вернуться в игру"} />}
     {creator && <StoryCreator initialScenario={creator.id} initialMode={creator.mode} onClose={closeCreator} onCreated={refresh} live={live} onSettings={() => openSettings()} suspended={settingsOpen} />}

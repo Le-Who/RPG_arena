@@ -40,9 +40,22 @@ export function createAuthService(database: AuthDatabase) {
     return rows[0] ?? null;
   }
   async function resolve(guestToken?: string, sessionToken?: string): Promise<Identity> {
-    const row = await accountForToken(sessionToken);
-    const guestProfileId = await guestProfile(guestToken);
-    if (row) return { kind: "account", profileId: row.profile_id, account: { id: row.id, login: row.login, profileId: row.profile_id }, guestProfileId, isAdmin: isAdminAccount(row.id) };
+    const guestId = profileIdFromToken(guestToken);
+    const sessionHash = validSessionToken(sessionToken) ? tokenHash(sessionToken) : null;
+    if (!guestId && !sessionHash) throw denied();
+    // One fresh snapshot per resolution; repeated checks still observe revocation.
+    // Read only principal fields: password data is reserved for account operations.
+    const { rows } = await database.query<{ id: string | null; login: string | null; profile_id: string | null; guest_available: boolean }>(`
+      SELECT a.id,a.login,a.profile_id,
+        ($2::text IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM consumed_guest_profiles WHERE profile_id=$2
+        )) AS guest_available
+      FROM (SELECT 1) AS identity_seed
+      LEFT JOIN account_sessions s ON s.token_hash=$1 AND s.expires_at > clock_timestamp()
+      LEFT JOIN accounts a ON a.id=s.account_id`, [sessionHash, guestId]);
+    const row = rows[0];
+    const guestProfileId = row?.guest_available ? guestId : null;
+    if (row?.id && row.login && row.profile_id) return { kind: "account", profileId: row.profile_id, account: { id: row.id, login: row.login, profileId: row.profile_id }, guestProfileId, isAdmin: isAdminAccount(row.id) };
     if (!guestProfileId) throw denied();
     return { kind: "guest", profileId: guestProfileId, account: null, guestProfileId, isAdmin: false };
   }

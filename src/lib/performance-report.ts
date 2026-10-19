@@ -3,7 +3,7 @@ import { PROMPT_BUDGET_SECTIONS, PROMPT_SECTION_LABELS, readPromptBudget } from 
 /** PERF-1 / PERF-2 / PERF-4 / NARR-12: pure validation and aggregation of anonymous measurements.
  * Dependency-light on purpose: the browser reporter imports the metric maps from this module. */
 export type VitalMetric = "LCP" | "INP" | "CLS" | "FCP" | "TTFB";
-export type ClientTiming = "API_AUTH" | "API_SESSIONS" | "API_SETTINGS" | "API_WORKSPACE" | "TURN_FIRST_TEXT" | "TURN_COMMITTED" | "TURN_PAINT";
+export type ClientTiming = "API_BOOTSTRAP" | "API_AUTH" | "API_SESSIONS" | "API_SETTINGS" | "API_WORKSPACE" | "TURN_FIRST_TEXT" | "TURN_COMMITTED" | "TURN_PAINT";
 export type SampleMetric = VitalMetric | ClientTiming;
 export type Rating = "good" | "needs-improvement" | "poor" | "unknown";
 export type Device = "mobile" | "desktop" | "unknown";
@@ -20,6 +20,7 @@ export const VITAL_THRESHOLDS: Record<VitalMetric, { good: number; poor: number;
 };
 export const VITAL_METRICS = Object.keys(VITAL_THRESHOLDS) as VitalMetric[];
 export const CLIENT_TIMING_LABELS: Record<ClientTiming, string> = {
+  API_BOOTSTRAP: "Первый экран · загрузка пространства",
   API_AUTH: "Первый экран · /api/auth/me",
   API_SESSIONS: "Первый экран · /api/sessions",
   API_SETTINGS: "Первый экран · /api/settings",
@@ -30,7 +31,7 @@ export const CLIENT_TIMING_LABELS: Record<ClientTiming, string> = {
 };
 export const CLIENT_TIMINGS = Object.keys(CLIENT_TIMING_LABELS) as ClientTiming[];
 /** Same-origin resource paths of the first screen (see AppShell.refresh). */
-export const API_RESOURCE_METRICS: Record<string, ClientTiming> = { "/api/auth/me": "API_AUTH", "/api/sessions": "API_SESSIONS", "/api/settings": "API_SETTINGS", "/api/workspace": "API_WORKSPACE" };
+export const API_RESOURCE_METRICS: Record<string, ClientTiming> = { "/api/bootstrap": "API_BOOTSTRAP", "/api/auth/me": "API_AUTH", "/api/sessions": "API_SESSIONS", "/api/settings": "API_SETTINGS", "/api/workspace": "API_WORKSPACE" };
 /** performance.measure names emitted by use-turn-request. */
 export const TURN_MEASURE_METRICS: Record<string, ClientTiming> = { "chronicle:turn:first-text": "TURN_FIRST_TEXT", "chronicle:turn:committed": "TURN_COMMITTED", "chronicle:turn:paint": "TURN_PAINT" };
 

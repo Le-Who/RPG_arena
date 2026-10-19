@@ -1,3 +1,5 @@
+import type { Session, Settings, Workspace } from "./ui-data";
+
 export type IdentityView = {
   kind: "guest" | "account";
   profileId: string;
@@ -39,6 +41,19 @@ export function parseIdentityResponse(value: unknown): IdentityView {
 
 export function canSeeAdministration(identity: IdentityView | null): boolean {
   return identity?.kind === "account" && identity.account !== null && identity.capabilities.administration;
+}
+
+export type WorkspaceSnapshot = { identity: IdentityView; sessions: Session[]; settings: Settings; workspace: Workspace };
+
+/** One server admission binds all first-screen data to the same principal. */
+export function parseWorkspaceSnapshot(value: unknown): WorkspaceSnapshot {
+  const identity = parseIdentityResponse(value);
+  if (!record(value) || !Array.isArray(value.sessions) || value.sessions.some(session => !record(session) || session.ownerId !== identity.profileId)
+    || !record(value.workspace) || value.workspace.id !== identity.profileId || typeof value.workspace.displayName !== "string"
+    || !Array.isArray(value.workspace.favorites) || !record(value.workspace.reading) || !record(value.settings)) {
+    throw new Error("Профиль изменился во время загрузки. Обновите пространство.");
+  }
+  return { identity, sessions: value.sessions as Session[], settings: value.settings as Settings, workspace: value.workspace as Workspace };
 }
 
 /** Guest registration retains profile-bound drafts; a different profile must clear private UI data. */

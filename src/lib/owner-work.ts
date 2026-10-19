@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { pool } from "@/db";
-import { authDatabase, OWNER_LOCK_NAMESPACE } from "./auth";
+import { OWNER_LOCK_NAMESPACE } from "./auth";
 import { currentIdentity } from "./identity";
 import { HttpError, httpError } from "./http";
 import { withAdmittedIdentity } from "./identity-scope";
@@ -18,10 +18,12 @@ export async function withOwnerWork<T>(ownerId: string, run: () => Promise<T>): 
   let work = inherited?.get(ownerId);
   if (!work?.active) {
     const id = randomUUID();
-    await authDatabase.transaction(async tx => {
-      await tx.query("SELECT pg_advisory_xact_lock($1,hashtext($2))", [OWNER_LOCK_NAMESPACE, ownerId]);
-      await tx.query("INSERT INTO owner_activity(id,owner_id) VALUES ($1,$2)", [id, ownerId]);
-    });
+    // The materialized, volatile lock CTE must run before the insert. Autocommit
+    // holds its transaction lock through the durable insert, then releases both
+    // the lock and connection before work starts, using one database roundtrip.
+    await pool.query(`WITH admission_lock AS MATERIALIZED (
+      SELECT pg_advisory_xact_lock($1,hashtext($2))
+    ) INSERT INTO owner_activity(id,owner_id) SELECT $3,$2 FROM admission_lock`, [OWNER_LOCK_NAMESPACE, ownerId, id]);
     work = { id, ownerId, refs: 0, active: true };
   }
   work.refs++;

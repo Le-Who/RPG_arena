@@ -64,7 +64,9 @@ export const settings = {
   embeddingsEnabled: true, embeddingModel: "gemini-embedding-2", embeddingDims: 768, semanticExtractionEnabled: true,
 };
 
-export async function installUiMock(page: Page, { admin = false }: { admin?: boolean } = {}) {
+export async function installUiMock(page: Page, { admin = false, initialSettings = settings }: { admin?: boolean; initialSettings?: typeof settings } = {}) {
+  const identity = { kind: admin ? "account" : "guest", profileId: mockProfileId, account: admin ? { id: "00000000-0000-4000-8000-000000000099", login: "ui-admin-fixture", profileId: mockProfileId } : null, guestProfileId: mockProfileId, isAdmin: admin, capabilities: { administration: admin }, pendingGuestCampaigns: 0, passwordRecoveryAvailable: false };
+  const workspace = { id: mockProfileId, displayName: "Искатель историй", favorites: ["ashen-crown"], reading: { textScale: "normal", measure: "normal", theme: "midnight", motion: "full" } };
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -75,16 +77,18 @@ export async function installUiMock(page: Page, { admin = false }: { admin?: boo
     // the submitted payload. A generic success would conceal missing fixtures.
     if (method !== "GET") return unavailable();
     let body: unknown;
-    if (path === "/api/auth/me") body = { ok: true, identity: { kind: admin ? "account" : "guest", profileId: mockProfileId, account: admin ? { id: "00000000-0000-4000-8000-000000000099", login: "ui-admin-fixture", profileId: mockProfileId } : null, guestProfileId: mockProfileId, isAdmin: admin, capabilities: { administration: admin }, pendingGuestCampaigns: 0, passwordRecoveryAvailable: false } };
+    if (path === "/api/bootstrap") body = { ok: true, identity, sessions: [mockSession], settings: initialSettings, workspace };
+    else if (path === "/api/auth/me") body = { ok: true, identity };
     else if (path === "/api/sessions") body = { sessions: [mockSession] };
-    else if (path === "/api/settings") body = settings;
-    else if (path === "/api/settings/text-provider") body = { provider: "gemini", model: "", openrouterConfigured: false, pollinationsConfigured: false, useLiveAI: settings.useLiveAI };
+    else if (path === "/api/settings") body = initialSettings;
+    else if (path === "/api/settings/text-provider") body = { provider: "gemini", model: "", openrouterConfigured: false, pollinationsConfigured: false, useLiveAI: initialSettings.useLiveAI };
+    else if (path === "/api/settings/visual-provider") body = { accountSource: "application", model: "flux", applicationModel: "flux", applicationConfigured: false, pollinationsConfigured: false };
     else if (path === "/api/settings/text-provider/models") body = { models: [] };
     else if (path === "/api/settings/pollinations/connect") body = { available: false };
     else if (path === "/api/settings/narrative") body = { enabled: true, active: false, provider: "openrouter", configured: false, maskedKey: null, model: "typesafe/jev-1.13", credentialSource: "none", administratorAvailable: false };
     else if (path === "/api/developer/typesafe") body = { configured: false, storedConfigured: false, maskedKey: null, source: "none", envOverride: false, pilotEnabled: false, model: "jev-1.13.0" };
     else if (path === "/api/developer/typesafe/results") body = { results: [] };
-    else if (path === "/api/workspace") body = { id: mockProfileId, displayName: "Искатель историй", favorites: ["ashen-crown"], reading: { textScale: "normal", measure: "normal", theme: "midnight", motion: "full" } };
+    else if (path === "/api/workspace") body = workspace;
     else if (path === "/api/tokens/stats") body = { today: { totalReq: 7, totalTokens: 12450, errors: 0, embeddingReq: 3 }, quotas: { note: "audit" } };
     else if (path === "/api/system/status") body = {
       version: PRODUCT_INFO.version, checkedAt: now, database: "connected",

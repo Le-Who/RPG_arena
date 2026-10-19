@@ -125,6 +125,11 @@ jobs:
           npm run migrate
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      - name: Isolated workspace and settings latency regressions
+        run: |
+          node --import tsx scripts/workspace-latency-browser.ts
+          node --import tsx scripts/settings-latency-browser.ts
+          node --import tsx scripts/settings-draft-p2-browser.ts
       - name: Actual handler browser retry and two-build service worker rollout
         env:
           CHRONICLE_RUN_BROWSER_RETRY_POSTGRES: "1"
@@ -155,3 +160,5 @@ jobs:
             output/playwright/revisions
             output/playwright/visual-gallery
             output/playwright/app-update-guards
+            output/p1-continuation/pwa
+            output/p1-continuation/browser-retry

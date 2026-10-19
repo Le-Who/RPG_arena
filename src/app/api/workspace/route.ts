@@ -6,13 +6,10 @@ import { SCENARIOS } from "@/lib/scenarios";
 import { normalizeReading } from "@/lib/reading-preferences";
 import { currentProfileId } from "@/lib/identity";
 import { withIdentityWork } from "@/lib/owner-work";
+import { getWorkspacePreferences } from "@/lib/workspace-preferences";
 export const dynamic = "force-dynamic";
 async function get() {
-  const id = await currentProfileId();
-  await db.insert(workspacePreferences).values({ id }).onConflictDoNothing();
-  const [row] = await db.select().from(workspacePreferences).where(eq(workspacePreferences.id, id));
-  // Rows written before v2.5 have no reading column value yet.
-  return { ...row, reading: normalizeReading(row.reading) };
+  return getWorkspacePreferences(await currentProfileId());
 }
 async function handleGET() { return Response.json(await get()); }
 async function handlePATCH(req: Request) {

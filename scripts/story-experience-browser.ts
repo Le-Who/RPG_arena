@@ -11,6 +11,35 @@ async function main() {
     const errors: string[] = [];
     page.on("pageerror", e => errors.push(e.message));
     const base = process.env.SMOKE_BASE_URL ?? "http://localhost:3010";
+    for (const width of [1440, 390]) {
+      const repaired = await browser.newPage({ viewport: { width, height: 900 } });
+      await installUiMock(repaired);
+      let release!: () => void;
+      const bootstrapping = new Promise<void>(resolve => { release = resolve; });
+      let entered = false, ready = false, campaignRequests = 0, failFirst = width === 390;
+      await repaired.route("**/api/bootstrap", async route => { entered = true; await bootstrapping; if (failFirst) { failFirst = false; return route.fulfill({ status: 503, json: { message: "Профиль временно недоступен" } }); } ready = true; await route.fallback(); });
+      await repaired.route(`**/api/sessions/${mockSessionId}?*`, async route => {
+        campaignRequests++;
+        if (!ready) return route.fulfill({ status: 401, json: { message: "Старый гостевой профиль уже перенесён" } });
+        return route.fallback();
+      });
+      try {
+        await repaired.goto(`${base}/play/${mockSessionId}`);
+        await expect.poll(() => entered).toBe(true);
+        await repaired.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        expect(campaignRequests).toBe(0);
+        release();
+        if (width === 390) {
+          await expect(repaired.getByText("Профиль временно недоступен", { exact: true })).toBeVisible();
+          expect(campaignRequests).toBe(0);
+          await repaired.getByRole("button", { name: "Попробовать снова", exact: true }).click();
+        }
+        await expect(repaired.locator("#action-input")).toBeVisible();
+        expect(campaignRequests).toBe(1);
+        await expect(repaired.getByText("Не удалось открыть эту главу", { exact: false })).toHaveCount(0);
+      } finally { release(); await repaired.close(); }
+      console.log(`PASS initial campaign load waits for canonical guest repair at ${width}px`);
+    }
     await page.goto(`${base}/play/${mockSessionId}`);
     await expect(page.getByRole("button", { name: "Скрыть меню", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Скрыть меню", exact: true }).click();
@@ -174,8 +203,7 @@ async function main() {
     await typeSafePage.close();
 
     const formPage = await browser.newPage();
-    await installUiMock(formPage);
-    await formPage.route("**/api/settings", route => route.fulfill({ json: { ...mockSettings, useLiveAI: true, keysCount: 1 } }));
+    await installUiMock(formPage, { initialSettings: { ...mockSettings, useLiveAI: true, keysCount: 1 } });
     let generationCalls = 0;
     let release!: () => void;
     await formPage.route("**/api/story-drafts/autofill", async route => {
