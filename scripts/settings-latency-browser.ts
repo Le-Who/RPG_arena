@@ -15,8 +15,26 @@ const initial: Settings = {
   enforceLimits: true, embeddingsEnabled: true, embeddingModel: "gemini-embedding-2", embeddingDims: 768, semanticExtractionEnabled: true,
 };
 function gate() { let open!: () => void; const promise = new Promise<void>(resolve => { open = resolve; }); return { promise, open }; }
+async function layoutDiagnostics(page: Page) {
+  return page.evaluate(() => {
+    const viewport = innerWidth;
+    const elements = Array.from(document.querySelectorAll<HTMLElement>("body *")).filter(element => element.getClientRects().length);
+    return {
+      viewport, documentWidth: document.documentElement.scrollWidth, bodyWidth: document.body.scrollWidth,
+      font: getComputedStyle(document.body).fontFamily,
+      credentialRows: elements.filter(element => element.matches(".saved-key")).map(element => ({ text: element.textContent?.trim(), scrollWidth: element.scrollWidth, clientWidth: element.clientWidth })),
+      overflowing: elements.flatMap(element => {
+        const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+        if (rect.right <= viewport && rect.left >= 0 && element.scrollWidth <= element.clientWidth + 1) return [];
+        return [{ tag: element.tagName, id: element.id, className: element.className, text: element.textContent?.trim().slice(0, 140), left: rect.left, right: rect.right, width: rect.width, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth, display: style.display, minWidth: style.minWidth, whiteSpace: style.whiteSpace, font: style.font, overflowX: style.overflowX }];
+      }),
+    };
+  });
+}
 async function main() {
   const output = resolve("output/playwright/settings-latency"); await mkdir(output, { recursive: true });
+  const diagnosticFont = process.argv.find(arg => arg.startsWith("--diagnostic-font="))?.slice("--diagnostic-font=".length);
+  const artifactSuffix = diagnosticFont ? `-${diagnosticFont.replace(/[^a-z0-9_-]/gi, "_")}` : "";
   const app = `import React,{createContext,useContext,useState,useCallback} from 'react';
     const Context=createContext(null);export function useApp(){return useContext(Context)};
     export function FixtureApp({children}){const [settings,setSettings]=useState(${JSON.stringify(initial)}),[notices,setNotices]=useState([]);
@@ -29,7 +47,8 @@ async function main() {
     b.onResolve({ filter: /^next\/(navigation|link)$|^node:crypto$/ }, args => ({ path: args.path, namespace: "fixture" }));
     b.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: args.path === "app" ? app : args.path === "node:crypto" ? 'export function createHash(){throw new Error("Unexpected server crypto")}' : args.path === "next/navigation" ? 'const router={push(){}};export function useRouter(){return router}' : 'import React from "react";export default function Link({href,children,...p}){return <a href={href} {...p}>{children}</a>}', loader: "tsx", resolveDir: process.cwd() }));
   } }] });
-  const css = (await Promise.all(["globals", "pages", "preferences", "dialogs"].map(name => readFile(`src/app/${name}.css`, "utf8")))).join("\n").replace('@import "tailwindcss";', "");
+  // Match layout.tsx's application cascade; do not add fixture-only overflow rules.
+  const css = (await Promise.all(["observability", "x3", "globals", "shell", "pages", "theatre", "preferences", "dialogs", "overview", "life", "pwa"].map(name => readFile(`src/app/${name}.css`, "utf8")))).join("\n").replace('@import "tailwindcss";', "");
   const html = '<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><body><main id="root" style="max-width:1200px;margin:auto;padding:16px"></main><script src="/fixture.js"></script></body></html>';
   const server = createServer((req, res) => { res.setHeader("Content-Type", req.url === "/fixture.js" ? "text/javascript" : req.url === "/fixture.css" ? "text/css" : "text/html"); res.end(req.url === "/fixture.js" ? bundle.outputFiles[0].text : req.url === "/fixture.css" ? css : html); });
   await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
@@ -111,12 +130,23 @@ async function main() {
       await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       expect(JSON.parse((await page.getAttribute("body", "data-accepted"))!).keysCount).toBe(keysBeforeDelete - 1);
       checks.push(`${viewport.name}:standalone-provider-read-cannot-undo-key-removal`);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.screenshot({ path: `${output}/${viewport.name}-saved.png`, fullPage: true }); await page.close();
+      // Keep geometry evidence even on CI platforms whose system font differs.
+      if (diagnosticFont) await page.evaluate(font => document.documentElement.style.setProperty("--font", font), diagnosticFont);
+      for (const width of viewport.name === "mobile" ? [390, 320] : [viewport.width]) {
+        await page.setViewportSize({ width, height: viewport.height });
+        const layout = await layoutDiagnostics(page);
+        const artifact = `${viewport.name}${width === viewport.width ? "" : `-${width}`}${artifactSuffix}`;
+        await writeFile(`${output}/${artifact}-layout.json`, JSON.stringify(layout, null, 2));
+        expect(layout.documentWidth, `${artifact} horizontal overflow: ${JSON.stringify(layout)}`).toBeLessThanOrEqual(layout.viewport);
+        for (const row of layout.credentialRows) expect(row.scrollWidth, `${artifact} credential row overflow: ${JSON.stringify(row)}`).toBeLessThanOrEqual(row.clientWidth + 1);
+        await page.screenshot({ path: `${output}/${artifact}-saved.png`, fullPage: true });
+        await page.locator(".saved-key").first().screenshot({ path: `${output}/${artifact}-credential.png` });
+      }
+      await page.close();
     }
-    expect(errors).toEqual([]); await writeFile(`${output}/result.json`, JSON.stringify({ checks, errors, scope: "Real SettingsPanel; literal mutation responses; no DB/provider/Next server" }, null, 2));
+    expect(errors).toEqual([]); await writeFile(`${output}/result${artifactSuffix}.json`, JSON.stringify({ checks, errors, scope: "Real SettingsPanel; literal mutation responses; no DB/provider/Next server", geometryWidths: [1280, 390, 320], diagnosticFont: diagnosticFont ?? null }, null, 2));
     console.log(`Settings latency checks passed: ${checks.length}`);
-  } catch (error) { if (active && !active.isClosed()) await active.screenshot({ path: `${output}/failure.png`, fullPage: true }); throw error; }
+  } catch (error) { if (active && !active.isClosed()) { await writeFile(`${output}/failure-layout.json`, JSON.stringify(await layoutDiagnostics(active), null, 2)); await active.screenshot({ path: `${output}/failure.png`, fullPage: true }); } throw error; }
   finally { await browser.close(); await new Promise<void>((r, reject) => server.close(e => e ? reject(e) : r())); }
 }
 void main().catch(e => { console.error(e); process.exitCode = 1; });

@@ -160,5 +160,8 @@ jobs:
             output/playwright/revisions
             output/playwright/visual-gallery
             output/playwright/app-update-guards
+            output/playwright/workspace-latency
+            output/playwright/settings-latency
+            output/playwright/settings-draft-p2
             output/p1-continuation/pwa
             output/p1-continuation/browser-retry

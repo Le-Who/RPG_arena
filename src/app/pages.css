@@ -274,8 +274,9 @@
 .key-footnote{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);margin:var(--sp-3) 0 var(--sp-4);font-size:var(--t-2xs);color:var(--ink-4);flex-wrap:wrap}
 .key-footnote span,.key-footnote a{display:inline-flex;align-items:center;gap:5px}
 .key-footnote a{color:var(--accent-ink)}
-.saved-key{display:flex;align-items:center;gap:var(--sp-3);margin-top:var(--sp-2);padding:11px 12px;border:1px solid var(--line);border-radius:var(--r-xs);background:var(--sunken);font-size:var(--t-xs);color:var(--ink-3)}
-.saved-key code{flex:1;font-size:var(--t-xs);letter-spacing:.06em;color:var(--ink-2)}
+.saved-key{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);margin-top:var(--sp-2);padding:11px 12px;border:1px solid var(--line);border-radius:var(--r-xs);background:var(--sunken);font-size:var(--t-xs);color:var(--ink-3)}
+.saved-key code{flex:1;min-width:0;overflow-wrap:anywhere;font-size:var(--t-xs);letter-spacing:.06em;color:var(--ink-2)}
+.saved-key>.button{max-width:100%;height:auto;min-height:42px;white-space:normal;overflow-wrap:anywhere}
 .saved-key>span{font-size:var(--t-2xs);color:var(--ink-4)}
 .saved-key small{margin-left:auto;font-size:var(--t-2xs)}
 .saved-key>.icon-button{margin-left:auto;width:32px;height:32px}
