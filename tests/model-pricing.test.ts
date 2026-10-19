@@ -51,6 +51,8 @@ test("three-item shortlist pins selection and does not duplicate it", () => {
   const models = ["a", "b", "c", "d"].map(id => ({ id }));
   assert.deepEqual(shortlistModels(models, "d").map(m => m.id), ["d", "a", "b"]);
   assert.deepEqual(shortlistModels(models, "a").map(m => m.id), ["a", "b", "c"]);
+  assert.deepEqual(shortlistModels(models, "b").map(m => m.id), ["a", "b", "c"], "radio selection keeps the current list order");
+  assert.deepEqual(shortlistModels(models, "c").map(m => m.id), ["a", "b", "c"]);
   assert.deepEqual(shortlistModels(models, "missing").map(m => m.id), ["a", "b", "c"]);
 });
 

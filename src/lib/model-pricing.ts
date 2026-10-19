@@ -161,6 +161,8 @@ export function comparableModelPrice(price?: ModelPrice): { amount: number; curr
 
 export function shortlistModels<T extends { id: string }>(models: T[], selectedId: string, limit = 3): T[] {
   const size = Math.max(0, Math.min(5, Math.floor(limit))), selected = models.find(model => model.id === selectedId);
+  const initial = models.slice(0, size);
+  if (!selected || initial.some(model => model.id === selectedId)) return initial;
   return [...(selected ? [selected] : []), ...models.filter(model => model.id !== selectedId)].slice(0, size);
 }
 

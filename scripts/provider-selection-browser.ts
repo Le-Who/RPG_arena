@@ -72,6 +72,7 @@ try {
     await page.getByRole('combobox',{name:'Провайдер рассказчика',exact:true}).selectOption('openrouter');
     await page.getByRole('radio',{name:/Рассказчик a/}).check();
     await expect(page.getByRole('radio',{name:/Вариант сообщества/})).toHaveCount(0);checks.push(width+':official-shortlist');
+    await page.getByRole('radio',{name:/Рассказчик a/}).focus();await page.keyboard.press('ArrowDown');await page.keyboard.press('ArrowDown');await expect(page.getByRole('radio',{name:/Рассказчик c/})).toBeChecked();await expect(page.getByRole('radio',{name:/Рассказчик c/})).toBeFocused();checks.push(width+':stable-keyboard-model-order');
     await page.getByRole('button',{name:'Все модели и поиск',exact:true}).first().click();
     await expect(page.getByRole('radio',{name:/Вариант сообщества/})).toBeVisible();await expect(page.locator('#text-provider').getByText('Модель сообщества',{exact:true})).toBeVisible();
     await page.getByRole('searchbox',{name:'Найти модель рассказчика'}).fill('Рассказчик d');
