@@ -1,0 +1,4 @@
+## 2025-05-18 - [Missing Access Control Wrapper on API Route Export]
+**Vulnerability:** The POST handler for `src/app/api/settings/narrative/route.ts` was not wrapped with `withIdentityWork` at the export level, unlike other handlers.
+**Learning:** Next.js API routes rely on export-level wrappers (like `withIdentityWork`, `withAdminAccess`, `withCampaignAccess`) to enforce security policies like CSRF protection, request diagnostics, and proper authentication context before the request body is even parsed. Applying an internal wrapper like `withCurrentIdentityWork` inside the handler bypasses the outer protective layers.
+**Prevention:** Ensure all exported HTTP methods in Next.js App Router API routes are uniformly wrapped with the appropriate access control middleware at the module export level. Do not rely solely on inner-handler checks.
