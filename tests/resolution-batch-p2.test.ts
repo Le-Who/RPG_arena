@@ -238,9 +238,9 @@ test("resolution batch: add, alias consume, oversized remove and rejected consum
     { op: "add", quantity: 2, ok: true }, { op: "consume", quantity: 2, ok: true },
     { op: "remove", quantity: 3, ok: true }, { op: "consume", quantity: 1, ok: false },
   ]);
-  assert.equal(result.character.hp, 32); // 30 - 2 + power 4 once per consume operation.
-  assert.deepEqual({ hp: result.applied.hp, xp: result.applied.xp, gold: result.applied.gold, danger: result.applied.danger }, { hp: 2, xp: 1, gold: -15, danger: 12 });
-  assert.deepEqual(result.applied.resources?.hp, { before: 30, after: 32, maxBefore: 40, maxAfter: 40 });
+  assert.equal(result.character.hp, 36); // 30 - 2 + power 4 for each of the two consumed units.
+  assert.deepEqual({ hp: result.applied.hp, xp: result.applied.xp, gold: result.applied.gold, danger: result.applied.danger }, { hp: 6, xp: 1, gold: -15, danger: 12 });
+  assert.deepEqual(result.applied.resources?.hp, { before: 30, after: 36, maxBefore: 40, maxAfter: 40 });
   assert.deepEqual(result.consumedItems, [{ id: kitId, name: "Аптечка", kind: "consumable" }]);
   assert.equal(result.applied.rejected.length, 1);
 });

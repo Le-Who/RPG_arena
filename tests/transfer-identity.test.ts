@@ -40,7 +40,7 @@ for (const reverse of [false, true]) test(`exact NPC key owns the transfer despi
   const result = checkedApply(input("anna", { npcs: reverse ? [anna, impostor] : [impostor, anna] }));
   assert.deepEqual(result.ops, [{ t: "inv.update", id: item.id, patch: { quantity: 1 } }]);
   assert.deepEqual(readLife(result.world).holdings, [{ id: "holding-new", name: "Книга стихов", description: "Томик с подписью", quantity: 2, holderKind: "npc", holderKey: "anna", holderName: "Анна", turn: 4 }]);
-  assert.deepEqual(result.applied.transfers, [{ name: "Книга стихов", to: "Анна", quantity: 2, ok: true }]);
+  assert.deepEqual(result.applied.transfers, [{ name: "Книга стихов", to: "Анна", quantity: 2, ok: true, holderKind: "npc", holderKey: "anna" }]);
   assert.deepEqual(result.events.map(({ entityKey, content }) => ({ entityKey, content })), [{ entityKey: "holding:книга стихов", content: "Ход 4: герой передал «Книга стихов» ×2 — теперь предмет у Анна." }]);
 });
 
@@ -49,7 +49,7 @@ test("an exact recipient name beats a different NPC mentioned inside that name",
   const longer = { ...boris, name: "Анна Мария" };
   const result = checkedApply(input("Анна Мария", { npcs: [anna, longer] }));
   assert.deepEqual(readLife(result.world).holdings.map(({ holderKey, holderName }) => ({ holderKey, holderName })), [{ holderKey: "boris", holderName: "Анна Мария" }]);
-  assert.deepEqual(result.applied.transfers, [{ name: "Книга стихов", to: "Анна Мария", quantity: 2, ok: true }]);
+  assert.deepEqual(result.applied.transfers, [{ name: "Книга стихов", to: "Анна Мария", quantity: 2, ok: true, holderKind: "npc", holderKey: "boris" }]);
 });
 
 for (const reverse of [false, true]) {
@@ -165,7 +165,7 @@ test("performTurn persists stable recipient identity and preserves ambiguous own
       const result = await run(sessionId, { transfers: [{ ref: itemId, to: "anna", quantity: 2, accepted: true }] }, "Ты передал Анне две книги стихов.");
       assert.deepEqual((await pg.query("SELECT id,quantity FROM inventory_items WHERE session_id=$1", [sessionId])).rows, [{ id: itemId, quantity: 1 }]);
       assert.deepEqual(readLife(result.state!.worldState).holdings.map(({ holderKey, holderName, quantity }) => ({ holderKey, holderName, quantity })), [{ holderKey: "anna", holderName: "Анна", quantity: 2 }]);
-      assert.deepEqual(result.applied.life?.transfers, [{ name: "Книга стихов", to: "Анна", quantity: 2, ok: true }]);
+      assert.deepEqual(result.applied.life?.transfers, [{ name: "Книга стихов", to: "Анна", quantity: 2, ok: true, holderKind: "npc", holderKey: "anna" }]);
       assert.deepEqual((await pg.query("SELECT source,source_turn,content FROM memory_nodes WHERE session_id=$1 AND entity_key='holding:книга стихов'", [sessionId])).rows, [{ source: "state", source_turn: 2, content: "Ход 2: герой передал «Книга стихов» ×2 — теперь предмет у Анна." }]);
     });
     await t.test("a duplicate recipient name preserves the last item and creates no ownership memory", async () => {

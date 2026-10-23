@@ -74,8 +74,8 @@ export type LifeChanges = {
 export type LifeApplied = {
   intent: IntentKind;
   clock: { from: string; to: string; minutes: number; newDay: boolean } | null;
-  commitments: { title: string; status: CommitmentStatus; isNew: boolean; downgraded?: boolean; rescheduled?: boolean }[];
-  transfers: { name: string; to: string; quantity: number; ok: boolean; reason?: string }[];
+  commitments: { id?: string; title: string; status: CommitmentStatus; isNew: boolean; downgraded?: boolean; rescheduled?: boolean }[];
+  transfers: { name: string; to: string; quantity: number; ok: boolean; reason?: string; holderKind?: "npc" | "location"; holderKey?: string }[];
   story: { kind: StoryShapeKind; resolved: boolean } | null;
 };
 
@@ -309,7 +309,7 @@ export function parseLifeChanges(sc: Record<string, unknown>): LifeChanges {
   }
   if (Array.isArray(sc.commitments)) {
     life.commitments = sc.commitments.filter(isRecord).slice(0, 4).map((c) => ({
-      ref: str(c.ref, 40) || null,
+      ref: str(c.ref, 64) || null,
       title: str(c.title, 140),
       parties: (Array.isArray(c.parties) ? c.parties : []).map((p) => str(p, 60)).filter(Boolean).slice(0, 5),
       place: str(c.place, 80),
@@ -322,7 +322,7 @@ export function parseLifeChanges(sc: Record<string, unknown>): LifeChanges {
   if (Array.isArray(sc.transfers)) {
     life.transfers = sc.transfers.filter(isRecord).slice(0, 4).map((t) => ({
       ref: str(t.ref, 64).replace(/^#/, ""),
-      to: str(t.to, 80),
+      to: str(t.to, 200),
       quantity: Math.max(1, Math.min(20, Math.round(numericValue(t.quantity) || 1))),
       accepted: t.accepted === true,
     })).filter((t) => t.ref && t.to);
@@ -423,7 +423,7 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
     const existing = life.holdings.find((h) => normName(h.name) === normName(item.name) && h.holderKey === (npc ? npc.key : loc!.id));
     if (existing) { existing.quantity += t.quantity; existing.turn = input.turnNumber; }
     else life.holdings.push({ id: makeId(), name: item.name, description: item.description.slice(0, 200), quantity: t.quantity, holderKind: npc ? "npc" : "location", holderKey: npc ? npc.key : loc!.id, holderName, turn: input.turnNumber });
-    applied.transfers.push({ name: item.name, to: holderName, quantity: t.quantity, ok: true });
+    applied.transfers.push({ name: item.name, to: holderName, quantity: t.quantity, ok: true, holderKind: npc ? "npc" : "location", holderKey: npc ? npc.key : loc!.id });
     events.push({ layer: "semantic", category: "item", title: `«${item.name}» у ${holderName}`, content: `Ход ${input.turnNumber}: герой передал «${item.name}» ×${t.quantity} — теперь предмет ${npc ? `у ${npc.name}` : `оставлен в месте «${loc!.name}»`}.`, importance: 60, entityKey: `holding:${normName(item.name)}`, mode: "upsert" });
   }
   // Предмет снова оказался у героя (op add с тем же именем) — снимаем соответствующую запись владения.
@@ -485,7 +485,7 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
       if (due) existing.due = due;
       if (change.parties.length) existing.parties = change.parties;
       if (change.note) existing.note = `${existing.note ? existing.note + " " : ""}[ход ${input.turnNumber}] ${change.note}`.slice(-400);
-      applied.commitments.push({ title: existing.title, status, isNew: false, ...(downgraded ? { downgraded } : {}), ...(rescheduled ? { rescheduled } : {}) });
+      applied.commitments.push({ id: existing.id, title: existing.title, status, isNew: false, ...(downgraded ? { downgraded } : {}), ...(rescheduled ? { rescheduled } : {}) });
       events.push({ layer: "semantic", category: "quest", title: `Договорённость: ${existing.title}`, content: `${COMMITMENT_LABELS[status]}${existing.parties.length ? ` — ${existing.parties.join(", ")}` : ""}${existing.place ? `, место: ${existing.place}` : ""}${existing.due ? `, срок: ${formatClock(existing.due)}` : ""}.`, importance: status === "accepted" ? 70 : 55, entityKey: `commitment:${existing.id}`, mode: "upsert" });
     } else {
       if (!change.title) continue;
@@ -493,7 +493,7 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
       if (life.commitments.filter((c) => c.status === "proposed" || c.status === "accepted").length >= MAX_ACTIVE_COMMITMENTS) { rejected.push("COMMITMENT: слишком много открытых договорённостей"); continue; }
       const created: Commitment = { id: makeId(), title: change.title, parties: change.parties, place: change.place, due, status, createdTurn: input.turnNumber, updatedTurn: input.turnNumber, note: change.note, revision: 1 };
       life.commitments.push(created);
-      applied.commitments.push({ title: created.title, status, isNew: true, ...(downgraded ? { downgraded } : {}) });
+      applied.commitments.push({ id: created.id, title: created.title, status, isNew: true, ...(downgraded ? { downgraded } : {}) });
       events.push({ layer: "semantic", category: "quest", title: `Договорённость: ${created.title}`, content: `${COMMITMENT_LABELS[status]}${created.parties.length ? ` — ${created.parties.join(", ")}` : ""}${created.place ? `, место: ${created.place}` : ""}${created.due ? `, срок: ${formatClock(created.due)}` : ""}.`, importance: status === "accepted" ? 70 : 50, entityKey: `commitment:${created.id}`, mode: "upsert" });
     }
   }

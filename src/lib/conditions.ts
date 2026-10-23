@@ -151,15 +151,15 @@ export function removalCheck(rule: ConditionRule, evidence: RemovalEvidence): { 
   const subject = `(?:ты|вы|герой|героиня${escapedName ? "|" + escapedName : ""})`;
   const completedByHero = (verbs: string) => sentences.some(s => new RegExp(`(?:^|\\s)${subject} (?:наконец |хорошо |успешно )?(?:${verbs})(?:\\s|$)`).test(s));
   const item = (pattern: RegExp) => evidence.consumed.some(i => pattern.test(normName(i.name)));
-  const rest = positiveAction && /(^|\s)(отдых|сплю|спать|посп|сон|ложусь|дрем)/.test(action)
+  const rest = positiveAction && /(^|\s)(отдых|отдохн|сплю|спать|посп|сон|ложусь|дрем)/.test(action)
     && completedByHero("отдохнул|отдохнула|отдыхал|отдыхала|поспал|поспала|выспался|выспалась|спал|спала");
   const meal = positiveAction && /(^|\s)(ем|есть|съем|съесть|поесть|еду|обед|ужин|завтрак|перекус|съед|заказ)/.test(action)
     && completedByHero("поел|поела|пообедал|пообедала|поужинал|поужинала|позавтракал|позавтракала|перекусил|перекусила|съел|съела");
   const selfTreatment = /(^|\s)(себя|себе|свою|свои|свое|мне|меня|мою|мои)(\s|$)/.test(action);
-  const ingestion = /(^|\s)(выпив|приним|выпью|приму)/.test(action) && completedByHero("выпил|выпила|принял|приняла");
+  const ingestion = /(^|\s)(выпи|приним|выпью|приму)/.test(action) && completedByHero("выпил|выпила|принял|приняла");
   const patientConfirmed = sentences.some(s => /(^|\s)(перевязал[аи]?|зашил[аи]?|обработал[аи]?) (твою|вашу) (рану|руку|ногу|плечо)(\s|$)|(^|\s)(вылечил[аи]?|исцелил[аи]?) (тебя|вас)(\s|$)/.test(s))
     || completedByHero("(?:перевязал[аи]?|зашил[аи]?|обработал[аи]?) свою (?:рану|руку|ногу|плечо)|(?:вылечил[аи]?|исцелил[аи]?) себя");
-  const treated = positiveAction && /(^|\s)(леч|вылеч|перевяз|перевяж|врач|лекар|целит|медиц|противояд|выпив|выпью|прин|приму|бинт|обрабат|обработ|исцел|зелье)/.test(action)
+  const treated = positiveAction && /(^|\s)(леч|вылеч|перевяз|перевяж|врач|лекар|целит|медиц|противояд|выпи|выпью|прин|приму|бинт|обрабат|обработ|исцел|зелье)/.test(action)
     && ((selfTreatment && patientConfirmed) || ingestion);
   const failedMedical = evidence.dice && !evidence.dice.success && MEDICAL_SKILL.test(normName(evidence.dice.skill ?? ""));
   const medicine = rule.label === "Отравление" ? /противояд|антидот/ : rule.label === "Болезнь" ? /лекарств|антибиотик|микстур|целебн|лечебн/ : /бинт|перевяз|аптечк|кровоостан|зелье (лечения|исцеления|здоровья)|лечебн|целебн/;

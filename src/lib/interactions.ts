@@ -130,8 +130,8 @@ const VERB_PATTERNS: [InteractionVerb, RegExp][] = [
 ];
 
 function parseMinutes(text: string): number | undefined {
-  const m = /(\d{1,3})\s*(мин|минут|ч(?![а-я])|час|часа|часов)/i.exec(text);
-  if (m) return Math.min(10080, Number(m[1]) * (/^ч|час/i.test(m[2]) ? 60 : 1));
+  const durations = [...text.matchAll(/([+-]?\d+(?:[.,]\d+)?)\s*(мин|минут|ч(?![а-я])|час|часа|часов)/gi)];
+  if (durations.length) return Math.min(10080, Math.round(durations.reduce((sum, match) => sum + Math.max(0, Number(match[1].replace(",", ".")) * (/^ч/i.test(match[2]) ? 60 : 1)), 0)));
   if (/до утра|всю ночь|поспать|посплю|лечь спать/i.test(text)) return 480;
   if (/до вечера/i.test(text)) return 240;
   if (/полчаса/i.test(text)) return 30;

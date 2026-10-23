@@ -25,8 +25,14 @@ export function withCampaignAccess<P extends { id: string }>(access: CampaignAcc
   return async (request: Request, context: { params: Promise<P> }): Promise<Response> => {
     try {
       const response = await withCurrentIdentityWork(async () => {
-        await requireCampaignAccess((await context.params).id, access);
-        return handler(request, context);
+        const { id } = await context.params;
+        await requireCampaignAccess(id, access);
+        const result = await handler(request, context);
+        // Publication or the admitted account can be revoked while data loads.
+        // Resolve both identity and campaign access again before releasing a read.
+        // Mutations keep their own transaction checks and replay semantics.
+        if ((request.method === "GET" || request.method === "HEAD") && result.ok) await requireCampaignAccess(id, access);
+        return result;
       });
       response.headers.set("Cache-Control", "private, no-store");
       return response;

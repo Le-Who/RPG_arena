@@ -119,7 +119,7 @@ export function readSocial(world: WorldState): WorldSocial {
   const bonds: NpcBond[] = [];
   for (const item of Array.isArray(raw.npcBonds) ? raw.npcBonds : []) {
     if (!isRecord(item)) continue;
-    const key = str(item.key, 80);
+    const key = str(item.key, 200);
     if (!key || bonds.some((b) => b.key === key)) continue;
     const history: BondEntry[] = (Array.isArray(item.history) ? item.history : []).filter(isRecord).map((h) => ({
       turn: turnOf(h.turn),
@@ -135,7 +135,7 @@ export function readSocial(world: WorldState): WorldSocial {
   const schedules: ScheduleSlot[] = [];
   for (const item of Array.isArray(raw.npcSchedules) ? raw.npcSchedules : []) {
     if (!isRecord(item)) continue;
-    const npcKey = str(item.npcKey, 80), place = str(item.place, 160);
+    const npcKey = str(item.npcKey, 200), place = str(item.place, 160);
     const from = minuteOf(item.from), to = minuteOf(item.to);
     if (!npcKey || !place || from === null || to === null || from === to) continue;
     const repeat: ScheduleRepeat = item.repeat === "once" ? "once" : "daily";
@@ -265,7 +265,7 @@ export function parseSocialChanges(sc: Record<string, unknown>): SocialChanges {
   const out = emptySocialChanges();
   if (Array.isArray(sc.npcSchedule)) {
     out.schedule = sc.npcSchedule.filter(isRecord).slice(0, 4).map((s) => ({
-      npc: str(s.npc, 80), place: str(s.place, 160), from: str(s.from, 5), to: str(s.to, 5),
+      npc: str(s.npc, 200), place: str(s.place, 160), from: str(s.from, 5), to: str(s.to, 5),
       repeat: s.repeat === "once" ? ("once" as const) : ("daily" as const),
       day: s.day !== null && s.day !== "" && Number.isFinite(numericValue(s.day)) && numericValue(s.day) >= 1 ? Math.min(9999, Math.round(numericValue(s.day))) : null,
       note: str(s.note, 200), remove: s.remove === true, evidence: evidenceQuote(s.evidence),
@@ -273,7 +273,7 @@ export function parseSocialChanges(sc: Record<string, unknown>): SocialChanges {
   }
   if (Array.isArray(sc.npcKnowledge)) {
     out.knowledge = sc.npcKnowledge.filter(isRecord).slice(0, 4)
-      .map((k) => ({ npc: str(k.npc, 80), fact: str(k.fact, 200), evidence: evidenceQuote(k.evidence) }))
+      .map((k) => ({ npc: str(k.npc, 200), fact: str(k.fact, 200), evidence: evidenceQuote(k.evidence) }))
       .filter((k) => k.npc && k.fact);
   }
   return out;
@@ -339,11 +339,20 @@ export function applySocial(input: ApplySocialInput): ApplySocialResult {
     else if (change.delta) record(npc, "relation", reason || (change.delta > 0 ? "Стал(а) теплее к герою" : "Стал(а) холоднее к герою"), change.delta);
   }
   for (const transfer of input.applied.life?.transfers ?? []) {
-    const npc = transfer.ok ? byName(transfer.to) : undefined;
+    let npc: NpcRow | undefined;
+    if (transfer.ok) {
+      if (transfer.holderKind !== undefined || transfer.holderKey !== undefined) {
+        if (transfer.holderKind === "npc" && transfer.holderKey) npc = input.npcs.find(n => n.key === transfer.holderKey);
+      } else {
+        const matches = input.npcs.filter(n => normName(n.name) === normName(transfer.to));
+        if (matches.length === 1 && !input.locations.some(location => normName(location.name) === normName(transfer.to))) npc = matches[0];
+      }
+    }
     if (npc) record(npc, "gift", `Получил(а) от героя «${transfer.name}» ×${transfer.quantity}`, 0);
   }
   for (const change of input.applied.life?.commitments ?? []) {
-    const commitment = life.commitments.find((c) => c.title === change.title);
+    const matches = life.commitments.filter(c => change.id !== undefined ? c.id === change.id : c.title === change.title);
+    const commitment = matches.length === 1 ? matches[0] : undefined;
     for (const party of commitment?.parties ?? []) {
       const { npc } = resolveNpc(input.npcs, party);
       if (npc) record(npc, "promise", `${COMMITMENT_LABELS[change.status]}: «${change.title}»${change.rescheduled ? " — перенесено" : ""}`, 0);
@@ -480,7 +489,7 @@ export function parseSocialEdit(raw: unknown): SocialEdit | null {
     case "schedule.remove":
       return only("id", "expected") && text(raw.id, 40) && text(raw.expected, 1500) ? { op: raw.op, id: raw.id, expected: raw.expected } : null;
     case "schedule.upsert": {
-      if (!only("id", "expected", "npcKey", "place", "from", "to", "repeat", "day", "note") || !text(raw.npcKey, 80) || !text(raw.place, 160) || !text(raw.from, 5) || !text(raw.to, 5) || !/^\d{2}:\d{2}$/.test(raw.from) || !/^\d{2}:\d{2}$/.test(raw.to) || parseClockTime(raw.from) === null || parseClockTime(raw.to) === null) return null;
+      if (!only("id", "expected", "npcKey", "place", "from", "to", "repeat", "day", "note") || !text(raw.npcKey, 200) || !text(raw.place, 160) || !text(raw.from, 5) || !text(raw.to, 5) || !/^\d{2}:\d{2}$/.test(raw.from) || !/^\d{2}:\d{2}$/.test(raw.to) || parseClockTime(raw.from) === null || parseClockTime(raw.to) === null) return null;
       if (raw.repeat !== "daily" && raw.repeat !== "once") return null;
       if (raw.repeat === "once" ? !integer(raw.day, 1, 1_000_000) : raw.day != null) return null;
       if (raw.note !== undefined && !text(raw.note, 200, true)) return null;
@@ -489,11 +498,11 @@ export function parseSocialEdit(raw: unknown): SocialEdit | null {
     }
     case "knowledge.remove": {
       const expected = raw.expected;
-      if (!only("npcKey", "index", "expected") || !text(raw.npcKey, 80) || !integer(raw.index, 0, MAX_KNOWS - 1) || !isRecord(expected) || Object.keys(expected).some(key => !["text", "turn", "source"].includes(key)) || !text(expected.text, 200) || !integer(expected.turn, 0, 1_000_000_000) || (expected.source !== "scene" && expected.source !== "owner")) return null;
+      if (!only("npcKey", "index", "expected") || !text(raw.npcKey, 200) || !integer(raw.index, 0, MAX_KNOWS - 1) || !isRecord(expected) || Object.keys(expected).some(key => !["text", "turn", "source"].includes(key)) || !text(expected.text, 200) || !integer(expected.turn, 0, 1_000_000_000) || (expected.source !== "scene" && expected.source !== "owner")) return null;
       return { op: raw.op, npcKey: raw.npcKey, index: raw.index, expected: { text: expected.text, turn: expected.turn, source: expected.source } };
     }
     case "knowledge.add":
-      return only("npcKey", "text") && text(raw.npcKey, 80) && text(raw.text, 200) ? { op: raw.op, npcKey: raw.npcKey, text: raw.text.trim().replace(/\s+/g, " ") } : null;
+      return only("npcKey", "text") && text(raw.npcKey, 200) && text(raw.text, 200) ? { op: raw.op, npcKey: raw.npcKey, text: raw.text.trim().replace(/\s+/g, " ") } : null;
     default: return null;
   }
 }

@@ -34,10 +34,11 @@ export async function processSemanticJob(opts: { sessionId?: string; cfg?: AICon
   });
   if (!job) return { processed: 0, extracted: 0, failed: 0, delayed: false };
   const fenced = and(eq(memoryJobs.id, job.id), eq(memoryJobs.leaseToken, token), eq(memoryJobs.status, "processing"));
+  const leaseCondition = and(fenced, gt(memoryJobs.leaseExpiresAt, sql`(clock_timestamp() AT TIME ZONE 'UTC')`));
   try {
     const { models } = await pickModels("fast", cfg);
     if (!models.length) {
-      await db.update(memoryJobs).set({ status: "pending", attempts: job.attempts - 1, leaseToken: null, leaseExpiresAt: null, error: "DAILY_LIMIT", nextAttemptAt: new Date(Date.now() + 60000), updatedAt: new Date() }).where(fenced);
+      await db.update(memoryJobs).set({ status: "pending", attempts: job.attempts - 1, leaseToken: null, leaseExpiresAt: null, error: "DAILY_LIMIT", nextAttemptAt: new Date(Date.now() + 60000), updatedAt: new Date() }).where(leaseCondition);
       return { processed: 0, extracted: 0, failed: 0, delayed: true };
     }
     const response = await callTextWithConfig(cfg, { keys: cfg.keys, models, system: buildExtractionSystemPrompt(job.payload.profileCanon, job.payload.knownDigest), user: `Действие игрока (намерение, не доказательство): ${job.payload.playerAction}\n\nПодтверждённый ответ рассказчика:\n${job.payload.narration}`, maxTokens: 1000, temperature: 0.2, responseSchema: EXTRACTION_RESPONSE_SCHEMA, timeoutMs: 15000,
@@ -75,7 +76,7 @@ export async function processSemanticJob(opts: { sessionId?: string; cfg?: AICon
     }
     const extracted = await db.transaction(async (tx) => {
       await lockSession(tx, job.sessionId);
-      const [current] = await tx.select({ id: memoryJobs.id }).from(memoryJobs).where(and(fenced, gt(memoryJobs.leaseExpiresAt, new Date()))).for("update");
+      const [current] = await tx.select({ id: memoryJobs.id }).from(memoryJobs).where(leaseCondition).for("update");
       if (!current) return null;
       let changed = 0;
       for (const fact of facts) {
@@ -83,17 +84,19 @@ export async function processSemanticJob(opts: { sessionId?: string; cfg?: AICon
         if (result.changed) changed++;
       }
       // Empty extractions are complete too; no partial writes can mark the turn done.
-      await tx.update(memoryJobs).set({ status: "completed", factsCount: changed, typesafeReport: typesafeReport.status === "disabled" ? null : typesafeReport, leaseToken: null, leaseExpiresAt: null, error: null, updatedAt: new Date() }).where(fenced);
+      const acknowledged = await tx.update(memoryJobs).set({ status: "completed", factsCount: changed, typesafeReport: typesafeReport.status === "disabled" ? null : typesafeReport, leaseToken: null, leaseExpiresAt: null, error: null, updatedAt: new Date() }).where(leaseCondition).returning({ id: memoryJobs.id });
+      if (!acknowledged.length) throw new Error("MEMORY_JOB_LEASE_EXPIRED");
       return changed;
     });
     return { processed: extracted === null ? 0 : 1, extracted: extracted ?? 0, failed: 0, delayed: false };
   } catch (error) {
+    if (error instanceof Error && error.message === "MEMORY_JOB_LEASE_EXPIRED") return { processed: 0, extracted: 0, failed: 0, delayed: false };
     if (quotaDeferredWithoutFetch(error)) {
-      await db.update(memoryJobs).set({ status: "pending", attempts: job.attempts - 1, leaseToken: null, leaseExpiresAt: null, error: "QUOTA_DEFERRED", nextAttemptAt: new Date(Date.now() + 60000), updatedAt: new Date() }).where(fenced);
+      await db.update(memoryJobs).set({ status: "pending", attempts: job.attempts - 1, leaseToken: null, leaseExpiresAt: null, error: "QUOTA_DEFERRED", nextAttemptAt: new Date(Date.now() + 60000), updatedAt: new Date() }).where(leaseCondition);
       return { processed: 0, extracted: 0, failed: 0, delayed: true };
     }
     const failed = job.attempts >= 3;
-    const rows = await db.update(memoryJobs).set({ status: failed ? "failed" : "pending", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(Date.now() + retryDelayMs(job.attempts)), error: error instanceof Error && error.message === "INVALID_EXTRACTION_JSON" ? "INVALID_EXTRACTION_JSON" : "PROVIDER_UNAVAILABLE", updatedAt: new Date() }).where(fenced).returning({ id: memoryJobs.id });
+    const rows = await db.update(memoryJobs).set({ status: failed ? "failed" : "pending", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(Date.now() + retryDelayMs(job.attempts)), error: error instanceof Error && error.message === "INVALID_EXTRACTION_JSON" ? "INVALID_EXTRACTION_JSON" : "PROVIDER_UNAVAILABLE", updatedAt: new Date() }).where(leaseCondition).returning({ id: memoryJobs.id });
     return { processed: 0, extracted: 0, failed: failed ? rows.length : 0, delayed: !failed };
   }
 }

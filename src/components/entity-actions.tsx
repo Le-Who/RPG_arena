@@ -11,10 +11,17 @@ export function EntityActions({ kind, refId, name, state, disabled, onPick }: {
   const [open, setOpen] = useState(false);
   const [giving, setGiving] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent | KeyboardEvent) => {
-      if (event instanceof KeyboardEvent ? event.key === "Escape" : !root.current?.contains(event.target as Node)) { setOpen(false); setGiving(false); }
+      if (event instanceof KeyboardEvent ? event.key === "Escape" : !root.current?.contains(event.target as Node)) {
+        if (event instanceof KeyboardEvent && root.current?.contains(document.activeElement)) {
+          event.preventDefault();
+          trigger.current?.focus();
+        }
+        setOpen(false); setGiving(false);
+      }
     };
     document.addEventListener("mousedown", close); document.addEventListener("keydown", close);
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", close); };
@@ -27,7 +34,7 @@ export function EntityActions({ kind, refId, name, state, disabled, onPick }: {
   };
   const present = state.npcs.filter((npc) => npcPresent(state, npc));
   return <div className="lx-actions" ref={root}>
-    <button type="button" className="lx-actions-toggle" aria-haspopup="menu" aria-expanded={open} aria-label={`Действия: ${name}`} disabled={disabled} onClick={() => setOpen((v) => !v)}>
+    <button ref={trigger} type="button" className="lx-actions-toggle" aria-haspopup="menu" aria-expanded={open} aria-label={`Действия: ${name}`} disabled={disabled} onClick={() => setOpen((v) => !v)}>
       <Hand size={13} aria-hidden="true" /><span>Действия</span><MoreHorizontal size={13} aria-hidden="true" />
     </button>
     {open && <div className="lx-menu" role="menu" aria-label={`Что сделать: ${name}`}>

@@ -61,7 +61,12 @@ export function withIdentityWork<A extends unknown[]>(handler: (...args: A) => P
     const started = performance.now();
     let response: Response;
     response = await withRequestDiagnostics(async () => {
-      try { return await withCurrentIdentityWork(() => measureRequestPhase("handler", () => handler(...args))); }
+      try { return await withCurrentIdentityWork(async () => {
+        const result = await measureRequestPhase("handler", () => handler(...args));
+        const request = args[0];
+        if (result.ok && request instanceof Request && (request.method === "GET" || request.method === "HEAD")) await currentIdentity();
+        return result;
+      }); }
       catch (error) { return httpError(error); }
     });
     return withServerTiming(response, started);

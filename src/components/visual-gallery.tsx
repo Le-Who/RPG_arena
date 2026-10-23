@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, ImageOff, LoaderCircle, MapPin, RefreshCw, Save, Star, Trash2, UserRound } from "lucide-react";
 import { api, jsonBody } from "@/lib/api-client";
 import { ContextualHelp } from "./contextual-help";
@@ -21,8 +21,15 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
   const [retryKey, setRetryKey] = useState<Record<string, number>>({});
   const [failed, setFailed] = useState<Record<string, boolean>>({});
   const [portraitSubject, setPortraitSubject] = useState("hero");
-  const load = useCallback(async () => { setError(""); try { setData(await api<Gallery>(`/api/sessions/${sessionId}/visuals`)); } catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить галерею"); } }, [sessionId]);
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  const loadRequest = useRef(0);
+  const cancelLoad = useCallback(() => { loadRequest.current++; }, []);
+  const load = useCallback(async () => {
+    const request = ++loadRequest.current;
+    setError("");
+    try { const result = await api<Gallery>(`/api/sessions/${sessionId}/visuals`); if (request === loadRequest.current) setData(result); }
+    catch (e) { if (request === loadRequest.current) setError(e instanceof Error ? e.message : "Не удалось загрузить галерею"); }
+  }, [sessionId]);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => { window.clearTimeout(timer); cancelLoad(); }; }, [load, cancelLoad]);
   const create = async (kind: Visual["kind"], subject?: string) => {
     setBusy(kind); setError("");
     try { await api(`/api/sessions/${sessionId}/visuals`, jsonBody({ kind, subject, turnNumber: kind === "scene" ? lastTurn : undefined })); await load(); }

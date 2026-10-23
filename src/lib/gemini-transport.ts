@@ -15,9 +15,14 @@ export async function admitBeforeFetch(admit: (() => Promise<boolean>) | undefin
   if (!admit) return true;
   let abort!: () => void;
   try {
-    const allowed = await Promise.race([admit(), new Promise<never>((_, reject) => {
+    // Subscribe before admission: it may synchronously revoke the caller's signal.
+    const cancelled = new Promise<never>((_, reject) => {
       abort = () => reject(signal.reason); signal.addEventListener("abort", abort, { once: true });
-    })]);
+    });
+    // The executor preserves synchronous admission while turning a thrown hook into
+    // a promise, so an abort followed by a throw still observes both rejections.
+    const admission = new Promise<boolean>(resolve => resolve(admit()));
+    const allowed = await Promise.race([admission, cancelled]);
     signal.throwIfAborted();
     return allowed;
   } finally { signal.removeEventListener("abort", abort); }
@@ -67,7 +72,7 @@ async function readGeneration(response: Response, signal: AbortSignal, onText?: 
   };
   const streaming = response.headers.get("content-type")?.includes("text/event-stream");
   if (!response.body) throw new ProviderFailure(streaming ? "EMPTY_STREAM" : "EMPTY_RESPONSE");
-  const reader = response.body.getReader(), decoder = new TextDecoder();
+  const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
   let buffer = "", dataLines: string[] = [], frameSize = 0, bytes = 0;
   const line = async (value: string) => {
     if (value.startsWith("data:")) {
@@ -88,7 +93,8 @@ async function readGeneration(response: Response, signal: AbortSignal, onText?: 
       signal.throwIfAborted();
       bytes += value?.byteLength ?? 0;
       if (bytes > 2_000_000) throw new ProviderFailure("RESPONSE_TOO_LARGE");
-      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      try { buffer += done ? decoder.decode() : decoder.decode(value, { stream: true }); }
+      catch { throw new ProviderFailure("INVALID_RESPONSE"); }
       if (streaming) {
         let at: number;
         while ((at = buffer.indexOf("\n")) !== -1) { await line(buffer.slice(0, at).replace(/\r$/, "")); buffer = buffer.slice(at + 1); }

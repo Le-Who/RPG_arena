@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { db, pool } from "@/db";
 import { memoryEmbeddings, memoryNodes, tokenLogs } from "@/db/schema";
 import { estimateTokens } from "./gemini";
@@ -164,14 +164,14 @@ export async function indexPendingEmbeddings(opts: { sessionId: string; keys: st
       const { vectors } = await embedTexts({ ...opts, texts: batch.map((r) => { const n = byId.get(r.memoryNodeId)!; return formatDocument(n.title, n.content); }) });
       for (let i = 0; i < batch.length; i++) {
         const row = batch[i];
-        const saved = await db.update(memoryEmbeddings).set({ vector: vectors[i], status: "ready", attempts: row.attempts + 1, error: "", leaseToken: null, leaseExpiresAt: null, updatedAt: new Date() }).where(and(eq(memoryEmbeddings.id, row.id), eq(memoryEmbeddings.sessionId, opts.sessionId), eq(memoryEmbeddings.contentHash, row.contentHash), eq(memoryEmbeddings.leaseToken, leaseToken))).returning({ id: memoryEmbeddings.id });
+        const saved = await db.update(memoryEmbeddings).set({ vector: vectors[i], status: "ready", attempts: row.attempts + 1, error: "", leaseToken: null, leaseExpiresAt: null, updatedAt: new Date() }).where(and(eq(memoryEmbeddings.id, row.id), eq(memoryEmbeddings.sessionId, opts.sessionId), eq(memoryEmbeddings.contentHash, row.contentHash), eq(memoryEmbeddings.leaseToken, leaseToken), eq(memoryEmbeddings.status, "processing"), gt(memoryEmbeddings.leaseExpiresAt, sql`(clock_timestamp() AT TIME ZONE 'UTC')`))).returning({ id: memoryEmbeddings.id });
         indexed += saved.length;
       }
     } catch (error) {
       for (const row of batch) {
         const deferred = quotaDeferredWithoutFetch(error);
         const attempts = row.attempts + (deferred ? 0 : 1);
-        const updated = await db.update(memoryEmbeddings).set({ status: attempts >= 3 ? "failed" : "pending", attempts, error: error instanceof Error ? error.message.slice(0, 200) : "Ошибка индексации", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(Date.now() + (deferred ? 60000 : 5000 * 2 ** attempts)), updatedAt: new Date() }).where(and(eq(memoryEmbeddings.id, row.id), eq(memoryEmbeddings.contentHash, row.contentHash), eq(memoryEmbeddings.leaseToken, leaseToken))).returning({ id: memoryEmbeddings.id });
+        const updated = await db.update(memoryEmbeddings).set({ status: attempts >= 3 ? "failed" : "pending", attempts, error: error instanceof Error ? error.message.slice(0, 200) : "Ошибка индексации", leaseToken: null, leaseExpiresAt: null, nextAttemptAt: new Date(Date.now() + (deferred ? 60000 : 5000 * 2 ** attempts)), updatedAt: new Date() }).where(and(eq(memoryEmbeddings.id, row.id), eq(memoryEmbeddings.sessionId, opts.sessionId), eq(memoryEmbeddings.contentHash, row.contentHash), eq(memoryEmbeddings.leaseToken, leaseToken), eq(memoryEmbeddings.status, "processing"), gt(memoryEmbeddings.leaseExpiresAt, sql`(clock_timestamp() AT TIME ZONE 'UTC')`))).returning({ id: memoryEmbeddings.id });
         if (attempts >= 3) failed += updated.length;
       }
     }

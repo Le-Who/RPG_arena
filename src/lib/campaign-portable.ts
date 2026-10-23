@@ -91,14 +91,14 @@ const world = object({
   }), 40)),
   holdings: optional(array(object({
     id: text(64), name: text(160), description: text(500), quantity: integer(1, 1000),
-    holderKind: choice("npc", "location"), holderKey: text(160), holderName: text(160), turn: integer(),
+    holderKind: choice("npc", "location"), holderKey: text(200), holderName: text(160), turn: integer(),
   }), 100)),
   agenda: optional(array(object({
-    id: nonempty(40), title: nonempty(140), kind: choice("npc", "world", "reminder"), npcKey: text(80), npcName: text(80),
+    id: nonempty(40), title: nonempty(140), kind: choice("npc", "world", "reminder"), npcKey: text(200), npcName: text(80),
     at: worldClock, note: text(240), status: choice("pending", "due", "fired", "cancelled"),
     createdTurn: integer(), firedTurn: optional(integer()),
   }), 60)),
-  npcAgendas: optional(array(object({ key: nonempty(80), name: text(80), goal: text(160), routine: text(160), updatedTurn: integer() }), 30)),
+  npcAgendas: optional(array(object({ key: nonempty(200), name: text(80), goal: text(160), routine: text(160), updatedTurn: integer() }), 30)),
   narrator: optional(object({
     pace: choice("slow", "balanced", "brisk"), length: choice("short", "medium", "long"),
     initiative: choice("reactive", "balanced", "driving"), realism: choice("grounded", "balanced", "heightened"),
@@ -106,12 +106,12 @@ const world = object({
   })),
   conditionTimers: optional(record(object({ expiresAt: worldClock, sinceTurn: integer() }), 100)),
   npcBonds: optional(array(object({
-    key: nonempty(80), name: text(80), updatedTurn: integer(),
+    key: nonempty(200), name: text(80), updatedTurn: integer(),
     history: array(object({ turn: integer(), kind: choice("met", "relation", "gift", "promise", "meeting", "missed", "knowledge"), text: text(240), delta: number(-100, 100), at: nullable(worldClock) }), 12),
     knows: array(object({ text: text(240), turn: integer(), source: optional(choice("scene", "owner")) }), 12),
   }), 60)),
   npcSchedules: optional(array(object({
-    id: nonempty(40), npcKey: nonempty(80), npcName: text(80), place: nonempty(160), from: integer(0, 1439), to: integer(0, 1439),
+    id: nonempty(40), npcKey: nonempty(200), npcName: text(80), place: nonempty(160), from: integer(0, 1439), to: integer(0, 1439),
     repeat: choice("daily", "once"), day: nullable(integer(1, 1_000_000)), note: text(240), createdTurn: integer(), source: optional(choice("scene", "owner")),
   }), 60)),
   arcHistory: optional(array(object({
@@ -125,11 +125,17 @@ const session = object({
   character, worldState: world, status: choice("active", "paused", "finished", "archived"), turnCount: integer(1),
   contextTokensEstimate: integer(), lastCompactTurn: integer(),
 });
-const dice = object({
-  goal: optional(text(2000)), d20: integer(0, 20), modifier: number(), total: number(), dc: number(), success: bool,
+const diceFields = object({
+  goal: optional(text(2000)), d20: integer(0, 66), modifier: number(), total: number(), dc: number(), success: bool,
   critical: nullable(choice("crit", "fumble")), skill: text(500), label: text(1000),
   kind: optional(choice("d20", "2d6")), band: optional(choice("full", "cost", "fail")),
 });
+const dice: Rule = (value, path) => {
+  const parsed = diceFields(value, path) as { kind?: "d20" | "2d6"; d20: number };
+  // rules-light stores the two d6 faces in this legacy column, e.g. 3+5 as 35.
+  if (parsed.kind === "2d6" ? !/^[1-6]{2}$/.test(String(parsed.d20)) : parsed.d20 > 20) invalid(`${path}.d20`);
+  return parsed;
+};
 const stateChanges = object({
   hp: number(), xp: number(), gold: number(), danger: number(), levelUp: bool, dead: bool,
   location: nullable(object({ from: text(500), to: text(500), isNew: bool })),
@@ -146,8 +152,8 @@ const stateChanges = object({
   life: optional(object({
     intent: choice("act", "intend", "claim", "ask"),
     clock: nullable(object({ from: text(100), to: text(100), minutes: integer(0, 1_000_000), newDay: bool })),
-    commitments: array(object({ title: text(200), status: choice("proposed", "accepted", "fulfilled", "broken", "cancelled"), isNew: bool, downgraded: optional(bool), rescheduled: optional(bool) }), 40),
-    transfers: array(object({ name: text(160), to: text(160), quantity: integer(), ok: bool, reason: optional(text(2000)) }), 100),
+    commitments: array(object({ id: optional(text(64)), title: text(200), status: choice("proposed", "accepted", "fulfilled", "broken", "cancelled"), isNew: bool, downgraded: optional(bool), rescheduled: optional(bool) }), 40),
+    transfers: array(object({ name: text(160), to: text(200), quantity: integer(), ok: bool, reason: optional(text(2000)), holderKind: optional(choice("npc", "location")), holderKey: optional(text(200)) }), 100),
     story: nullable(object({ kind: choice("scene", "open-life", "arc"), resolved: bool })),
   })),
   interaction: optional(nullable(object({ verb: text(60), label: text(160), target: text(160), valid: bool, reasons: strings(20, 2000) }))),

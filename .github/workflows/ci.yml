@@ -163,6 +163,7 @@ jobs:
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/ui-audit.ts --self-test
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/client-state-browser.ts
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/turn-request-lifecycle-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/client-audit-browser.ts
           npm run verify:revisions-ui
       - uses: actions/upload-artifact@v4
         if: always()
@@ -180,5 +181,6 @@ jobs:
             output/playwright/notification-feedback
             output/playwright/client-state
             output/playwright/turn-request-lifecycle
+            output/playwright/client-audit
             output/p1-continuation/pwa
             output/p1-continuation/browser-retry

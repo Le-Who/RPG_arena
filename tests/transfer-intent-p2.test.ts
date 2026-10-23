@@ -138,7 +138,7 @@ test("performTurn persists transfer intent boundaries and a give/return lifecycl
       assert.deepEqual(readLife(saved.world_state).commitments.map(({ id: _id, ...commitment }) => commitment), [{ title: "Обсудить передачу книги", parties: ["Анна"], place: "Кафе", due: null, status: "proposed", createdTurn: 2, updatedTurn: 2, note: "Предложение героя", revision: 1 }]);
       assert.equal(result.applied.life?.intent, example.intent);
       assert.deepEqual(result.applied.life?.transfers.map(({ name, to, quantity, ok }) => ({ name, to, quantity, ok })), [{ name: "Книга стихов", to: "anna", quantity: 1, ok: false }]);
-      assert.deepEqual(result.applied.life?.commitments, [{ title: "Обсудить передачу книги", status: "proposed", isNew: true, ...(example.downgraded ? { downgraded: true } : {}) }]);
+      assert.deepEqual(result.applied.life?.commitments, [{ id: readLife(saved.world_state).commitments[0].id, title: "Обсудить передачу книги", status: "proposed", isNew: true, ...(example.downgraded ? { downgraded: true } : {}) }]);
       const turns = (await pg.query<{ content: string; state_changes: unknown }>("SELECT content,state_changes FROM game_turns WHERE session_id=$1 AND role='narrator' AND turn_number=2", [sessionId])).rows;
       assert.deepEqual(turns, [{ content: "Книга пока остаётся у героя. Вы обсуждаете возможность передачи.", state_changes: result.applied }]);
       const memories = (await pg.query<{ entity_key: string; source: string; source_turn: number; content: string }>("SELECT entity_key,source,source_turn,content FROM memory_nodes WHERE session_id=$1", [sessionId])).rows;
@@ -153,7 +153,7 @@ test("performTurn persists transfer intent boundaries and a give/return lifecycl
       const { sessionId, itemId } = await createSession(3);
       const given = await runTurn(sessionId, 1, "Передать книгу Анне", { transfers: [{ ref: itemId, to: "anna", quantity: 3, accepted: true }] }, "Ты передал Анне три книги стихов.");
       assert.deepEqual(await savedInventory(sessionId), []);
-      assert.deepEqual(given.applied.life?.transfers, [{ name: "Книга стихов", to: "Анна", quantity: 3, ok: true }]);
+      assert.deepEqual(given.applied.life?.transfers, [{ name: "Книга стихов", to: "Анна", quantity: 3, ok: true, holderKind: "npc", holderKey: "anna" }]);
       const [holding] = readLife(given.state!.worldState).holdings;
       assert.ok(holding.id);
       assert.deepEqual({ ...holding, id: "holding" }, { id: "holding", name: "Книга стихов", description: "Томик с подписью владельца", quantity: 3, holderKind: "npc", holderKey: "anna", holderName: "Анна", turn: 2 });
@@ -182,7 +182,7 @@ test("performTurn persists transfer intent boundaries and a give/return lifecycl
       assert.deepEqual(ownership, [{ source: "state", source_turn: 4, content: "Ход 4: «Книга стихов» ×2 вернулся к герою (был у Анна)." }]);
       const turns = (await pg.query<{ turn_number: number; content: string; state_changes: { inventory: unknown[]; life: { transfers: unknown[] } } }>("SELECT turn_number,content,state_changes FROM game_turns WHERE session_id=$1 AND role='narrator' ORDER BY turn_number", [sessionId])).rows;
       assert.deepEqual(turns.map(row => ({ turn: row.turn_number, inventory: row.state_changes.inventory, transfers: row.state_changes.life.transfers })), [
-        { turn: 2, inventory: [], transfers: [{ name: "Книга стихов", to: "Анна", quantity: 3, ok: true }] },
+        { turn: 2, inventory: [], transfers: [{ name: "Книга стихов", to: "Анна", quantity: 3, ok: true, holderKind: "npc", holderKey: "anna" }] },
         { turn: 3, inventory: [{ op: "add", name: "Книга стихов", quantity: 1, ok: true }], transfers: [] },
         { turn: 4, inventory: [{ op: "add", name: "Книга стихов", quantity: 2, ok: true }], transfers: [] },
       ]);

@@ -123,7 +123,7 @@ test("performTurn narrative guard persists only canonical, verified narration", 
         const accepted = checked[0].accepted_changes as { character: typeof character; world: typeof beforeWorld; life: { transfers: unknown[] }; operations: { t: string; id?: string }[] };
         assert.deepEqual(accepted.character.conditions, []);
         assert.deepEqual(accepted.world.clock, { day: 1, minute: 545 });
-        assert.deepEqual(accepted.life.transfers, [{ name: "Книга", to: "Анна", quantity: 1, ok: true }]);
+        assert.deepEqual(accepted.life.transfers, [{ name: "Книга", to: "Анна", quantity: 1, ok: true, holderKind: "npc", holderKey: "anna" }]);
         assert.ok(accepted.operations.some(op => op.t === "inv.delete" && op.id === itemId));
         assert.deepEqual((checked[0].requested_changes as { life: { transfers: unknown[] } }).life.transfers, [{ ref: itemId, to: "anna", quantity: 1, accepted: true }]);
         assert.deepEqual(result.state, { character: accepted.character, worldState: accepted.world });

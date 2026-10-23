@@ -8,12 +8,18 @@ import { SOURCE_LABELS, type Snapshot } from "@/lib/ui-data";
 import type { RetrievedNode } from "@/lib/embeddings";
 const layers = [{ id: "", title: "Все записи" }, { id: "semantic", title: "Факты" }, { id: "episodic", title: "События" }, { id: "procedural", title: "Правила" }, { id: "chronicle", title: "Хроника" }];
 export function StoryRecords({ mode }: { mode: "memory" | "journal" }) {
-  const { sessions, settings, newStory, notify, loading } = useApp();
+  const { sessions } = useApp();
   const [requestedSession] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("session") ?? "");
   const [chosenSessionId, setChosenSessionId] = useState("");
   const sessionId = sessions.some((session) => session.id === chosenSessionId)
     ? chosenSessionId
     : sessions.find((session) => session.id === requestedSession)?.id ?? sessions[0]?.id ?? "";
+  // The effective campaign can also change after a workspace refresh removes it.
+  // Its snapshot, filters and in-flight searches belong to that campaign alone.
+  return <CampaignRecords key={sessionId} sessionId={sessionId} mode={mode} onChooseSession={setChosenSessionId} />;
+}
+function CampaignRecords({ sessionId, mode, onChooseSession }: { sessionId: string; mode: "memory" | "journal"; onChooseSession: (id: string) => void }) {
+  const { sessions, settings, newStory, notify, loading } = useApp();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
@@ -43,7 +49,7 @@ export function StoryRecords({ mode }: { mode: "memory" | "journal" }) {
   const chooseSession = (nextSessionId: string) => {
     searchRequest.current++;
     snapshotRequest.current++;
-    setChosenSessionId(nextSessionId);
+    onChooseSession(nextSessionId);
     setSearching(false);
     setBusy(true);
     setError("");

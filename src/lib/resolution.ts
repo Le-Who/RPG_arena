@@ -862,7 +862,7 @@ export function applyResolution(input: ApplyInput): ApplyResult {
       if (op.op === "consume") consumedItems.push({ id: found.id, name: found.name, kind: found.kind });
       // расходник — лечение по power только для профилей с HP
       if (op.op === "consume" && spec.resources.hp && found.kind === "consumable" && found.power > 0) {
-        const heal = Math.min(found.power, character.maxHp - character.hp);
+        const heal = Math.min(found.power * qty, character.maxHp - character.hp);
         character.hp += heal;
         hp += heal;
       }

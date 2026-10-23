@@ -61,7 +61,7 @@ export async function acquireTurn(input: TurnInput & { requestId: string }): Pro
     return { kind: "lease", lease: { id: row.id, token, requestId: input.requestId, sessionId: session.id, baseTurn: session.turnCount, dice: dice ?? null, session } };
   });
 }
-function leaseCondition(lease: TurnLease) { return and(eq(turnRequests.id, lease.id), eq(turnRequests.sessionId, lease.sessionId), eq(turnRequests.leaseToken, lease.token), eq(turnRequests.status, "running"), gt(turnRequests.leaseExpiresAt, new Date())); }
+function leaseCondition(lease: TurnLease) { return and(eq(turnRequests.id, lease.id), eq(turnRequests.sessionId, lease.sessionId), eq(turnRequests.leaseToken, lease.token), eq(turnRequests.status, "running"), gt(turnRequests.leaseExpiresAt, sql`(clock_timestamp() AT TIME ZONE 'UTC')`)); }
 export async function setTurnStage(lease: TurnLease, stage: TurnStage) {
   const rows = await db.update(turnRequests).set({ stage, updatedAt: new Date() }).where(leaseCondition(lease)).returning({ id: turnRequests.id });
   if (!rows.length) throw new HttpError(409, "LEASE_EXPIRED", "Время обработки истекло. Поздний ответ не изменит мир — повторите действие.");

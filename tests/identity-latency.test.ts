@@ -76,21 +76,24 @@ test("warm settings reads and saves keep bounded roundtrips for both guests and 
   const fixture = await accountsDb();
   const { pool } = await import("../src/db");
   const { GET, POST } = await import("../src/app/api/settings/route");
+  const readSettings: (request: Request) => Promise<Response> = GET;
   try {
     const account = await auth.register("b".repeat(64), "settingslatency", "correct horse battery staple");
     for (const [kind, cookie, owner] of [
       ["guest", `chronicle_guest=${account.guestToken}`, profileIdFromToken(account.guestToken)!],
       ["account", `chronicle_guest=${account.guestToken}; chronicle_session=${account.sessionToken}`, account.identity.profileId],
     ] as const) {
-      assert.equal((await cookieContext(cookie, GET)).status, 200, "create a settings row before measuring warm operations");
+      assert.equal((await cookieContext(cookie, () => readSettings(new Request("https://game.test/api/settings")))).status, 200, "create a settings row before measuring warm operations");
       let roundtrips = 0;
       const record = async (...args: Parameters<typeof fixture.run>) => { roundtrips++; return fixture.run(...args); };
       const query = mock.method(pool, "query", record);
       const connect = mock.method(pool, "connect", async () => ({ query: record, release() {} }));
       try {
-        assert.equal((await cookieContext(cookie, GET)).status, 200);
+        assert.equal((await cookieContext(cookie, () => readSettings(new Request("https://game.test/api/settings")))).status, 200);
         const readRoundtrips = roundtrips;
-        assert.ok(readRoundtrips <= 6, `${kind} warm settings GET exceeded 6 database roundtrips: ${readRoundtrips}`);
+        // Actual Next requests include a final fresh lookup to catch revocation
+        // while data loads; mutations retain their existing admission boundary.
+        assert.ok(readRoundtrips <= 7, `${kind} warm settings GET exceeded 7 database roundtrips: ${readRoundtrips}`);
         roundtrips = 0;
         const response = await cookieContext(cookie, () => POST(new Request("https://game.test/api/settings", {
           method: "POST", headers: { "content-type": "application/json" }, body: '{"dailyFlashLimit":42}',

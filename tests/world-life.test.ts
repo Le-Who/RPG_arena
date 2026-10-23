@@ -78,7 +78,7 @@ test("transfer identity references take precedence over another item's matching 
     for (const inventory of [[first, second], [second, first]]) {
       const result = base({ inventory, life: life({ transfers: [{ ref, to: "anna", quantity: 1, accepted: true }] }) });
       assert.deepEqual(result.ops, [{ t: "inv.delete", id: "11111111-aaaa-4aaa-8aaa-111111111111" }]);
-      assert.deepEqual(result.applied.transfers, [{ name: "Книга стихов", to: "Анна", quantity: 1, ok: true }]);
+      assert.deepEqual(result.applied.transfers, [{ name: "Книга стихов", to: "Анна", quantity: 1, ok: true, holderKind: "npc", holderKey: "anna" }]);
     }
   }
   const legacy = base({ inventory: [first], life: life({ transfers: [{ ref: "Книга стихов", to: "anna", quantity: 1, accepted: true }] }) });

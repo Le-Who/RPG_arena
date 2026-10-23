@@ -21,7 +21,10 @@ export function withAdminAccess<A extends unknown[]>(handler: (...args: A) => Pr
       await requireAdmin();
       return await withCurrentIdentityWork(async () => {
         await requireAdmin();
-        return handler(...args);
+        const result = await handler(...args);
+        const request = args[0];
+        if (result.ok && request instanceof Request && (request.method === "GET" || request.method === "HEAD")) await requireAdmin();
+        return result;
       });
     } catch (error) { return httpError(error); }
   };

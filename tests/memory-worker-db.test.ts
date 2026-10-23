@@ -107,6 +107,49 @@ test("an expired extraction lease cannot write supported facts or acknowledge th
   } finally { fetch.mock.restore(); await f.close(); }
 });
 
+for (const phase of ["admission", "acknowledgement", "failure"] as const) test(`semantic lease expiry at delayed ${phase} SQL fences every durable effect`, async () => {
+  const f = await setup();
+  const fetch = mock.method(globalThis, "fetch", async () => phase === "failure" ? new Response("Unavailable", { status: 503 }) : response(JSON.stringify({ facts: [fact] })));
+  const realQuery = f.pg.query.bind(f.pg);
+  let delayed = false;
+  const query = mock.method(f.pg, "query", (async (...args: Parameters<typeof f.pg.query>) => {
+    const sql = args[0], values = args[1] as unknown[] | undefined;
+    const selected = phase === "admission" ? sql.startsWith('select "id" from "memory_jobs"')
+      : sql.startsWith('update "memory_jobs" set') && values?.[0] === (phase === "failure" ? "pending" : "completed");
+    if (!delayed && selected) {
+      delayed = true;
+      // The ORM predicate is already built. Move expiry just beyond that client
+      // timestamp, then let SQL execute after the database deadline has passed.
+      await realQuery("UPDATE memory_jobs SET lease_expires_at=clock_timestamp()+interval '50 milliseconds' WHERE session_id=$1", [f.sessionId]);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return realQuery(...args);
+  }) as never);
+  try {
+    await f.enqueue(); const before = await f.snapshot();
+    const result = await processSemanticJob({ sessionId: f.sessionId, cfg: f.cfg });
+    assert.equal(delayed, true);
+    assert.equal(result.processed, 0);
+    assert.equal(result.extracted, 0);
+    assert.deepEqual(await f.snapshot(), before);
+    assert.deepEqual((await f.pg.query("SELECT status,facts_count,attempts,lease_token IS NOT NULL AS claimed FROM memory_jobs WHERE session_id=$1", [f.sessionId])).rows,
+      [{ status: "processing", facts_count: 0, attempts: 1, claimed: true }]);
+  } finally { query.mock.restore(); fetch.mock.restore(); await f.close(); }
+});
+
+test("a fresh semantic claim completes under a non-UTC database timezone", async () => {
+  const f = await setup();
+  const fetch = mock.method(globalThis, "fetch", async () => response(JSON.stringify({ facts: [fact] })));
+  try {
+    await f.enqueue();
+    // Existing queue defaults are persisted in UTC. Change only the execution
+    // timezone after enqueueing to isolate the lease comparison under test.
+    await f.pg.exec("SET TIME ZONE 'Asia/Tokyo'");
+    assert.deepEqual(await processSemanticJob({ sessionId: f.sessionId, cfg: f.cfg }), { processed: 1, extracted: 1, failed: 0, delayed: false });
+    assert.deepEqual((await f.pg.query("SELECT status,facts_count,lease_token FROM memory_jobs WHERE session_id=$1", [f.sessionId])).rows, [{ status: "completed", facts_count: 1, lease_token: null }]);
+  } finally { fetch.mock.restore(); await f.close(); }
+});
+
 test("failed job acknowledgement rolls back facts and their embedding rows together", async () => {
   // Catches memory/outbox writes escaping the transaction that marks extraction complete.
   const f = await setup();

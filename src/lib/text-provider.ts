@@ -42,7 +42,7 @@ async function withSignal<T>(operation: () => T | Promise<T>, signal: AbortSigna
 /** Reads stay cancellable after headers, even for a synthetic or stalled stream. */
 async function readCompletion(response: Response, signal: AbortSignal, onText?: (delta: string) => void) {
   if (!response.body) throw new Error("EMPTY_RESPONSE");
-  const reader = response.body.getReader(), decoder = new TextDecoder();
+  const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
   let text = "", finish = "", buffer = "", bytes = 0, usage: Usage | undefined;
   const streaming = response.headers.get("content-type")?.includes("text/event-stream");
   const consume = (data: Completion) => {
@@ -81,7 +81,8 @@ async function readCompletion(response: Response, signal: AbortSignal, onText?: 
       bytes += value?.byteLength ?? 0;
       // Bound wire bytes as well as generated text; reasoning and ignored fields also consume memory.
       if (bytes > 2_000_000) throw new Error("RESPONSE_TOO_LARGE");
-      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      try { buffer += done ? decoder.decode() : decoder.decode(value, { stream: true }); }
+      catch { throw new Error("INVALID_RESPONSE"); }
       if (streaming) {
         let at: number;
         while ((at = buffer.indexOf("\n")) !== -1) { line(buffer.slice(0, at).replace(/\r$/, "")); buffer = buffer.slice(at + 1); }

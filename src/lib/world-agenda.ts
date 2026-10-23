@@ -80,14 +80,14 @@ export function readAgenda(world: WorldState): WorldAgenda {
     const status = (["pending", "due", "fired", "cancelled"] as const).includes(item.status as AgendaStatus) ? (item.status as AgendaStatus) : "pending";
     events.push({
       id: str(item.id, 40) || shortId(), title, kind: KINDS.includes(item.kind as AgendaKind) ? (item.kind as AgendaKind) : "world",
-      npcKey: str(item.npcKey, 80), npcName: str(item.npcName, 80), at, note: str(item.note, 240), status,
+      npcKey: str(item.npcKey, 200), npcName: str(item.npcName, 80), at, note: str(item.note, 240), status,
       createdTurn: numericValue(item.createdTurn) || 0, ...(typeof item.firedTurn === "number" ? { firedTurn: item.firedTurn } : {}),
     });
   }
   const npcAgendas: NpcAgenda[] = [];
   for (const item of Array.isArray(raw.npcAgendas) ? raw.npcAgendas : []) {
     if (!isRecord(item)) continue;
-    const key = str(item.key, 80);
+    const key = str(item.key, 200);
     if (!key) continue;
     npcAgendas.push({ key, name: str(item.name, 80) || key, goal: str(item.goal, 160), routine: str(item.routine, 160), updatedTurn: numericValue(item.updatedTurn) || 0 });
   }
@@ -158,7 +158,7 @@ export function parseAgendaChanges(sc: Record<string, unknown>): AgendaChanges {
       ref: str(e.ref, 40) || null,
       title: str(e.title, 140),
       kind: KINDS.includes(e.kind as AgendaKind) ? (e.kind as AgendaKind) : "world",
-      npc: str(e.npc, 80),
+      npc: str(e.npc, 200),
       inMinutes: Number.isFinite(numericValue(e.inMinutes)) && e.inMinutes !== null && e.inMinutes !== "" && e.inMinutes !== undefined ? Math.max(0, Math.min(MAX_AHEAD, Math.round(numericValue(e.inMinutes)))) : null,
       day: Number.isFinite(numericValue(e.day)) && numericValue(e.day) >= 1 ? Math.min(9999, Math.round(numericValue(e.day))) : null,
       time: str(e.time, 5),
@@ -169,7 +169,7 @@ export function parseAgendaChanges(sc: Record<string, unknown>): AgendaChanges {
     })).filter((e) => e.title || e.ref);
   }
   if (Array.isArray(sc.npcGoals)) {
-    out.npcGoals = sc.npcGoals.filter(isRecord).slice(0, 4).map((g) => ({ npc: str(g.npc, 80), goal: str(g.goal, 160), routine: str(g.routine, 160), ...(evidenceQuote(g.evidence) ? { evidence: evidenceQuote(g.evidence) } : {}) })).filter((g) => g.npc && (g.goal || g.routine));
+    out.npcGoals = sc.npcGoals.filter(isRecord).slice(0, 4).map((g) => ({ npc: str(g.npc, 200), goal: str(g.goal, 160), routine: str(g.routine, 160), ...(evidenceQuote(g.evidence) ? { evidence: evidenceQuote(g.evidence) } : {}) })).filter((g) => g.npc && (g.goal || g.routine));
   }
   return out;
 }
