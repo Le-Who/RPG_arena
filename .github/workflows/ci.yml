@@ -25,6 +25,9 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci --ignore-scripts
+      - name: Prefer official HTTPS Ubuntu package mirrors
+        # Azure's archive can throttle downloads without triggering apt failover.
+        run: sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
       - run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Map labels, keyboard navigation and modal lifecycle
         run: |
@@ -124,6 +127,9 @@ jobs:
           npm run migrate
           npm run migrate
       - run: npm run build
+      - name: Prefer official HTTPS Ubuntu package mirrors
+        # Keep the runner's archive.ubuntu.com and security.ubuntu.com fallbacks.
+        run: sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
       - run: npx playwright install --with-deps chromium
       - name: Isolated workspace and settings latency regressions
         run: |

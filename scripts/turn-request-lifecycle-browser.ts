@@ -115,11 +115,38 @@ async function main() {
           await route.fulfill({ json: { session: { id: "new-story", ownerId: "fixture-owner" } } });
         });
         await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/${flow}`);
+        // Initial passive dialog effects move focus, including StrictMode's remount.
+        if (flow !== "import") await expect(page.getByRole("dialog"), `${flow}: initial modal focus at ${viewport.width}px`).toBeFocused();
         if (flow === "checkpoint") await page.getByRole("button", { name: "Другой путь", exact: true }).click();
-        if (flow === "import") { await page.getByRole("button", { name: "Импорт кампании", exact: true }).click(); await page.getByLabel("JSON-файл · до 4 МиБ").setInputFiles({ name: "story.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify({ format: "chronicle-campaign" })) }); }
+        if (flow === "import") {
+          await page.getByRole("button", { name: "Импорт кампании", exact: true }).click();
+          await expect(page.getByRole("dialog"), `${flow}: initial modal focus at ${viewport.width}px`).toBeFocused();
+          // Keep the first read slow on every viewport: setInputFiles does not wait
+          // for CampaignImport's asynchronous file.text() and its enabled button.
+          await page.evaluate(() => {
+            const read = File.prototype.text;
+            File.prototype.text = async function () {
+              File.prototype.text = read;
+              const result = await read.call(this);
+              await new Promise(done => setTimeout(done, 1000));
+              return result;
+            };
+          });
+          await page.getByLabel("JSON-файл · до 4 МиБ").setInputFiles({ name: "story.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify({ format: "chronicle-campaign" })) });
+        }
         const submit = page.getByRole("button", { name: flow === "checkpoint" ? "Создать независимую ветку" : flow === "import" ? "Импортировать" : "Начать историю" });
-        await submit.focus(); await page.keyboard.press("Enter");
-        await expect.poll(() => started).toBe(true);
+        try {
+          await expect(submit, `${flow}: submit ready at ${viewport.width}px`).toBeEnabled();
+          await submit.focus();
+          await expect(submit, `${flow}: keyboard focus at ${viewport.width}px`).toBeFocused();
+          await page.keyboard.press("Enter");
+          await expect.poll(() => started, `${flow}: keyboard POST at ${viewport.width}px`).toBe(true);
+        } catch (error) {
+          const activeElement = await page.evaluate(() => document.activeElement?.outerHTML);
+          await page.screenshot({ path: `${output}/${viewport.width}-${flow}-keyboard-failure.png` });
+          await writeFile(`${output}/${viewport.width}-${flow}-keyboard-failure.json`, JSON.stringify({ flow, viewport, url: page.url(), started, enabled: await submit.isEnabled(), activeElement, errors }, null, 2));
+          throw error;
+        }
         // Simulate the containing private workspace being replaced by an identity change.
         await page.evaluate(() => (window as unknown as { unmountFixture: () => void }).unmountFixture());
         await expect(page.getByRole("dialog")).toHaveCount(0);
