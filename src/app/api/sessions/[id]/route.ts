@@ -37,7 +37,7 @@ async function handleGET(req: Request, { params }: { params: Promise<{ id: strin
   ]);
   const turns = turnsDesc.reverse();
   const session = s[0];
-  if (session.ownerId === profileId) after(() => prewarmSessionChoices(id));
+  if (session.ownerId === profileId) after(() => prewarmSessionChoices(id, profileId));
   return NextResponse.json({
     isOwner: session.ownerId === profileId,
     session,

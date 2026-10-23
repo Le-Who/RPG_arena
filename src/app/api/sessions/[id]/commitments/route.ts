@@ -38,7 +38,7 @@ async function handlePATCH(req: Request, { params }: { params: Promise<{ id: str
       return { status: 200 as const, world: result.world, summary: result.summary, changed };
     });
     if (outcome.status !== 200) return NextResponse.json({ error: outcome.error, code: outcome.code }, { status: outcome.status });
-    if (outcome.changed.length) after(async () => { try { await runMemoryCycle({ sessionId: id, source: "after" }); } catch { /* durable queue remains */ } });
+    if (outcome.changed.length) after(async () => { try { await runMemoryCycle({ sessionId: id, ownerId, source: "after" }); } catch { /* durable queue remains */ } });
     return NextResponse.json({ ok: true, summary: outcome.summary, commitments: readLife(outcome.world).commitments, worldState: outcome.world });
   } catch (error) { return httpError(error); }
 }

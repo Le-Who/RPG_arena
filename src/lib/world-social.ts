@@ -70,14 +70,15 @@ export const MISS_GRACE_MINUTES = 60;
 // ─────────────────────────────────────────────────────────────
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+const numericValue = (v: unknown) => v !== null && typeof v === "object" ? Number.NaN : Number(v);
 const shortId = () => globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2, 10);
-const turnOf = (v: unknown) => Math.max(0, Math.floor(Number(v) || 0));
+const turnOf = (v: unknown) => Math.max(0, Math.floor(numericValue(v) || 0));
 const minuteOf = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 && v < DAY ? v : null);
-const clampDelta = (v: unknown) => Math.max(-100, Math.min(100, Math.round(Number(v) || 0)));
+const clampDelta = (v: unknown) => Math.max(-100, Math.min(100, Math.round(numericValue(v) || 0)));
 
 function clockOrNull(raw: unknown): WorldClock | null {
   if (!isRecord(raw)) return null;
-  const day = Number(raw.day), minute = Number(raw.minute);
+  const day = numericValue(raw.day), minute = numericValue(raw.minute);
   if (!Number.isFinite(day) || !Number.isFinite(minute)) return null;
   return { day: Math.max(1, Math.floor(day)), minute: Math.max(0, Math.min(DAY - 1, Math.floor(minute))) };
 }
@@ -264,7 +265,7 @@ export function parseSocialChanges(sc: Record<string, unknown>): SocialChanges {
     out.schedule = sc.npcSchedule.filter(isRecord).slice(0, 4).map((s) => ({
       npc: str(s.npc, 80), place: str(s.place, 160), from: str(s.from, 5), to: str(s.to, 5),
       repeat: s.repeat === "once" ? ("once" as const) : ("daily" as const),
-      day: s.day !== null && s.day !== "" && Number.isFinite(Number(s.day)) && Number(s.day) >= 1 ? Math.min(9999, Math.round(Number(s.day))) : null,
+      day: s.day !== null && s.day !== "" && Number.isFinite(numericValue(s.day)) && numericValue(s.day) >= 1 ? Math.min(9999, Math.round(numericValue(s.day))) : null,
       note: str(s.note, 200), remove: s.remove === true, evidence: str(s.evidence, 180),
     })).filter((s) => s.npc && (s.remove || (s.place && s.from && s.to)));
   }

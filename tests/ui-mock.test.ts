@@ -41,3 +41,13 @@ test("configured UI reads return the expected synthetic identity and campaign", 
   assert.equal(snapshot.body.session.id, "00000000-0000-4000-8000-000000000001");
   assert.equal(snapshot.body.session.character.name, "Элиан");
 });
+
+test("the returning-player UI fixture includes an explicit read-only recap", async () => {
+  const response = await requestFixture(`/api/sessions/${mockSessionId}/recap`);
+  assert.equal(response.status, 200);
+  assert.equal(response.body.recap.headline, "Ранее в истории");
+  assert.ok(response.body.recap.sections.some((section: { lines: string[] }) => section.lines.some(line => line.includes("Тихая гавань"))));
+  assert.match(response.body.recap.markdown, /Печать/);
+  const mutation = await requestFixture(`/api/sessions/${mockSessionId}/recap`, "POST");
+  assert.equal(mutation.status, 501);
+});

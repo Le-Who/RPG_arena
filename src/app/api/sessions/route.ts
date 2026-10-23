@@ -59,6 +59,7 @@ async function handlePOST(req: Request) {
   if (body.visibility !== undefined && !["private", "public"].includes(body.visibility)) return NextResponse.json({ error: "Некорректный доступ" }, { status: 400 });
   if (body.mode !== "preset" && body.mode !== "free" && body.mode !== "custom") return NextResponse.json({ error: "Укажите режим кампании" }, { status: 400 });
   if (body.mode === "preset" && !SCENARIOS.some((s) => s.id === body.scenarioId)) return NextResponse.json({ error: "Сценарий не найден" }, { status: 400 });
+  if (body.mode === "preset" && body.characterIndex !== undefined && (!Number.isSafeInteger(body.characterIndex) || body.characterIndex < 0)) return NextResponse.json({ error: "Некорректный выбор персонажа" }, { status: 400 });
   if (body.mode !== "preset" && (typeof body.customScenario?.title !== "string" || !body.customScenario.title.trim())) return NextResponse.json({ error: "Назовите вашу историю" }, { status: 400 });
   const mode: CampaignMode = body.mode === "preset" ? "preset" : "free";
   const now = new Date();

@@ -325,7 +325,7 @@ test("actual image GET rechecks account revocation again after waiting for an ex
   const f = await accountsDb(), oldFetch = global.fetch, oldKey = process.env.POLLINATIONS_API_KEY;
   process.env.POLLINATIONS_API_KEY = "synthetic-lease-application-key";
   let paidRequests = 0;
-  global.fetch = async () => { paidRequests++; return new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/png" } }); };
+  global.fetch = async () => { paidRequests++; return new Response(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==", "base64"), { headers: { "Content-Type": "image/png" } }); };
   try {
     const { auth } = await import("../src/lib/auth");
     const { pool } = await import("../src/db");

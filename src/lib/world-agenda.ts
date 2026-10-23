@@ -49,6 +49,7 @@ const UPCOMING_WINDOW = 24 * 60;
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+const numericValue = (v: unknown) => v !== null && typeof v === "object" ? Number.NaN : Number(v);
 const shortId = () => globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2, 10);
 const KINDS: readonly AgendaKind[] = ["npc", "world", "reminder"];
 
@@ -61,7 +62,7 @@ export const AGENDA_PROPOSAL_INSTRUCTION = `
 // ─────────────────────────────────────────────────────────────
 function normalizeClock(raw: unknown): WorldClock | null {
   if (!isRecord(raw)) return null;
-  const day = Number(raw.day), minute = Number(raw.minute);
+  const day = numericValue(raw.day), minute = numericValue(raw.minute);
   if (!Number.isFinite(day) || !Number.isFinite(minute)) return null;
   return { day: Math.max(1, Math.floor(day)), minute: Math.max(0, Math.min(24 * 60 - 1, Math.floor(minute))) };
 }
@@ -78,7 +79,7 @@ export function readAgenda(world: WorldState): WorldAgenda {
     events.push({
       id: str(item.id, 40) || shortId(), title, kind: KINDS.includes(item.kind as AgendaKind) ? (item.kind as AgendaKind) : "world",
       npcKey: str(item.npcKey, 80), npcName: str(item.npcName, 80), at, note: str(item.note, 240), status,
-      createdTurn: Number(item.createdTurn) || 0, ...(typeof item.firedTurn === "number" ? { firedTurn: item.firedTurn } : {}),
+      createdTurn: numericValue(item.createdTurn) || 0, ...(typeof item.firedTurn === "number" ? { firedTurn: item.firedTurn } : {}),
     });
   }
   const npcAgendas: NpcAgenda[] = [];
@@ -86,7 +87,7 @@ export function readAgenda(world: WorldState): WorldAgenda {
     if (!isRecord(item)) continue;
     const key = str(item.key, 80);
     if (!key) continue;
-    npcAgendas.push({ key, name: str(item.name, 80) || key, goal: str(item.goal, 160), routine: str(item.routine, 160), updatedTurn: Number(item.updatedTurn) || 0 });
+    npcAgendas.push({ key, name: str(item.name, 80) || key, goal: str(item.goal, 160), routine: str(item.routine, 160), updatedTurn: numericValue(item.updatedTurn) || 0 });
   }
   return { events: events.slice(-MAX_EVENTS), npcAgendas: npcAgendas.slice(-MAX_NPC_AGENDAS) };
 }
@@ -156,8 +157,8 @@ export function parseAgendaChanges(sc: Record<string, unknown>): AgendaChanges {
       title: str(e.title, 140),
       kind: KINDS.includes(e.kind as AgendaKind) ? (e.kind as AgendaKind) : "world",
       npc: str(e.npc, 80),
-      inMinutes: Number.isFinite(Number(e.inMinutes)) && e.inMinutes !== null && e.inMinutes !== "" && e.inMinutes !== undefined ? Math.max(0, Math.min(MAX_AHEAD, Math.round(Number(e.inMinutes)))) : null,
-      day: Number.isFinite(Number(e.day)) && Number(e.day) >= 1 ? Math.min(9999, Math.round(Number(e.day))) : null,
+      inMinutes: Number.isFinite(numericValue(e.inMinutes)) && e.inMinutes !== null && e.inMinutes !== "" && e.inMinutes !== undefined ? Math.max(0, Math.min(MAX_AHEAD, Math.round(numericValue(e.inMinutes)))) : null,
+      day: Number.isFinite(numericValue(e.day)) && numericValue(e.day) >= 1 ? Math.min(9999, Math.round(numericValue(e.day))) : null,
       time: str(e.time, 5),
       note: str(e.note, 240),
       cancel: e.cancel === true,

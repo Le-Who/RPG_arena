@@ -101,6 +101,7 @@ const DAY = 24 * 60;
 // ─────────────────────────────────────────────────────────────
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+const numericValue = (v: unknown) => v !== null && typeof v === "object" ? Number.NaN : Number(v);
 export const normName = (s: string) => s.trim().toLowerCase().replace(/ё/g, "е").replace(/[«»"'.,!?:;()]/g, "").replace(/\s+/g, " ");
 const shortId = () => globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2, 10);
 
@@ -303,8 +304,8 @@ export function emptyLifeChanges(): LifeChanges {
 
 export function parseLifeChanges(sc: Record<string, unknown>): LifeChanges {
   const life = emptyLifeChanges();
-  if (isRecord(sc.time) && sc.time.advanceMinutes != null && Number.isFinite(Number(sc.time.advanceMinutes))) {
-    life.advanceMinutes = Math.max(0, Math.min(MAX_ADVANCE, Math.round(Number(sc.time.advanceMinutes))));
+  if (isRecord(sc.time) && sc.time.advanceMinutes != null && Number.isFinite(numericValue(sc.time.advanceMinutes))) {
+    life.advanceMinutes = Math.max(0, Math.min(MAX_ADVANCE, Math.round(numericValue(sc.time.advanceMinutes))));
   }
   if (Array.isArray(sc.commitments)) {
     life.commitments = sc.commitments.filter(isRecord).slice(0, 4).map((c) => ({
@@ -312,7 +313,7 @@ export function parseLifeChanges(sc: Record<string, unknown>): LifeChanges {
       title: str(c.title, 140),
       parties: (Array.isArray(c.parties) ? c.parties : []).map((p) => str(p, 60)).filter(Boolean).slice(0, 5),
       place: str(c.place, 80),
-      day: Number.isFinite(Number(c.day)) && Number(c.day) >= 1 ? Math.min(9999, Math.round(Number(c.day))) : null,
+      day: Number.isFinite(numericValue(c.day)) && numericValue(c.day) >= 1 ? Math.min(9999, Math.round(numericValue(c.day))) : null,
       time: str(c.time, 5),
       status: (["proposed", "accepted", "fulfilled", "broken", "cancelled"] as const).includes(c.status as CommitmentStatus) ? (c.status as CommitmentStatus) : null,
       note: str(c.note, 200),
@@ -322,7 +323,7 @@ export function parseLifeChanges(sc: Record<string, unknown>): LifeChanges {
     life.transfers = sc.transfers.filter(isRecord).slice(0, 4).map((t) => ({
       ref: str(t.ref, 64).replace(/^#/, ""),
       to: str(t.to, 80),
-      quantity: Math.max(1, Math.min(20, Math.round(Number(t.quantity) || 1))),
+      quantity: Math.max(1, Math.min(20, Math.round(numericValue(t.quantity) || 1))),
       accepted: t.accepted === true,
     })).filter((t) => t.ref && t.to);
   }
@@ -367,7 +368,7 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
   const currentLocation = input.world.currentLocation;
 
   // ── Время ──
-  const minutes = input.life.advanceMinutes && input.life.advanceMinutes > 0 ? input.life.advanceMinutes : input.defaultMinutes;
+  const minutes = input.life.advanceMinutes ?? input.defaultMinutes;
   const before = life.clock;
   if (minutes > 0) {
     life.clock = advanceClock(before, Math.min(MAX_ADVANCE, minutes));
@@ -571,10 +572,10 @@ export function readArcHistory(world: WorldState): ArcRecord[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter(isRecord).map((a) => {
     const at: Record<string, unknown> = isRecord(a.closedAt) ? a.closedAt : {};
-    const day = Number(at.day), minute = Number(at.minute);
+    const day = numericValue(at.day), minute = numericValue(at.minute);
     return {
       goal: str(a.goal, 240), stakes: str(a.stakes, 240), conflict: str(a.conflict, 240), endCondition: str(a.endCondition, 240),
-      epilogue: str(a.epilogue, 1200), resolvedTurn: Math.max(0, Math.floor(Number(a.resolvedTurn) || 0)), closedTurn: Math.max(0, Math.floor(Number(a.closedTurn) || 0)),
+      epilogue: str(a.epilogue, 1200), resolvedTurn: Math.max(0, Math.floor(numericValue(a.resolvedTurn) || 0)), closedTurn: Math.max(0, Math.floor(numericValue(a.closedTurn) || 0)),
       closedAt: Number.isFinite(day) && Number.isFinite(minute) ? { day: Math.max(1, Math.floor(day)), minute: Math.max(0, Math.min(DAY - 1, Math.floor(minute))) } : { day: 1, minute: 0 },
     };
   }).slice(-MAX_ARCS);

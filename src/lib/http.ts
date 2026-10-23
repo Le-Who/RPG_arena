@@ -2,7 +2,7 @@ export class HttpError extends Error {
   constructor(public status: number, public code: string, message: string, public extra: Record<string, unknown> = {}) { super(message); this.name = "HttpError"; }
 }
 export async function readJsonObject(req: Request, maxBytes = 16384): Promise<Record<string, unknown>> {
-  if (!(req.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) throw new HttpError(415, "CONTENT_TYPE", "Ожидается JSON-запрос.");
+  if ((req.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase() !== "application/json") throw new HttpError(415, "CONTENT_TYPE", "Ожидается JSON-запрос.");
   const reader = req.body?.getReader();
   if (!reader) throw new HttpError(400, "INVALID_INPUT", "Тело запроса отсутствует.");
   const chunks: Uint8Array[] = []; let total = 0;
@@ -10,7 +10,7 @@ export async function readJsonObject(req: Request, maxBytes = 16384): Promise<Re
     while (true) {
       const part = await reader.read(); if (part.done) break;
       total += part.value.byteLength;
-      if (total > maxBytes) { await reader.cancel(); throw new HttpError(413, "BODY_TOO_LARGE", "Запрос слишком большой."); }
+      if (total > maxBytes) { void reader.cancel().catch(() => {}); throw new HttpError(413, "BODY_TOO_LARGE", "Запрос слишком большой."); }
       chunks.push(part.value);
     }
   } finally { reader.releaseLock(); }

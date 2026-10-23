@@ -311,7 +311,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
   const quests: QuestChange[] = arr<Record<string, unknown>>(sc.quests, 4)
     .filter(isRecord)
     .map((q) => ({
-      ref: str(q.ref, 64) || null,
+      ref: str(q.ref, 200) || null,
       title: str(q.title, 120),
       status: QUEST_STATUSES.includes(q.status as QuestStatus) ? (q.status as QuestStatus) : null,
       progress: q.progress == null || !Number.isFinite(numericValue(q.progress)) || numericValue(q.progress) < 0 ? null : clampInt(q.progress, 0, 100),
@@ -322,7 +322,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
   const npcs: NpcChange[] = arr<Record<string, unknown>>(sc.npcs, 5)
     .filter(isRecord)
     .map((n) => ({
-      ref: str(n.ref, 64) || null,
+      ref: str(n.ref, 200) || null,
       name: str(n.name, 80),
       role: str(n.role, 80),
       relationDelta: clampInt(n.relationDelta, -100, 100),
@@ -346,7 +346,7 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
 
   const sceneObjects: SceneObjectChange[] = arr<Record<string, unknown>>(sc.sceneObjects, 4)
     .filter(isRecord)
-    .map((o) => ({ ref: str(o.ref, 64) || null, name: str(o.name, 80), state: str(o.state, 60, "intact") || "intact", note: str(o.note, 240) }))
+    .map((o) => ({ ref: str(o.ref, 200) || null, name: str(o.name, 80), state: str(o.state, 60, "intact") || "intact", note: str(o.note, 240) }))
     .filter((o) => o.name || o.ref);
 
   const condRaw = (sc.conditions ?? {}) as Record<string, unknown>;
@@ -665,7 +665,12 @@ export function applyResolution(input: ApplyInput): ApplyResult {
   const newQuestKeys = new Set<string>();
   let newQuests = 0;
   for (const q of payload.stateChanges.quests) {
-    const existing = questState.find((x) => (q.ref && x.key === q.ref) || (q.title && norm(x.title) === norm(q.title)));
+    const matches = questState.filter(x => q.ref ? x.key === q.ref : q.title && norm(x.title) === norm(q.title));
+    const existing = matches[0];
+    if (matches.length > 1 || (q.ref && !existing)) {
+      rejected.push(`Цель отклонена: ${matches.length > 1 ? "неоднозначное название" : "неизвестная ссылка"} «${q.ref || q.title}»`);
+      continue;
+    }
     if (existing) {
       if (existing.status === "completed" || existing.status === "failed") {
         rejected.push(`Квест «${existing.title}» уже ${existing.status === "completed" ? "завершён" : "провален"}`);
@@ -725,7 +730,12 @@ export function applyResolution(input: ApplyInput): ApplyResult {
   const newNpcKeys = new Set<string>();
   let newNpcs = 0;
   for (const n of payload.stateChanges.npcs) {
-    const existing = npcState.find((x) => (n.ref && x.key === n.ref) || (n.name && norm(x.name) === norm(n.name)));
+    const matches = npcState.filter(x => n.ref ? x.key === n.ref : n.name && norm(x.name) === norm(n.name));
+    const existing = matches[0];
+    if (matches.length > 1 || (n.ref && !existing)) {
+      rejected.push(`NPC отклонён: ${matches.length > 1 ? "неоднозначное имя" : "неизвестная ссылка"} «${n.ref || n.name}»`);
+      continue;
+    }
     const delta = clampInt(n.relationDelta, -spec.limits.relation, spec.limits.relation);
     if (existing) {
       if (existing.status === "dead" && n.status !== "dead") {
@@ -879,7 +889,12 @@ export function applyResolution(input: ApplyInput): ApplyResult {
   const newObjectKeys = new Set<string>();
   let newObjects = 0;
   for (const o of payload.stateChanges.sceneObjects) {
-    const existing = sceneState.find((x) => (o.ref && x.key === o.ref) || (o.name && norm(x.name) === norm(o.name) && norm(x.locationName) === norm(world.currentLocation)));
+    const matches = sceneState.filter(x => o.ref ? x.key === o.ref : o.name && norm(x.name) === norm(o.name) && norm(x.locationName) === norm(world.currentLocation));
+    const existing = matches[0];
+    if (matches.length > 1 || (o.ref && !existing)) {
+      rejected.push(`Объект отклонён: ${matches.length > 1 ? "неоднозначное имя" : "неизвестная ссылка"} «${o.ref || o.name}»`);
+      continue;
+    }
     if (existing) {
       if (norm(existing.state) !== norm(o.state) || o.note) {
         ops.push({ t: "scene.update", id: existing.id, patch: { state: o.state, description: o.note || undefined } });

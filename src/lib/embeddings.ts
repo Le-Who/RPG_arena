@@ -183,7 +183,7 @@ export async function embeddingStats(sessionId: string, reader: Pick<typeof db, 
   const rows = await reader.select({ status: memoryEmbeddings.status, model: memoryEmbeddings.model, n: sql<number>`count(*)` }).from(memoryEmbeddings).where(eq(memoryEmbeddings.sessionId, sessionId)).groupBy(memoryEmbeddings.status, memoryEmbeddings.model);
   const [total] = await reader.select({ n: sql<number>`count(*)` }).from(memoryNodes).where(eq(memoryNodes.sessionId, sessionId));
   const status: Record<string, number> = { ready: 0, pending: 0, processing: 0, failed: 0 };
-  for (const row of rows) status[row.status] = Number(row.n);
+  for (const row of rows) status[row.status] = (status[row.status] ?? 0) + Number(row.n);
   return { nodes: Number(total?.n ?? 0), ...status, models: [...new Set(rows.map((r) => r.model))] };
 }
 type SearchOptions = { sessionId: string; query: string; keys: string[]; model: string; dims: number; k?: number; currentTurn?: number; perLayerCap?: number; minSimilarity?: number; timeoutMs?: number };

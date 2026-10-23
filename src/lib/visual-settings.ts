@@ -70,10 +70,12 @@ export async function getVisualPreferences(ownerId: string) {
   return visualPreferencesView(row, application);
 }
 
-export async function saveVisualPreferences(ownerId: string, body: Record<string, unknown>) {
+export async function saveVisualPreferences(ownerId: string, body: Record<string, unknown>, options: { authorize?: () => Promise<unknown> } = {}) {
   const input = parseVisualPreferences(body);
   if (input.enabled) await assertVisualGenerationSelection(input.provider, input.model, input.endpoint);
   await getRawSettingsRow(ownerId);
+  // Catalogue I/O can outlive the session that admitted an HTTP mutation.
+  await options.authorize?.();
   const [saved] = await db.update(aiSettings).set({ visualEnabled: input.enabled, visualProvider: input.provider, visualModel: input.model, visualEndpoint: input.endpoint,
     visualAccountSource: input.accountSource, ...(input.provider === "pollinations" ? { pollinationsImageModel: input.model } : {}), updatedAt: new Date() }).where(eq(aiSettings.id, ownerId)).returning();
   if (!saved) throw new HttpError(409, "SETTINGS_CHANGED", "Настройки изменились во время сохранения. Повторите попытку.");

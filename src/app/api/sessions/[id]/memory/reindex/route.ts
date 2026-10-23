@@ -19,7 +19,7 @@ async function handlePOST(_: Request, { params }: { params: Promise<{ id: string
     if (!cfg.embeddingsEnabled) throw new HttpError(409, "DISABLED", "Индексация выключена в настройках.");
     const backfill = await backfillSession(id, cfg.embeddingModel, cfg.embeddingDims);
     const result = await indexPendingEmbeddings({ sessionId: id, keys: cfg.keys, model: cfg.embeddingModel, dims: cfg.embeddingDims, limit: 32 });
-    if (result.pending) after(async () => { await runMemoryCycle({ sessionId: id, source: "after" }).catch(() => {}); });
+    if (result.pending) after(async () => { await runMemoryCycle({ sessionId: id, ownerId: cfg.ownerId, source: "after" }).catch(() => {}); });
     return Response.json({ ok: true, backfill, ...result, stats: await embeddingStats(id), model: cfg.embeddingModel, dims: cfg.embeddingDims });
   } catch (error) { return httpError(error); }
 }

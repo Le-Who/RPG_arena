@@ -17,6 +17,16 @@ test("visual adapter accepts supported MIME with a valid tiny PNG fixture", asyn
   assert.equal(result.mimeType, "image/png"); assert.deepEqual(result.image, png);
 });
 
+for (const [mimeType, bytes] of [
+  ["image/png", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>')],
+  ["image/png", Buffer.from('{"error":"upstream failed"}')],
+  ["image/jpeg", png],
+] as const) test(`visual adapter rejects bytes inconsistent with claimed ${mimeType}`, async () => {
+  await assert.rejects(fetchFromProvider(provider, request, async () => new Response(bytes, {
+    headers: { "Content-Type": mimeType },
+  })), /^Error: PROVIDER_NOT_IMAGE$/);
+});
+
 for (const [headers, status, code] of [
   [{ "Content-Type": "text/html" }, 200, "PROVIDER_NOT_IMAGE"],
   [{ "Content-Type": "image/png", "Content-Length": String(8 * 1024 * 1024 + 1) }, 200, "PROVIDER_BAD_SIZE"],

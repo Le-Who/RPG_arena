@@ -68,22 +68,24 @@ async function handlePOST(req: Request) {
     const [saved] = await db
       .update(aiSettings)
       .set({
-        keys: prepareGeminiKeysWrite(s.id, keys),
-        routingProfile: profile,
-        narrationModel,
-        customActionModel,
-        compactionModel,
-        fastTaskModel,
-        useLiveAI,
-        dailyFlashLimit: intIn(body.dailyFlashLimit, 0, 100000, s.dailyFlashLimit),
-        dailyLiteLimit: intIn(body.dailyLiteLimit, 0, 1000000, s.dailyLiteLimit),
-        dailyEmbeddingLimit: intIn(body.dailyEmbeddingLimit, 0, 1000000, s.dailyEmbeddingLimit),
-        keysSharedProject: boolIn(body.keysSharedProject, s.keysSharedProject),
-        enforceLimits: boolIn(body.enforceLimits, s.enforceLimits),
-        embeddingsEnabled: boolIn(body.embeddingsEnabled, s.embeddingsEnabled),
-        embeddingModel,
-        embeddingDims,
-        semanticExtractionEnabled: boolIn(body.semanticExtractionEnabled, s.semanticExtractionEnabled),
+        // This endpoint receives partial drafts. Omitted fields must retain the
+        // committed row, including connections saved concurrently in another tab.
+        ...(geminiKeyOperation ? { keys: prepareGeminiKeysWrite(s.id, keys) } : {}),
+        ...(body.routingProfile !== undefined ? { routingProfile: profile } : {}),
+        ...(body.narrationModel !== undefined || body.routingProfile ? { narrationModel } : {}),
+        ...(body.customActionModel !== undefined || body.routingProfile ? { customActionModel } : {}),
+        ...(body.compactionModel !== undefined || body.routingProfile ? { compactionModel } : {}),
+        ...(body.fastTaskModel !== undefined || body.routingProfile ? { fastTaskModel } : {}),
+        ...(body.useLiveAI !== undefined || geminiKeyOperation ? { useLiveAI } : {}),
+        ...(body.dailyFlashLimit !== undefined ? { dailyFlashLimit: intIn(body.dailyFlashLimit, 0, 100000, s.dailyFlashLimit) } : {}),
+        ...(body.dailyLiteLimit !== undefined ? { dailyLiteLimit: intIn(body.dailyLiteLimit, 0, 1000000, s.dailyLiteLimit) } : {}),
+        ...(body.dailyEmbeddingLimit !== undefined ? { dailyEmbeddingLimit: intIn(body.dailyEmbeddingLimit, 0, 1000000, s.dailyEmbeddingLimit) } : {}),
+        ...(body.keysSharedProject !== undefined ? { keysSharedProject: boolIn(body.keysSharedProject, s.keysSharedProject) } : {}),
+        ...(body.enforceLimits !== undefined ? { enforceLimits: boolIn(body.enforceLimits, s.enforceLimits) } : {}),
+        ...(body.embeddingsEnabled !== undefined ? { embeddingsEnabled: boolIn(body.embeddingsEnabled, s.embeddingsEnabled) } : {}),
+        ...(body.embeddingModel !== undefined ? { embeddingModel } : {}),
+        ...(body.embeddingDims !== undefined ? { embeddingDims } : {}),
+        ...(body.semanticExtractionEnabled !== undefined ? { semanticExtractionEnabled: boolIn(body.semanticExtractionEnabled, s.semanticExtractionEnabled) } : {}),
         updatedAt: new Date(),
       })
       .where(eq(aiSettings.id, s.id)).returning();

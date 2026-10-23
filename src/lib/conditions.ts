@@ -200,6 +200,7 @@ export type ConditionTimer = { expiresAt: WorldClock; sinceTurn: number };
 export type ConditionTimers = Record<string, ConditionTimer>;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
+const numericValue = (v: unknown) => v !== null && typeof v === "object" ? Number.NaN : Number(v);
 
 export function readConditionTimers(world: WorldState): ConditionTimers {
   const raw = (world as WorldState & { conditionTimers?: unknown }).conditionTimers;
@@ -211,9 +212,9 @@ export function readConditionTimers(world: WorldState): ConditionTimers {
     if (!Object.hasOwn(raw, key) || !key || key.length > 100 || ["__proto__", "prototype", "constructor"].includes(key)) continue;
     const value = raw[key];
     if (!isRecord(value) || !isRecord(value.expiresAt)) continue;
-    const day = Number(value.expiresAt.day), minute = Number(value.expiresAt.minute);
+    const day = numericValue(value.expiresAt.day), minute = numericValue(value.expiresAt.minute);
     if (!Number.isFinite(day) || !Number.isFinite(minute)) continue;
-    const sinceTurn = Number(value.sinceTurn);
+    const sinceTurn = numericValue(value.sinceTurn);
     out[key] = { expiresAt: { day: Math.max(1, Math.min(1_000_000, Math.floor(day))), minute: Math.max(0, Math.min(24 * 60 - 1, Math.floor(minute))) }, sinceTurn: Number.isFinite(sinceTurn) ? Math.max(0, Math.min(1_000_000_000, Math.floor(sinceTurn))) : 0 };
     if (++count >= 100) break;
   }

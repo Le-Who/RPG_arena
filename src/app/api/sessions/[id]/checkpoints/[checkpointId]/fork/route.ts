@@ -9,9 +9,9 @@ export const maxDuration = 60;
 async function handlePOST(req: Request, { params }: { params: Promise<{ id: string; checkpointId: string }> }) {
   try {
     const { id, checkpointId } = await params; const body = await readJsonObject(req);
-    await requireCampaignAccess(id, "owner");
+    const { profileId: ownerId } = await requireCampaignAccess(id, "owner");
     const result = await forkCheckpoint({ sessionId: requireUuid(id), checkpointId: requireUuid(checkpointId), title: requiredText(body.title, "Название ветки"), requestId: requestKey(body.requestId) ?? randomUUID() });
-    if (!result.replay) after(async () => { await runMemoryCycle({ sessionId: result.session.id, source: "after" }).catch(() => {}); });
+    if (!result.replay) after(async () => { await runMemoryCycle({ sessionId: result.session.id, ownerId, source: "after" }).catch(() => {}); });
     return Response.json({ ok: true, ...result }, { status: result.replay ? 200 : 201 });
   } catch (error) { return httpError(error); }
 }

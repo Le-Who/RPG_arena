@@ -3,6 +3,44 @@ import assert from "node:assert/strict";
 import { accountsDb, cookieContext } from "./helpers/accounts-db";
 import { newGuestToken, profileIdFromToken } from "../src/lib/guest-identity";
 import { auth } from "../src/lib/auth";
+import { openSecret, secretContext } from "../src/lib/secret-vault";
+
+test("unrelated settings save retains a Gemini connection committed after its initial read", async () => {
+  const fixture = await accountsDb();
+  const { pool } = await import("../src/db");
+  const { POST } = await import("../src/app/api/settings/route");
+  const { saveProviderConnection } = await import("../src/lib/text-provider-settings");
+  const guest = newGuestToken(), ownerId = profileIdFromToken(guest)!;
+  process.env.CHRONICLE_SECRET_ACTIVE_KEY = "race";
+  process.env.CHRONICLE_SECRET_KEYS = JSON.stringify({ race: Buffer.alloc(32, 29).toString("base64") });
+  await fixture.pg.query("INSERT INTO ai_settings(id) VALUES ($1)", [ownerId]);
+  let connected = false;
+  const query = mock.method(pool, "query", async (...args: Parameters<typeof fixture.run>) => {
+    const sql = typeof args[0] === "string" ? args[0] : args[0].text;
+    if (!connected && sql.startsWith('update "ai_settings"')) {
+      connected = true;
+      await saveProviderConnection(ownerId, { provider: "gemini", apiKey: "synthetic-concurrent-key" });
+      await fixture.pg.query("UPDATE ai_settings SET daily_lite_limit=13,use_live_ai=true WHERE id=$1", [ownerId]);
+    }
+    return fixture.run(...args);
+  });
+  try {
+    const response = await cookieContext(`chronicle_guest=${guest}`, () => POST(new Request("http://localhost/api/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: '{"dailyFlashLimit":42}',
+    })));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).keysCount, 1);
+    const saved = (await fixture.pg.query<{ keys: string[]; daily_flash_limit: number; daily_lite_limit: number; use_live_ai: boolean }>("SELECT keys,daily_flash_limit,daily_lite_limit,use_live_ai FROM ai_settings WHERE id=$1", [ownerId])).rows[0];
+    assert.equal(saved.daily_flash_limit, 42);
+    assert.equal(saved.keys.length, 1);
+    assert.equal(saved.daily_lite_limit, 13);
+    assert.equal(saved.use_live_ai, true);
+    assert.equal(openSecret(saved.keys[0], secretContext(ownerId, "gemini")), "synthetic-concurrent-key");
+  } finally {
+    query.mock.restore(); await fixture.close();
+    delete process.env.CHRONICLE_SECRET_ACTIVE_KEY; delete process.env.CHRONICLE_SECRET_KEYS;
+  }
+});
 
 test("settings mutation returns committed canonical fields without re-reading settings", async () => {
   const fixture = await accountsDb();

@@ -36,7 +36,7 @@ test("personal visuals retain payer and model through preference changes, refuse
     assert.equal(personal.model, "fixture/personal");
     await preferences.saveVisualPreferences("personal-owner", { accountSource: "application", model: "fixture/new" });
     const requests: { model: string | null; authorization: string | null }[] = [];
-    global.fetch = async (url, init) => { requests.push({ model: new URL(String(url)).searchParams.get("model"), authorization: new Headers(init?.headers).get("authorization") }); return new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/png" } }); };
+    global.fetch = async (url, init) => { requests.push({ model: new URL(String(url)).searchParams.get("model"), authorization: new Headers(init?.headers).get("authorization") }); return new Response(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==", "base64"), { headers: { "Content-Type": "image/png" } }); };
     await f.pg.query("UPDATE ai_settings SET pollinations_key='' WHERE id='personal-owner'");
     await assert.rejects(renderVisual(session, personal.id), /Pollinations/);
     assert.equal(requests.length, 0);

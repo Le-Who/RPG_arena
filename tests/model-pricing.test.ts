@@ -85,3 +85,63 @@ test("dated fallback prices need no fetch, preserve aliases and never claim an u
   assert.match(formatPriceRate({ component: "input_text", amount: 0.0000003, unit: "token" }, "USD"), /Входной текст.*0,3 USD.*млн токенов/);
   assert.match(formatPriceRate({ component: "fee:execution", amount: 0.04, unit: "request" }, "Pollen"), /Сбор провайдера.*0,04 Pollen.*запрос/);
 });
+
+test("malformed JSON billing units cannot crash a catalog or become comparable image totals", () => {
+  for (const unit of [{ toString: null }, ["image"], null, 1, true]) {
+    const price = normalizePollinationsPrice({
+      flat_rate: true,
+      pricing: { currency: "pollen", completionImageTokens: 0.03 },
+      pricing_units: { completionImageTokens: { unit } },
+    }, "image", checkedAt);
+    assert.equal(price.rates[0].unit, "provider_unit");
+    assert.equal(price.complete, false);
+    assert.equal(comparableModelPrice(price), null);
+    assert.doesNotThrow(() => formatModelPrice(price));
+
+    const withFee = normalizePollinationsPrice({
+      flat_rate: true,
+      pricing: { currency: "pollen", completionImageTokens: 0.03 },
+      pricing_adjustments: [{ name: "execution", currency: "pollen", price: 0.01, unit }],
+    }, "image", checkedAt);
+    assert.equal(withFee.rates[1].unit, "provider_unit");
+    assert.equal(withFee.complete, false);
+    assert.equal(comparableModelPrice(withFee), null);
+
+    const router = normalizeOpenRouterImagePrice([
+      { billable: "output_image", unit: "image", cost_usd: 0.03 },
+      { billable: "request_fee", unit, cost_usd: 0.01 },
+    ], "https://fixture.test", checkedAt);
+    assert.equal(router.rates.length, 1);
+    assert.equal(router.complete, false);
+    assert.equal(comparableModelPrice(router), null);
+  }
+});
+
+test("explicit token billing takes precedence over the flat-rate fallback", () => {
+  const price = normalizePollinationsPrice({
+    flat_rate: true,
+    pricing: { currency: "pollen", completionImageTokens: 0.00003 },
+    pricing_units: { completionImageTokens: { unit: "token" } },
+  }, "image", checkedAt);
+  assert.equal(price.rates[0].unit, "token");
+  assert.equal(price.complete, false);
+  assert.equal(comparableModelPrice(price), null);
+  assert.match(formatModelPrice(price), /млн токенов изображения/);
+});
+
+test("text request estimates require token rates and confirmed unconditional fees", () => {
+  const pricing = { currency: "pollen", promptTextTokens: 0.000001, completionTextTokens: 0.000002 };
+  const invalidUnits = normalizePollinationsPrice({ pricing, pricing_units: { promptTextTokens: { unit: "image" } } }, "text", checkedAt);
+  assert.equal(invalidUnits.complete, false);
+  assert.equal(comparableModelPrice(invalidUnits), null);
+  for (const adjustment of [
+    { name: "optional", price: 1, currency: "pollen", unit: "request", option: { value: "tools" } },
+    { name: "unknown", price: 1, currency: "pollen", unit: "provider-batch" },
+    { name: "unconfirmed", price: "invalid", currency: "pollen", unit: "request" },
+  ]) {
+    const price = normalizePollinationsPrice({ pricing, pricing_adjustments: [adjustment] }, "text", checkedAt);
+    assert.equal(price.complete, false);
+    assert.equal(comparableModelPrice(price), null);
+    assert.equal(price.amount, 0.01, "only confirmed unconditional request fees belong to the example");
+  }
+});

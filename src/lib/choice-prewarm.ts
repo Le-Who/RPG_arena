@@ -14,11 +14,11 @@ const PREWARM_TIMEOUT_MS = 5_000;
 const MIN_MEMORY_NODES = 7;
 
 /** Best-effort exact query-vector warmup. Safe to invoke from an after() callback. */
-export async function prewarmSessionChoices(sessionId: string): Promise<void> {
+export async function prewarmSessionChoices(sessionId: string, expectedOwnerId?: string): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
-      withCampaignOwnerWork(sessionId, undefined, () => runPrewarm(sessionId)),
+      withCampaignOwnerWork(sessionId, expectedOwnerId, () => runPrewarm(sessionId)),
       new Promise<void>(resolve => { timer = setTimeout(resolve, PREWARM_TIMEOUT_MS); }),
     ]);
   } catch {

@@ -1,5 +1,6 @@
 import { chromium, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+import assert from "node:assert/strict";
 import { installUiMock, mockSessionId } from "./ui-mock";
 const base = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const mock = process.env.UI_AUDIT_MOCK === "1";
@@ -20,16 +21,18 @@ const AUDIT = `(() => {
     cache.set(col, v); return v;
   };
   const lum = (c) => { const [r,g,b]=c.slice(0,3).map(v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)}); return 0.2126*r+0.7152*g+0.0722*b };
-  const mix = (fg, bg) => { const a=fg[3]; return [0,1,2].map(i=>fg[i]*a+bg[i]*(1-a)) };
+  const mix = (fg, bg) => {
+    const fa=fg[3] ?? 1, ba=bg[3] ?? 1, a=fa+ba*(1-fa);
+    return [...[0,1,2].map(i=>a ? (fg[i]*fa+bg[i]*ba*(1-fa))/a : 0),a];
+  };
   const bgOf = (el) => {
-    let n = el, acc = null;
-    while (n && n !== document.documentElement) {
+    let n = el, acc = [0,0,0,0];
+    while (n) {
       const c = toRGB(getComputedStyle(n).backgroundColor);
-      if (c[3] > 0) { acc = acc ? mix(acc, c) : c; if (c[3] >= 0.99) return acc.slice(0,3); }
+      if (c[3] > 0) { acc = mix(acc, c); if (c[3] === 1) return acc.slice(0,3); }
       n = n.parentElement;
     }
-    const base = toRGB(getComputedStyle(document.body).backgroundColor);
-    return acc ? mix(acc, base) : base.slice(0,3);
+    return mix(acc, [255,255,255,1]).slice(0,3);
   };
   const small = [], low = [], seen = new Set();
   for (const el of document.querySelectorAll('body *')) {
@@ -78,6 +81,21 @@ async function audit(page: Page, name: string, path: string, width: number, them
 }
 
 async function main() {
+  if (process.argv.includes("--self-test")) {
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      for (const [background, layers, foreground] of [
+        ["black", 2, "#aaa"], ["white", 0, "#aaa"],
+      ] as const) {
+        await page.setContent(`<!doctype html><html style="background:${background}"><body style="margin:0">${'<div style="background:rgba(255,255,255,.5)">'.repeat(layers)}<span class="contrast-fixture" style="font-size:16px;color:${foreground}">Низкий контраст</span>${"</div>".repeat(layers)}</body></html>`);
+        const result = await page.evaluate(AUDIT) as { low: { cls: string; cr: number }[] };
+        assert.ok(result.low.some(row => row.cls === "contrast-fixture" && Number.isFinite(row.cr)), "Translucent ancestors and root backgrounds must preserve detectable low contrast");
+      }
+      console.log("UI contrast audit self-test passed: nested alpha and root background.");
+    } finally { await browser.close(); }
+    return;
+  }
   await mkdir(output, { recursive: true });
   const sid = mock ? mockSessionId : (await (await fetch(base + "/api/sessions")).json()).sessions[0].id;
   const browser = await chromium.launch({ args: ["--no-sandbox"] });

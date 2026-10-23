@@ -128,6 +128,10 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const actionZoneRef = useRef<HTMLDivElement>(null);
   const [actionVisible, setActionVisible] = useState(true);
+  const reveal = useCallback((element: Element | null, block: ScrollLogicalPosition = "start") => {
+    const calm = workspace.reading.motion === "reduced" || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    element?.scrollIntoView({ block, behavior: calm ? "instant" : "smooth" });
+  }, [workspace.reading.motion]);
   const reload = useCallback(async () => {
     const result = await api<Snapshot>(`/api/sessions/${sessionId}?memories=8`);
     setSnapshot(old => old && old.session.turnCount > result.session.turnCount ? old : result);
@@ -145,8 +149,8 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
       performance.measure("chronicle:turn:snapshot", { start: refreshStarted, detail: { requestId: result.requestId } });
       void refresh();
     }).catch(() => setSyncError(result.state ? "Ход сохранён. Дополнительные сведения пока не обновились; вы можете продолжать историю." : "Ход сохранён. Не удалось обновить состояние мира — обновите сцену перед следующим действием."));
-    if (!suppressScroll) setTimeout(() => { if (!document.querySelector('[role="dialog"]')) document.getElementById(`turn-${result.turnNumber}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
-  }, [reload, refresh]);
+    if (!suppressScroll) setTimeout(() => { if (!document.querySelector('[role="dialog"]')) reveal(document.getElementById(`turn-${result.turnNumber}`)); }, 80);
+  }, [reload, refresh, reveal]);
   const reloadAfterFinale = useCallback(() => {
     const shouldRestore = document.activeElement === document.body || !!document.activeElement?.closest(".ax-finale form");
     void reload().then(() => requestAnimationFrame(() => {
@@ -269,9 +273,9 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     if (target) {
       resolveNotification(`history-jump:${sessionId}`);
       target.focus({ preventScroll: true });
-      target.scrollIntoView({ block: "start", behavior: workspace.reading.motion === "reduced" || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+      reveal(target);
     } else notify(`Ход ${pendingTarget.turnNumber} не найден в ленте.`, true, `history-jump:${sessionId}`);
-  }, [pendingTarget, workspace.reading.motion, notify, resolveNotification, sessionId]);
+  }, [pendingTarget, reveal, notify, resolveNotification, sessionId]);
   useEffect(() => {
     const listener = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -311,19 +315,19 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     if (!commandReady) { setPlayCommands([]); return; }
     const commands = [
       { id: "reading", label: "Переключить режим чтения", run: () => setReading(value => !value) },
-      { id: "recap", label: "Ранее в истории", run: () => { setRecapState("open"); setTimeout(() => document.getElementById("recap-title")?.scrollIntoView({ block: "start", behavior: "smooth" }), 60); } },
+      { id: "recap", label: "Ранее в истории", run: () => { setRecapState("open"); setTimeout(() => reveal(document.getElementById("recap-title")), 60); } },
       { id: "first", label: "К началу истории", run: () => { void jumpToTurn(1); } },
       { id: "life", label: "Жизнь мира: время, события, договорённости", run: () => { setReading(false); setSideTab("life"); } },
       { id: "people", label: "Люди: распорядок, связи и знания", run: () => { setReading(false); setSideTab("world"); } },
       { id: "book", label: "Скачать книгу для чтения офлайн (HTML)", run: () => { const link = document.createElement("a"); link.href = `/api/sessions/${sessionId}/export?format=html`; link.rel = "noopener"; link.click(); } },
       { id: "jump-turn", label: "Перейти к ходу… (введите «ход 12»)", run: () => { void jumpToTurn(1); }, jumpToTurn: (turn: number) => { void jumpToTurn(turn); }, maxTurn: commandTurn ?? 1 },
-      { id: "latest", label: "К последнему ходу", run: () => document.getElementById(`turn-${commandTurn}`)?.scrollIntoView({ block: "start", behavior: workspace.reading.motion === "reduced" ? "instant" : "smooth" }) },
+      { id: "latest", label: "К последнему ходу", run: () => reveal(document.getElementById(`turn-${commandTurn}`)) },
       ...(commandOwner && !busy && !compacting ? [{ id: "checkpoints", label: "Контрольные точки и ветки", run: () => setShowCheckpoints(true) }] : []),
       ...(commandOwner && commandActive && !busy && !compacting ? [{ id: "compact", label: "Сохранить главы в память", run: () => { void compact(); } }] : []),
     ];
     setPlayCommands(commands);
     return () => setPlayCommands([]);
-  }, [commandReady, commandOwner, commandActive, commandTurn, busy, compacting, compact, setPlayCommands, workspace.reading.motion, sessionId, jumpToTurn]);
+  }, [commandReady, commandOwner, commandActive, commandTurn, busy, compacting, compact, setPlayCommands, reveal, sessionId, jumpToTurn]);
   const restore = async () => { try { await api(`/api/sessions/${sessionId}`, { method: "PATCH", body: JSON.stringify({ status: "active" }) }); await reload(); void refresh(); notify("История возвращена из архива", false, `campaign-archive:${sessionId}`); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true, `campaign-archive:${sessionId}`); } };
 
   const feedTurns = useMemo(() => snapshot ? buildNarrativeFeed(withCommittedTurn(mergeHistoryTurns(older, snapshot.turns), committedTurn, sessionId), turnRequest.pending, turnRequest.preview) : [],
@@ -471,7 +475,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
 
     <footer className="gx-footer"><Link href="/blueprint">Chronicle Engine <ArrowRight size={13} /></Link></footer>
     <p className="sr-only" role="status" aria-live="polite">{busy ? "Ход обрабатывается" : `Ход ${session.turnCount}. ${lastNarrator?.content.slice(0, 160) ?? ""}`}</p>
-    {canAct && !actionVisible && <button className="gx-jump" onClick={() => { actionZoneRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); composerRef.current?.focus(); }}><ArrowDown size={17} />Ваш ход</button>}
+    {canAct && !actionVisible && <button className="gx-jump" onClick={() => { reveal(actionZoneRef.current, "center"); composerRef.current?.focus(); }}><ArrowDown size={17} />Ваш ход</button>}
     {isOwner && showCheckpoints && <CheckpointDialog session={session} onClose={closeCheckpoints} />}
   </div>;
 }

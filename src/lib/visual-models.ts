@@ -54,7 +54,20 @@ export function parseImageModels(value: unknown): ImageModelChoice[] {
 /** Public catalogue endpoint, bounded so a provider error cannot exhaust the web process. */
 export async function fetchPollinationsImageModels(fetchImpl: typeof fetch = fetch): Promise<ImageModelChoice[]> {
   const signal = AbortSignal.timeout(8000);
-  const response = await fetchImpl("https://gen.pollinations.ai/image/models", { cache: "no-store", signal });
+  const bounded = async <T>(operation: () => Promise<T>): Promise<T> => {
+    if (signal.aborted) throw new Error("POLLINATIONS_CATALOG_UNAVAILABLE");
+    let abort!: () => void;
+    try {
+      return await Promise.race([operation(), new Promise<never>((_, reject) => {
+        abort = () => reject(new Error("POLLINATIONS_CATALOG_UNAVAILABLE"));
+        signal.addEventListener("abort", abort, { once: true });
+      })]);
+    } finally { signal.removeEventListener("abort", abort); }
+  };
+  const response = await bounded(() => fetchImpl("https://gen.pollinations.ai/image/models", { cache: "no-store", redirect: "error", signal }).then(response => {
+    if (signal.aborted) void response.body?.cancel().catch(() => {});
+    return response;
+  }));
   if (!response.ok || !response.body) {
     void response.body?.cancel().catch(() => {});
     throw new Error("POLLINATIONS_CATALOG_UNAVAILABLE");
@@ -73,7 +86,7 @@ export async function fetchPollinationsImageModels(fetchImpl: typeof fetch = fet
   try {
     while (true) {
       if (signal.aborted) throw new Error("POLLINATIONS_CATALOG_UNAVAILABLE");
-      const part = await reader.read();
+      const part = await bounded(() => reader.read());
       if (signal.aborted) throw new Error("POLLINATIONS_CATALOG_UNAVAILABLE");
       if (part.done) break;
       total += part.value.byteLength;

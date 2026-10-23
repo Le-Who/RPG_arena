@@ -35,8 +35,8 @@ function textPrice(currency: ModelPrice["currency"], rates: PriceRate[], source:
   const input = rates.find(rate => rate.component === "input_text" && !rate.variant);
   const output = rates.find(rate => rate.component === "output_text" && !rate.variant);
   const price = { ...unknownPrice(currency, source, checkedAt), rates, conditions: [...TEXT_CONDITIONS] };
-  if (!input || !output) return price;
-  const request = rates.filter(rate => rate.unit === "request" && !rate.variant && (rate.component === "request_fee" || rate.component.startsWith("fee:"))).reduce((sum, rate) => sum + rate.amount, 0);
+  if (!input || !output || input.unit !== "token" || output.unit !== "token") return price;
+  const request = rates.filter(rate => rate.unit === "request" && !rate.variant && !rate.condition && (rate.component === "request_fee" || rate.component.startsWith("fee:"))).reduce((sum, rate) => sum + rate.amount, 0);
   return { ...price, status: "estimate", amount: rounded(input.amount * 8000 + output.amount * 1000 + request), unit: "request", complete: true, basis: "text:8000:1000:uncached:no-tools" };
 }
 
@@ -58,9 +58,9 @@ function pollinationsRates(pricing: Record<string, unknown>, units: Record<strin
   for (const [key, component] of Object.entries(POLLINATIONS_COMPONENTS)) {
     const amount = number(pricing[key]); if (amount === undefined) continue;
     const descriptor = record(units[key]), quantity = number(descriptor.quantity) ?? 1;
-    const knownUnit = descriptor.unit === undefined || ["megapixel", "image", "token"].includes(String(descriptor.unit));
-    const unit: PriceUnit = !knownUnit ? "provider_unit" : descriptor.unit === "megapixel" ? "megapixel" : descriptor.unit === "image" ? "image" : flat && (component === "output_image" || component === "input_image") ? "image" : "token";
-    rates.push({ component, amount: rounded(amount * quantity), unit, ...(variant ? { variant } : {}), ...(!knownUnit ? { condition: `Единица провайдера: ${text(descriptor.unit)}.` } : {}) });
+    const knownUnit = descriptor.unit === undefined || (typeof descriptor.unit === "string" && ["megapixel", "image", "token"].includes(descriptor.unit));
+    const unit: PriceUnit = !knownUnit ? "provider_unit" : descriptor.unit === "megapixel" ? "megapixel" : descriptor.unit === "image" ? "image" : descriptor.unit === undefined && flat && (component === "output_image" || component === "input_image") ? "image" : "token";
+    rates.push({ component, amount: rounded(amount * quantity), unit, ...(variant ? { variant } : {}), ...(!knownUnit ? { condition: `Единица провайдера: ${text(descriptor.unit) || "неизвестна"}.` } : {}) });
   }
   return rates;
 }
@@ -82,12 +82,12 @@ export function normalizePollinationsPrice(value: unknown, kind: "text" | "image
     if (amount === undefined || fee.currency !== "pollen") { conditionalFee = true; continue; }
     const option = record(fee.option), conditional = Object.keys(option).length > 0;
     conditionalFee ||= conditional;
-    const knownUnit = ["image", "megapixel", "generation", "request"].includes(String(fee.unit));
+    const knownUnit = typeof fee.unit === "string" && ["image", "megapixel", "generation", "request"].includes(fee.unit);
     conditionalFee ||= !knownUnit;
     const unit: PriceUnit = !knownUnit ? "provider_unit" : fee.unit === "image" ? "image" : fee.unit === "megapixel" ? "megapixel" : "request";
-    rates.push({ component: `fee:${text(fee.name)}`, amount: rounded(amount * quantity), unit, ...(!knownUnit ? { condition: `Единица провайдера: ${text(fee.unit)}.` } : conditional ? { condition: text(option.label) || text(option.value) || "Зависит от параметров" } : {}) });
+    rates.push({ component: `fee:${text(fee.name)}`, amount: rounded(amount * quantity), unit, ...(!knownUnit ? { condition: `Единица провайдера: ${text(fee.unit) || "неизвестна"}.` } : conditional ? { condition: text(option.label) || text(option.value) || "Зависит от параметров" } : {}) });
   }
-  if (kind === "text") return { ...textPrice("Pollen", rates, source, checkedAt), ...(variants.length ? { variants } : {}) };
+  if (kind === "text") return { ...textPrice("Pollen", rates, source, checkedAt), ...(conditionalFee ? { complete: false } : {}), ...(variants.length ? { variants } : {}) };
   const price: ModelPrice = { ...unknownPrice("Pollen", source, checkedAt), rates, ...(variants.length ? { variants } : {}) };
   if (!rates.length) return price;
   price.status = "estimate";
@@ -109,7 +109,7 @@ export function normalizeOpenRouterImagePrice(value: unknown, source: string, ch
   let invalid = false;
   for (const item of value) {
     const row = record(item), amount = number(row.cost_usd);
-    if (amount === undefined || !["image", "megapixel", "token", "request"].includes(String(row.unit)) || typeof row.billable !== "string") { invalid = true; continue; }
+    if (amount === undefined || typeof row.unit !== "string" || !["image", "megapixel", "token", "request"].includes(row.unit) || typeof row.billable !== "string") { invalid = true; continue; }
     price.rates.push({ component: text(row.billable), unit: row.unit as PriceUnit, amount, ...(row.variant ? { variant: text(row.variant) } : {}), ...(row.condition ? { condition: text(row.condition) } : {}) });
   }
   if (!price.rates.length) return price;

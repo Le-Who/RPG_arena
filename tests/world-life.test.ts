@@ -251,9 +251,10 @@ test("provider responses enforce image MIME and declared byte-size bounds", asyn
   const fake = (body: BodyInit, type: string, status = 200) => (async () => new Response(body, { status, headers: { "content-type": type } })) as unknown as typeof fetch;
   await assert.rejects(fetchFromProvider(pollinationsProvider, req, fake("<html>", "text/html")), /PROVIDER_NOT_IMAGE/);
   await assert.rejects(fetchFromProvider(pollinationsProvider, req, fake("x", "image/png", 429)), /PROVIDER_HTTP_429/);
-  const ok = await fetchFromProvider(pollinationsProvider, req, fake(new Uint8Array([1, 2, 3]), "image/jpeg"));
-  assert.equal(ok.mimeType, "image/jpeg");
-  assert.equal(ok.image.length, 3);
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4////fwAJ+wP9CNHoHgAAAABJRU5ErkJggg==", "base64");
+  const ok = await fetchFromProvider(pollinationsProvider, req, fake(png, "image/png"));
+  assert.equal(ok.mimeType, "image/png");
+  assert.deepEqual(ok.image, png);
   await assert.rejects(fetchFromProvider(pollinationsProvider, req, (async () => new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "image/png", "content-length": String(9 * 1024 * 1024) } })) as unknown as typeof fetch), /PROVIDER_BAD_SIZE/);
   } finally { if (saved === undefined) delete process.env.POLLINATIONS_API_KEY; else process.env.POLLINATIONS_API_KEY = saved; }
 });

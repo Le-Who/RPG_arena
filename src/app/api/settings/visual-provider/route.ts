@@ -13,7 +13,8 @@ export const GET = withIdentityWork(async () => {
 });
 export const POST = withIdentityWork(async (request: Request) => {
   try {
-    const view = await saveVisualPreferences(await currentProfileId(), await readJsonObject(request, 2048));
+    const body = await readJsonObject(request, 2048);
+    const view = await saveVisualPreferences(await currentProfileId(), body, { authorize: currentIdentity });
     await currentIdentity();
     return Response.json(view, { headers: { "Cache-Control": "private, no-store" } });
   }

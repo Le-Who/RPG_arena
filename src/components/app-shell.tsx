@@ -36,6 +36,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const [identity, setIdentity] = useState<IdentityView | null>(null);
   const [contentGeneration, setContentGeneration] = useState(0);
   const settingsRevision = useRef(0);
+  const workspaceEdits = useRef({ favorites: { revision: 0, pending: false }, reading: { revision: 0, pending: 0, confirmed: DEFAULT_READING, queue: Promise.resolve() } });
   const identityRef = useRef<IdentityView | null>(null);
   const loadGate = useRef(createWorkspaceLoadGate());
   const identityChannel = useRef<BroadcastChannel | null>(null);
@@ -75,7 +76,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
     if (url.origin === window.location.origin && url.pathname === "/settings") { event.preventDefault(); event.stopPropagation(); openSettings(url.hash.slice(1)); }
   };
   const { notifications, publish, dismiss: dismissNotification, clear: clearNotifications, clearScope } = useNotifications();
-  const [favoriteBusy, setFavoriteBusy] = useState(false);
   const notificationOwner = identity?.profileId;
   const notify = useCallback((text: string, error: boolean | "warning" = false, scope?: string, ownerProfileId = notificationOwner) => {
     if (ownerProfileId !== identityRef.current?.profileId) return;
@@ -87,12 +87,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const clearPrivateWorkspace = useCallback((profileId?: string) => {
       setContentGeneration(value => value + 1);
       settingsRevision.current++;
+      workspaceEdits.current = { favorites: { revision: 0, pending: false }, reading: { revision: 0, pending: 0, confirmed: DEFAULT_READING, queue: Promise.resolve() } };
       if (identityRef.current) { try { sessionStorage.removeItem(UPDATE_DRAFT_KEY); } catch {} }
       clearCachedReading();
       for (const [name, value] of Object.entries(readingAttributes(DEFAULT_READING))) document.documentElement.setAttribute(name, value);
       setWorkspaceLoaded(false);
       setSessions([]); setSettings(null); setWorkspace({ id: profileId, displayName: "Искатель историй", favorites: [], reading: DEFAULT_READING });
-      setCreator(null); setDialog(null); setPlayCommands([]); clearNotifications(); setFavoriteBusy(false);
+      setCreator(null); setDialog(null); setPlayCommands([]); clearNotifications();
       if (window.location.pathname.startsWith("/play/")) router.replace("/");
   }, [router, clearNotifications]);
   const acceptIdentity = useCallback((next: IdentityView) => {
@@ -108,6 +109,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     const ticket = loadGate.current.begin();
     const revision = settingsRevision.current;
+    const edits = workspaceEdits.current;
+    const favoriteRevision = edits.favorites.revision, readingRevision = edits.reading.revision;
+    const favoritePending = edits.favorites.pending, readingPending = edits.reading.pending > 0;
     try {
       const snapshot = parseWorkspaceSnapshot(await api("/api/bootstrap"));
       if (!loadGate.current.isCurrent(ticket)) return;
@@ -115,7 +119,11 @@ function AppShellContent({ children }: { children: ReactNode }) {
       acceptIdentity(snapshot.identity);
       setSessions(snapshot.sessions);
       if (changed || settingsRevision.current === revision) setSettings(snapshot.settings);
-      cacheReading(snapshot.workspace.reading); setWorkspace(snapshot.workspace); setWorkspaceLoaded(true); setLoadError("");
+      const keepFavorites = !changed && (favoritePending || edits.favorites.pending || edits.favorites.revision !== favoriteRevision);
+      const keepReading = !changed && (readingPending || edits.reading.pending > 0 || edits.reading.revision !== readingRevision);
+      if (!keepReading) { workspaceEdits.current.reading.confirmed = snapshot.workspace.reading; cacheReading(snapshot.workspace.reading); }
+      setWorkspace(current => ({ ...snapshot.workspace, favorites: keepFavorites ? current.favorites : snapshot.workspace.favorites, reading: keepReading ? current.reading : snapshot.workspace.reading }));
+      setWorkspaceLoaded(true); setLoadError("");
     } catch (error) {
       if (loadGate.current.isCurrent(ticket)) {
         if (error instanceof ApiError && error.status === 401) {
@@ -160,32 +168,53 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const closeCreator = useCallback(() => setCreator(null), []);
   const closeDialog = useCallback(() => setDialog(null), []);
   const toggleFavorite = async (id: string) => {
-    if (favoriteBusy) return;
-    setFavoriteBusy(true);
-    const previous = workspace;
+    const edits = workspaceEdits.current;
+    if (edits.favorites.pending) return;
+    edits.favorites.pending = true; edits.favorites.revision++;
+    const previous = workspace.favorites;
     const profileId = identityRef.current?.profileId;
     const favorites = workspace.favorites.includes(id) ? workspace.favorites.filter((s) => s !== id) : [...workspace.favorites, id];
-    setWorkspace({ ...workspace, favorites });
-    try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ favorites }) }); if (profileId === identityRef.current?.profileId) clearScope("favorites"); }
-    catch (error) { if (profileId === identityRef.current?.profileId) { setWorkspace(previous); notify(error instanceof Error ? error.message : "Не удалось сохранить", true, "favorites"); } }
-    finally { if (profileId === identityRef.current?.profileId) setFavoriteBusy(false); }
+    setWorkspace(current => ({ ...current, favorites }));
+    try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ favorites }) }); if (edits === workspaceEdits.current && profileId === identityRef.current?.profileId) clearScope("favorites"); }
+    catch (error) { if (edits === workspaceEdits.current && profileId === identityRef.current?.profileId) { setWorkspace(current => ({ ...current, favorites: previous })); notify(error instanceof Error ? error.message : "Не удалось сохранить", true, "favorites"); } }
+    finally { edits.favorites.pending = false; }
   };
   const updateReading = useCallback(async (reading: ReadingPreferences) => {
     const profileId = identityRef.current?.profileId;
+    const edits = workspaceEdits.current;
+    const revision = ++edits.reading.revision;
+    edits.reading.pending++;
     const next = normalizeReading(reading);
-    const previousReading = workspace.reading;
-    let previous: Workspace | null = null;
-    setWorkspace((old) => { previous = old; return { ...old, reading: next }; });
+    setWorkspace(old => ({ ...old, reading: next }));
     cacheReading(next);
-    try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ reading: next }) }); if (profileId === identityRef.current?.profileId) clearScope("reading"); }
-    catch (error) { if (profileId === identityRef.current?.profileId) { if (previous) setWorkspace(previous); cacheReading(previousReading); notify(error instanceof Error ? error.message : "Не удалось сохранить настройки чтения", true, "reading"); } }
-  }, [notify, workspace.reading, clearScope]);
+    // Preserve click order on the server as well as the optimistic screen. Each
+    // profile owns its queue, so queued writes never follow a changed identity.
+    const current = () => edits === workspaceEdits.current && profileId === identityRef.current?.profileId;
+    const write = edits.reading.queue.then(async () => {
+      if (!current()) return;
+      try {
+        await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ reading: next }) });
+        if (!current()) return;
+        edits.reading.confirmed = next;
+        if (revision === edits.reading.revision) clearScope("reading");
+      } catch (error) {
+        if (current() && revision === edits.reading.revision) {
+          const reading = edits.reading.confirmed;
+          setWorkspace(old => ({ ...old, reading })); cacheReading(reading);
+          notify(error instanceof Error ? error.message : "Не удалось сохранить настройки чтения", true, "reading");
+        }
+      } finally { edits.reading.pending--; }
+    });
+    edits.reading.queue = write;
+    await write;
+  }, [notify, clearScope]);
   const title = [...navigation, ...tools, { href: "/settings", label: "Настройки" }, { href: "/blueprint", label: "О движке" }].find((item) => item.href === pathname)?.label ?? "Ваша история";
   const live = canUseLiveNarrator(settings);
   const activeCount = sessions.filter((s) => s.status === "active").length;
   const administration = canSeeAdministration(identity);
   useAppUpdateGuard("shell", { blocked: () => {
     if (loading || !workspaceLoaded || !identityRef.current || loadGate.current.isPending()) return "Дождитесь проверки профиля и загрузки пространства.";
+    if (workspaceEdits.current.favorites.pending || workspaceEdits.current.reading.pending > 0) return "Дождитесь сохранения настроек пространства.";
     if (settingsOpen || creator || dialog || (pathname !== "/" && !pathname.startsWith("/play/"))) return "Сохраните изменения и закройте открытые формы. Обновление доступно на обзоре или в комнате истории.";
     return null;
   } });

@@ -69,9 +69,10 @@ html[data-theme="contrast"]{
 html[data-theme="contrast"] :focus-visible{outline-width:3px}
 
 /* ── Calm motion: owner-level switch, independent of the OS setting. ──── */
+html[data-motion="reduced"],
 html[data-motion="reduced"] *,
 html[data-motion="reduced"] *::before,
-html[data-motion="reduced"] *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+html[data-motion="reduced"] *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 
 /* ── Preference controls (settings screen) ────────────────────────────── */
 .reading-groups{display:flex;flex-direction:column;gap:var(--sp-5)}

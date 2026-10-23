@@ -23,23 +23,26 @@ export function StoryRecords({ mode }: { mode: "memory" | "journal" }) {
   const [indexing, setIndexing] = useState(false);
   const [results, setResults] = useState<RetrievedNode[] | null>(null);
   const searchRequest = useRef(0);
+  const snapshotRequest = useRef(0);
+  const cancelRequests = useCallback(() => { snapshotRequest.current++; searchRequest.current++; }, []);
   const hasKey = Boolean(settings && settings.keysCount + settings.envKeysCount > 0);
   const load = useCallback(async () => {
     if (!sessionId) return;
+    const request = ++snapshotRequest.current;
     setBusy(true); setError("");
-    try { setSnapshot(await api<Snapshot>(`/api/sessions/${sessionId}`)); }
-    catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить память"); }
-    finally { setBusy(false); }
+    try { const data = await api<Snapshot>(`/api/sessions/${sessionId}`); if (request === snapshotRequest.current) setSnapshot(data); }
+    catch (e) { if (request === snapshotRequest.current) setError(e instanceof Error ? e.message : "Не удалось загрузить память"); }
+    finally { if (request === snapshotRequest.current) setBusy(false); }
   }, [sessionId]);
   useEffect(() => {
-    if (!sessionId) return;
     let active = true;
     searchRequest.current++;
-    api<Snapshot>(`/api/sessions/${sessionId}`).then((data) => { if (active) setSnapshot(data); }).catch((e) => { if (active) setError(e.message); }).finally(() => { if (active) setBusy(false); });
-    return () => { active = false; };
-  }, [sessionId]);
+    void Promise.resolve().then(() => { if (active) void load(); });
+    return () => { active = false; cancelRequests(); };
+  }, [load, cancelRequests]);
   const chooseSession = (nextSessionId: string) => {
     searchRequest.current++;
+    snapshotRequest.current++;
     setChosenSessionId(nextSessionId);
     setSearching(false);
     setBusy(true);

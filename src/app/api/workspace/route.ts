@@ -20,7 +20,12 @@ async function handlePATCH(req: Request) {
   const favorites = Array.isArray(body.favorites) ? [...new Set(body.favorites.filter((id: unknown): id is string => typeof id === "string" && SCENARIOS.some((s) => s.id === id)))].slice(0, 50) as string[] : current.favorites;
   const displayName = typeof body.displayName === "string" && body.displayName.trim() ? body.displayName.trim().slice(0, 40) : current.displayName;
   const reading = body.reading === undefined ? current.reading : normalizeReading(body.reading);
-  const [updated] = await db.update(workspacePreferences).set({ favorites, displayName, reading, updatedAt: new Date() }).where(eq(workspacePreferences.id, current.id)).returning();
+  const [updated] = await db.update(workspacePreferences).set({
+    ...(Array.isArray(body.favorites) ? { favorites } : {}),
+    ...(typeof body.displayName === "string" && body.displayName.trim() ? { displayName } : {}),
+    ...(body.reading !== undefined ? { reading } : {}),
+    updatedAt: new Date(),
+  }).where(eq(workspacePreferences.id, current.id)).returning();
   return Response.json({ ...updated, reading: normalizeReading(updated.reading) });
   } catch (error) { return httpError(error); }
 }

@@ -42,7 +42,7 @@ async function handlePATCH(req: Request, { params }: { params: Promise<{ id: str
     });
     if (outcome.status !== 200) return NextResponse.json({ error: outcome.error, code: outcome.code }, { status: outcome.status });
     // Вектор для новых/изменённых нод считается фоновым циклом; правка не ждёт провайдера эмбеддингов.
-    if (outcome.changed.length) after(async () => { try { await runMemoryCycle({ sessionId: id, source: "after" }); } catch { /* durable queue remains */ } });
+    if (outcome.changed.length) after(async () => { try { await runMemoryCycle({ sessionId: id, ownerId, source: "after" }); } catch { /* durable queue remains */ } });
     return NextResponse.json({ ok: true, summary: outcome.summary, social: readSocial(outcome.world), worldState: outcome.world });
   } catch (error) { return httpError(error); }
 }

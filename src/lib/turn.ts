@@ -483,12 +483,36 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     return () => { const at = index++; return ids[at] ?? (ids[at] = randomUUID()); };
   };
   let result = applyResolution({ ...resolutionInput, makeInventoryId: idsFor("inventory"), makeLocationId: idsFor("location") });
+  const resolvedEntities = () => {
+    const resolvedNpcs: NpcRow[] = npcRows.map(npc => ({ ...npc }));
+    const resolvedLocations = locations.map(location => ({ ...location }));
+    for (const op of result.ops) {
+      if (op.t === "npc.insert") resolvedNpcs.push({ id: op.row.key, ...op.row });
+      if (op.t === "npc.update") {
+        const npc = resolvedNpcs.find(row => row.id === op.id);
+        if (npc) Object.assign(npc, op.patch);
+      }
+      if (op.t === "loc.insert") {
+        if (op.row.current) resolvedLocations.forEach(location => { location.current = false; });
+        resolvedLocations.push({ ...op.row, sessionId, connectedTo: [] });
+      }
+      if (op.t === "loc.setCurrent") resolvedLocations.forEach(location => {
+        location.current = location.id === op.id;
+        if (location.current) location.discovered = true;
+      });
+      if (op.t === "loc.discover") {
+        const location = resolvedLocations.find(row => row.id === op.id);
+        if (location) location.discovered = true;
+      }
+    }
+    return { npcs: resolvedNpcs, locations: resolvedLocations };
+  };
   // Preview the pure life reducer so condition evidence uses accepted elapsed time
   // before the narrator verifier observes the canonical character and changes.
   const previewLife = () => {
     const touchedItemIds = new Set(result.ops.flatMap((op) => (op.t === "inv.update" || op.t === "inv.delete" ? [op.id] : [])));
-    const mainQuestCompleted = result.applied.quests.some((q) => q.status === "completed" && questRows.some((row) => row.isMain && row.title === q.title));
-    return applyLife({ world: result.world, inventory, npcs: npcRows, locations, life: payload.life ?? emptyLifeChanges(), intent,
+    const mainQuestCompleted = result.ops.some(op => op.t === "quest.update" && op.patch.status === "completed" && questRows.some(row => row.isMain && row.id === op.id));
+    return applyLife({ world: result.world, inventory, ...resolvedEntities(), life: payload.life ?? emptyLifeChanges(), intent,
       defaultMinutes: interactionCheck.defaultMinutes, turnNumber: nextTurn, touchedItemIds, mainQuestCompleted,
       addedItems: result.applied.inventory.filter((entry) => entry.op === "add" && entry.ok).map((entry) => ({ name: entry.name, quantity: entry.quantity })), makeId: idsFor("life") });
   };
@@ -530,14 +554,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     result.events.push(...lifeResult.events);
     result.applied.life = lifeResult.applied;
     result.applied.rejected.push(...intentRejected, ...lifeResult.rejected);
-    const agendaNpcs: NpcRow[] = npcRows.map((npc) => ({ ...npc }));
-    for (const op of result.ops) {
-      if (op.t === "npc.insert") agendaNpcs.push({ id: op.row.key, ...op.row });
-      if (op.t === "npc.update") {
-        const row = agendaNpcs.find((npc) => npc.id === op.id);
-        if (row) Object.assign(row, op.patch);
-      }
-    }
+    const { npcs: agendaNpcs, locations: resolvedLocations } = resolvedEntities();
     const agendaResult = applyAgenda({ world: result.world, startClock: agendaStartClock, npcs: agendaNpcs, changes: payload.agenda ?? emptyAgendaChanges(), intent, turnNumber: nextTurn, narration, makeId: idsFor("agenda") });
     result.world = agendaResult.world;
     result.events.push(...agendaResult.events);
@@ -549,7 +566,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
     result.events.push(...timers.events);
     result.applied.conditionTimers = { expired: timers.expired, scheduled: timers.scheduled };
     result.applied.conditions.removed.push(...timers.expired);
-    const socialResult = applySocial({ world: result.world, startClock: agendaStartClock, startLocation: world.currentLocation, npcs: agendaNpcs, locations,
+    const socialResult = applySocial({ world: result.world, startClock: agendaStartClock, startLocation: world.currentLocation, npcs: agendaNpcs, locations: resolvedLocations,
       applied: result.applied, changes: payload.social ?? emptySocialChanges(), intent, turnNumber: nextTurn, narration, makeId: idsFor("social"),
       interaction: interactionCheck.interaction ? { label: interactionCheck.label, target: interactionCheck.interaction.target.name } : null });
     result.world = socialResult.world;
@@ -722,8 +739,8 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       await completeTurnRequest(tx, lease, response);
     });
   } catch (error) { throw error; }
-  (runtime.schedule ?? schedule)(() => prewarmSessionChoices(sessionId));
-  (runtime.schedule ?? schedule)(async () => { try { await runMemoryCycle({ sessionId, source: "after" }); } catch { console.warn("[memory worker] tick failed; durable tasks remain queued"); } });
+  (runtime.schedule ?? schedule)(() => prewarmSessionChoices(sessionId, session.ownerId ?? undefined));
+  (runtime.schedule ?? schedule)(async () => { try { await runMemoryCycle({ sessionId, ownerId: session.ownerId ?? undefined, source: "after" }); } catch { console.warn("[memory worker] tick failed; durable tasks remain queued"); } });
   return response;
 }
 

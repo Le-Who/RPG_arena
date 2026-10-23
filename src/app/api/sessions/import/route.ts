@@ -15,6 +15,8 @@ export const POST = withIdentityWork(async (request: Request) => {
   const body = await readJsonObject(request, PORTABLE_MAX_BYTES + 4096);
   const requestId = requestKey(body.requestId);
   if (!requestId) throw new HttpError(400, "INVALID_INPUT", "Для импорта нужен requestId.");
+  // A portable upload may outlive the session that passed account admission.
+  await currentIdentity();
   const result = await importCampaign({ profileId: identity.profileId, requestId, document: body.document, title: body.title });
   return Response.json({ ok: true, ...result }, { status: result.replay ? 200 : 201, headers: { "Cache-Control": "private, no-store" } });
 });

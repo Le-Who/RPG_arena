@@ -189,6 +189,7 @@ export async function fetchFromProvider(provider: MediaProvider, request: Visual
     }
     if (!image.length || image.length > limit) throw new Error("PROVIDER_BAD_SIZE");
     if (json) return decodeImageJson(image);
+    if (rasterMime(image) !== mimeType) throw new Error("PROVIDER_NOT_IMAGE");
     return { image, mimeType };
   } catch (error) {
     if (!response.body?.locked) void response.body?.cancel().catch(() => {});

@@ -144,7 +144,7 @@ jobs:
         run: |
           npm run verify:visual-gallery-ui
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/app-update-guards-browser.ts
-      - name: Isolated browser lifecycle and modal checks
+      - name: Isolated browser lifecycle, client ordering and modal checks
         env:
           CHRONICLE_UI_ISOLATED: "1"
           SMOKE_BASE_URL: http://127.0.0.1:3130
@@ -154,6 +154,8 @@ jobs:
           web_pid=$!
           trap 'kill "$web_pid" || true' EXIT
           node --input-type=module -e 'for(let i=0;i<30;i++){try{if((await fetch("http://127.0.0.1:3130/api/health")).ok)process.exit(0)}catch{}await new Promise(r=>setTimeout(r,1000))}process.exit(1)'
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/ui-audit.ts --self-test
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/client-state-browser.ts
           npm run verify:revisions-ui
       - uses: actions/upload-artifact@v4
         if: always()
@@ -169,5 +171,6 @@ jobs:
             output/playwright/pollinations-settings
             output/playwright/provider-selection
             output/playwright/notification-feedback
+            output/playwright/client-state
             output/p1-continuation/pwa
             output/p1-continuation/browser-retry

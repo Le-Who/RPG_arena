@@ -100,6 +100,11 @@ export async function installUiMock(page: Page, { admin = false, initialSettings
       worker: { online: false, status: "not-started", lastSeenAt: null, report: null }, lastManual: null, recentJobs: [],
     };
     else if (path === `/api/sessions/${mockSessionId}`) body = mockSnapshot;
+    else if (path === `/api/sessions/${mockSessionId}/recap`) body = { recap: {
+      headline: "Ранее в истории", awayLabel: "несколько дней назад", finished: false,
+      sections: [{ id: "scene", title: "Где мы остановились", lines: ["Тихая гавань: посланник отметил безопасный путь к башне.", "Печать Хранителей подлинная; впереди встречаются дозоры."] }],
+      markdown: "# Ранее в истории\n\nТихая гавань. Печать Хранителей подлинная; впереди встречаются дозоры.",
+    } };
     else if (path === `/api/sessions/${mockSessionId}/checkpoints`) body = { checkpoints: [] };
     if (body === undefined) return unavailable();
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });

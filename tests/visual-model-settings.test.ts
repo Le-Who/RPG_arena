@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
@@ -22,6 +22,24 @@ test("admin model choices contain only official text-to-image endpoint models", 
 test("catalogue downloads are bounded before parsing external model data", async () => {
   const huge = async () => new Response("[]", { headers: { "content-length": String(600 * 1024) } });
   await assert.rejects(fetchPollinationsImageModels(huge as typeof fetch), /POLLINATIONS_CATALOG_TOO_LARGE/);
+});
+
+test("catalogue deadline bounds a transport that ignores abort before returning headers", async () => {
+  const controller = new AbortController();
+  const timeout = mock.method(AbortSignal, "timeout", () => controller.signal);
+  let release!: (response: Response) => void;
+  const transport = new Promise<Response>(resolve => { release = resolve; });
+  const work = fetchPollinationsImageModels(async () => transport);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    controller.abort();
+    await assert.rejects(Promise.race([work, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("TEST_DEADLINE_EXCEEDED")), 200);
+    })]), /^Error: POLLINATIONS_CATALOG_UNAVAILABLE$/);
+  } finally {
+    clearTimeout(timer); timeout.mock.restore();
+    release(new Response("[]")); await work.catch(() => {});
+  }
 });
 
 test("visual model selection has one durable row in the append-only migration ledger", async () => {
