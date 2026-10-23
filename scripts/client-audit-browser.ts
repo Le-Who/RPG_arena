@@ -1,5 +1,5 @@
 /** Real client components with synthetic HTTP; no Next server, database, .env or providers. */
-import { chromium, expect } from "@playwright/test";
+import { chromium, expect, type Page } from "@playwright/test";
 import { build } from "esbuild";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -7,6 +7,25 @@ import { resolve } from "node:path";
 import { mockSession, mockSessionId, mockSnapshot } from "./ui-mock";
 
 const deferred = () => { let release!: () => void; const promise = new Promise<void>(done => { release = done; }); return { promise, release }; };
+
+async function verifyLayout(page: Page, path: string) {
+  const layout = await page.evaluate(() => ({
+    viewportWidth: innerWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    controls: [...document.querySelectorAll(".record-actions .button")].map(element => {
+      const bounds = element.getBoundingClientRect(), container = element.parentElement!.getBoundingClientRect();
+      return { text: element.textContent, left: bounds.left, right: bounds.right, containerLeft: container.left, containerRight: container.right };
+    }),
+  }));
+  // Preserve the failing layout too: Linux font metrics can differ from Windows.
+  await page.screenshot({ path: `${path}.png`, fullPage: true });
+  await writeFile(`${path}.json`, JSON.stringify(layout, null, 2));
+  expect(layout.documentWidth, JSON.stringify(layout)).toBeLessThanOrEqual(layout.viewportWidth + 1);
+  for (const control of layout.controls) {
+    expect(control.left, JSON.stringify(control)).toBeGreaterThanOrEqual(control.containerLeft - 1);
+    expect(control.right, JSON.stringify(control)).toBeLessThanOrEqual(control.containerRight + 1);
+  }
+}
 
 async function main() {
   const output = resolve("output/playwright/client-audit");
@@ -39,8 +58,19 @@ async function main() {
   const browser = await chromium.launch().catch(async error => { await new Promise<void>(done => server.close(() => done())); throw error; });
   const checks: string[] = [];
   try {
-    for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    for (const { viewport, font } of [
+      { viewport: { width: 1280, height: 900 }, font: "" },
+      { viewport: { width: 390, height: 844 }, font: "" },
+      { viewport: { width: 320, height: 844 }, font: "" },
+      { viewport: { width: 390, height: 844 }, font: "Verdana,sans-serif" },
+    ]) {
       const page = await browser.newPage({ viewport, reducedMotion: "reduce" });
+      const caseId = `${viewport.width}${font ? "-alternate-font" : ""}`;
+      if (font) await page.addInitScript(value => {
+        document.addEventListener("DOMContentLoaded", () => {
+          const style = document.createElement("style"); style.textContent = `body{--font:${value}}`; document.head.append(style);
+        });
+      }, font);
       const errors: string[] = [];
       page.on("pageerror", error => errors.push(error.message));
       await page.route("**/api/**", route => {
@@ -61,9 +91,8 @@ async function main() {
         await expect(page.getByRole("heading", { name: "Память другой кампании", exact: true })).toBeVisible();
         await expect(page.getByRole("heading", { name: "Результат первой кампании", exact: true })).toHaveCount(0);
         await expect(input).toHaveValue("");
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
-        await page.screenshot({ path: `${output}/records-${viewport.width}.png`, fullPage: true });
-        checks.push(`${viewport.width}:automatic-campaign-fallback-clears-search`);
+        await verifyLayout(page, `${output}/records-${caseId}`);
+        checks.push(`${caseId}:automatic-campaign-fallback-clears-search`);
       }
       if (process.env.CLIENT_AUDIT_ONLY !== "records") {
         let calls = 0;
@@ -91,9 +120,8 @@ async function main() {
           await expect(page.getByRole("dialog", { name: "Образы истории", exact: true })).toBeVisible();
           await page.keyboard.press("Escape");
           await expect(page.getByRole("button", { name: "Справка: Образы истории", exact: true })).toBeFocused();
-          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
-          await page.screenshot({ path: `${output}/gallery-${viewport.width}.png`, fullPage: true });
-          checks.push(`${viewport.width}:latest-gallery-request-wins`, `${viewport.width}:gallery-keyboard-help-focus`);
+          await verifyLayout(page, `${output}/gallery-${caseId}`);
+          checks.push(`${caseId}:latest-gallery-request-wins`, `${caseId}:gallery-keyboard-help-focus`);
         } finally { stale.release(); }
       }
       await page.goto(`${base}/actions`);
@@ -104,8 +132,8 @@ async function main() {
       await page.keyboard.press("Escape");
       await expect(page.getByRole("menu")).toHaveCount(0);
       await expect(trigger).toBeFocused();
-      await page.screenshot({ path: `${output}/actions-${viewport.width}.png`, fullPage: true });
-      checks.push(`${viewport.width}:entity-menu-escape-restores-focus`);
+      await page.screenshot({ path: `${output}/actions-${caseId}.png`, fullPage: true });
+      checks.push(`${caseId}:entity-menu-escape-restores-focus`);
       expect(errors).toEqual([]);
       await page.close();
     }
