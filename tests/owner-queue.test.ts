@@ -8,10 +8,11 @@ import { selectNextMemoryCampaign } from "../src/lib/owner-queue";
 test("scheduler rotates ready owners, respects scope and ignores in-flight and incompatible work", async () => {
   const pg = new PGlite();
   try {
-    await pg.exec(`CREATE TABLE game_sessions(id text PRIMARY KEY, owner_id text);
+    await pg.exec(`SET TIME ZONE 'UTC';
+      CREATE TABLE game_sessions(id text PRIMARY KEY, owner_id text);
       CREATE TABLE ai_settings(id text PRIMARY KEY, use_live_ai boolean DEFAULT true, semantic_extraction_enabled boolean DEFAULT true, text_provider text DEFAULT 'gemini', keys jsonb DEFAULT '["synthetic"]', openrouter_key text DEFAULT '', pollinations_key text DEFAULT '', pollinations_key_expires_at timestamptz, embeddings_enabled boolean DEFAULT true, embedding_model text DEFAULT 'current', embedding_dims integer DEFAULT 3);
-      CREATE TABLE memory_jobs(session_id text, status text DEFAULT 'pending', next_attempt_at timestamptz DEFAULT now(), lease_expires_at timestamptz, kind text DEFAULT 'semantic', attempts integer DEFAULT 0);
-      CREATE TABLE memory_embeddings(session_id text, status text DEFAULT 'pending', next_attempt_at timestamptz DEFAULT now(), lease_expires_at timestamptz, model text DEFAULT 'current', dims integer DEFAULT 3, attempts integer DEFAULT 0);
+      CREATE TABLE memory_jobs(session_id text, status text DEFAULT 'pending', next_attempt_at timestamp DEFAULT now(), lease_expires_at timestamp, kind text DEFAULT 'semantic', attempts integer DEFAULT 0);
+      CREATE TABLE memory_embeddings(session_id text, status text DEFAULT 'pending', next_attempt_at timestamp DEFAULT now(), lease_expires_at timestamp, model text DEFAULT 'current', dims integer DEFAULT 3, attempts integer DEFAULT 0);
       INSERT INTO ai_settings(id) VALUES ('a'),('b'),('disabled');
       UPDATE ai_settings SET use_live_ai=false,embeddings_enabled=false WHERE id='disabled';
       INSERT INTO game_sessions VALUES ('a-old','a'),('a-ready','a'),('b-ready','b'),('off','disabled');
@@ -32,5 +33,33 @@ test("scheduler rotates ready owners, respects scope and ignores in-flight and i
     assert.equal((await pg.query<{ n: number }>("SELECT sum(served_count)::int n FROM owner_queue_service")).rows[0].n, 4);
     await pg.exec("UPDATE memory_jobs SET status='completed'; INSERT INTO memory_embeddings(session_id) VALUES ('b-ready');");
     assert.equal((await selectNextMemoryCampaign(database))?.id, "b-ready");
+  } finally { await pg.close(); }
+});
+
+test("scheduler compares persisted UTC retry and lease deadlines in every connection timezone", async () => {
+  const pg = new PGlite();
+  try {
+    // Match production queue columns: timestamp WITHOUT time zone, serialized as UTC by Drizzle.
+    await pg.exec(`CREATE TABLE game_sessions(id text PRIMARY KEY, owner_id text);
+      CREATE TABLE ai_settings(id text PRIMARY KEY, use_live_ai boolean DEFAULT true, semantic_extraction_enabled boolean DEFAULT true, text_provider text DEFAULT 'gemini', keys jsonb DEFAULT '["synthetic"]', openrouter_key text DEFAULT '', pollinations_key text DEFAULT '', pollinations_key_expires_at timestamptz, embeddings_enabled boolean DEFAULT true, embedding_model text DEFAULT 'current', embedding_dims integer DEFAULT 3);
+      CREATE TABLE memory_jobs(session_id text, status text DEFAULT 'pending', next_attempt_at timestamp, lease_expires_at timestamp, kind text DEFAULT 'semantic', attempts integer DEFAULT 0);
+      CREATE TABLE memory_embeddings(session_id text, status text DEFAULT 'pending', next_attempt_at timestamp, lease_expires_at timestamp, model text DEFAULT 'current', dims integer DEFAULT 3, attempts integer DEFAULT 0);
+      INSERT INTO ai_settings(id) VALUES ('owner');
+      INSERT INTO game_sessions VALUES ('campaign','owner');`);
+    await pg.exec(await readFile(new URL("../drizzle/0017_owner_queue_fairness.sql", import.meta.url), "utf8"));
+    const database: AuthDatabase = { query: (sql, values) => pg.query(sql, values), transaction: fn => pg.transaction(tx => fn({ query: (sql, values) => tx.query(sql, values) })) };
+    for (const table of ["memory_jobs", "memory_embeddings"]) {
+      for (const status of ["pending", "processing"]) {
+        const column = status === "pending" ? "next_attempt_at" : "lease_expires_at";
+        for (const zone of ["Asia/Tokyo", "America/New_York"]) {
+          await pg.exec(`SET TIME ZONE '${zone}'`);
+          for (const due of [false, true]) {
+            await pg.exec(`DELETE FROM ${table}; INSERT INTO ${table}(session_id,status,${column}) VALUES ('campaign','${status}',(clock_timestamp() AT TIME ZONE 'UTC') ${due ? "-" : "+"} interval '1 hour')`);
+            assert.equal((await selectNextMemoryCampaign(database))?.id, due ? "campaign" : undefined, `${table} ${status} ${zone} due=${due}`);
+          }
+          await pg.exec(`DELETE FROM ${table}`);
+        }
+      }
+    }
   } finally { await pg.close(); }
 });

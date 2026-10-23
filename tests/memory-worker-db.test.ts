@@ -92,6 +92,22 @@ test("malformed individual facts and player intentions never become canonical ev
   } finally { fetch.mock.restore(); await f.close(); }
 });
 
+test("semantic worker rejects state-owned resources even when extraction labels them character facts", async () => {
+  const f = await setup();
+  const resource = "Герой получил 500 XP.";
+  const fetch = mock.method(globalThis, "fetch", async () => response(JSON.stringify({ facts: [
+    { ...fact, type: "character", entityKey: "character:experience", content: resource, evidence: resource },
+    fact,
+  ] })));
+  try {
+    await db.transaction(tx => enqueueSemanticJob(tx, { sessionId: f.sessionId, turnNumber: 2,
+      payload: { narration: `${resource} ${phrase}`, playerAction: "Осматриваюсь", profileCanon: "rules-light", knownDigest: "" } }));
+    assert.deepEqual(await processSemanticJob({ sessionId: f.sessionId, cfg: f.cfg }), { processed: 1, extracted: 1, failed: 0, delayed: false });
+    assert.deepEqual((await f.snapshot()).nodes, [{ entity_key: "promise:lena", content: phrase, evidence: phrase, source: "ai-semantic", source_turn: 2 }]);
+    assert.equal((await f.snapshot()).embeddings.length, 1);
+  } finally { fetch.mock.restore(); await f.close(); }
+});
+
 test("an expired extraction lease cannot write supported facts or acknowledge the job", async () => {
   // Catches dropping the expiry check at the canonical transaction fence.
   const f = await setup();
@@ -147,6 +163,17 @@ test("a fresh semantic claim completes under a non-UTC database timezone", async
     await f.pg.exec("SET TIME ZONE 'Asia/Tokyo'");
     assert.deepEqual(await processSemanticJob({ sessionId: f.sessionId, cfg: f.cfg }), { processed: 1, extracted: 1, failed: 0, delayed: false });
     assert.deepEqual((await f.pg.query("SELECT status,facts_count,lease_token FROM memory_jobs WHERE session_id=$1", [f.sessionId])).rows, [{ status: "completed", facts_count: 1, lease_token: null }]);
+  } finally { fetch.mock.restore(); await f.close(); }
+});
+
+test("a semantic job enqueued under a non-UTC timezone is immediately claimable", async () => {
+  const f = await setup();
+  const fetch = mock.method(globalThis, "fetch", async () => response(JSON.stringify({ facts: [fact] })));
+  try {
+    await f.pg.exec("SET TIME ZONE 'Asia/Tokyo'");
+    await f.enqueue();
+    assert.deepEqual(await processSemanticJob({ sessionId: f.sessionId, cfg: f.cfg }), { processed: 1, extracted: 1, failed: 0, delayed: false });
+    assert.deepEqual((await f.pg.query("SELECT status,facts_count FROM memory_jobs WHERE session_id=$1", [f.sessionId])).rows, [{ status: "completed", facts_count: 1 }]);
   } finally { fetch.mock.restore(); await f.close(); }
 });
 

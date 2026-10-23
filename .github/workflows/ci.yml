@@ -2,22 +2,22 @@ name: Chronicle verification
 on:
   push:
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: chronicle-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+# Only correctness, migrations and the production build feed the stable verify check.
+# Browser/performance/documentation checks run independently in ui-checks.yml.
 jobs:
-  map-dialog-browsers:
+  static:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [chromium, firefox, webkit]
+    timeout-minutes: 8
     env:
       CHRONICLE_AUTO_MIGRATE: "0"
       NEXT_TELEMETRY_DISABLED: "1"
+      TZ: UTC
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,25 +25,33 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Prefer official HTTPS Ubuntu package mirrors
-        # Azure's archive can throttle downloads without triggering apt failover.
-        run: sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
-      - name: Map labels, keyboard navigation and modal lifecycle
-        run: |
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/world-map-dense-a11y-browser.ts --browser=${{ matrix.browser }} --final
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/world-map-keyboard-p2-browser.ts --browser=${{ matrix.browser }} --final
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/dialog-inert-a11y-browser.ts --browser=${{ matrix.browser }} --final
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: map-dialog-${{ matrix.browser }}
-          path: |
-            output/playwright/map-cross-browser/${{ matrix.browser }}
-            output/p2-map-cross-browser/${{ matrix.browser }}-*
-  verify:
+      - run: npx next typegen
+      - run: npm run typecheck
+      - run: npm run lint
+  unit-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      CHRONICLE_AUTO_MIGRATE: "0"
+      NEXT_TELEMETRY_DISABLED: "1"
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # Separate runners shard files; each runner still executes one PGlite test file at a time.
+      - name: Unit and PGlite regressions (${{ matrix.shard }}/4)
+        run: node --import tsx --import ./tests/helpers/test-environment.ts --test --test-concurrency=1 --test-shard=${{ matrix.shard }}/4 tests/*.test.ts
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -72,10 +80,10 @@ jobs:
           --health-cmd "pg_isready -U chronicle_test -d chronicle_auth_test"
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/chronicle_ci
       CHRONICLE_AUTO_MIGRATE: "0"
       NEXT_TELEMETRY_DISABLED: "1"
       TZ: UTC
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/chronicle_ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,10 +91,6 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npx next typegen
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm test
       - name: Isolated PostgreSQL account claims and ownership fencing
         env:
           CHRONICLE_RUN_AUTH_POSTGRES: "1"
@@ -121,66 +125,40 @@ jobs:
           CHRONICLE_RUN_TURN_RECOVERY_POSTGRES: "1"
           PGPASSWORD: fixture-only
         run: node --import tsx --import ./tests/helpers/test-environment.ts --test --test-concurrency=1 tests/integration/memory-postgres.integration.ts tests/integration/queue-postgres.integration.ts tests/integration/performance-postgres.integration.ts tests/integration/visual-postgres.integration.ts tests/integration/turn-recovery-postgres.integration.ts
-      - run: npm run check:docs
       - name: Fresh schema and replay
         run: |
           npm run migrate
           npm run migrate
-      - run: npm run build
-      - name: Prefer official HTTPS Ubuntu package mirrors
-        # Keep the runner's archive.ubuntu.com and security.ubuntu.com fallbacks.
-        run: sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
-      - run: npx playwright install --with-deps chromium
-      - name: Isolated workspace and settings latency regressions
-        run: |
-          node --import tsx scripts/workspace-latency-browser.ts
-          node --import tsx scripts/settings-latency-browser.ts
-          node --import tsx scripts/settings-draft-p2-browser.ts
-          node --import tsx scripts/pollinations-settings-browser.ts
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/provider-selection-browser.ts
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/notification-feedback-browser.ts
-      - name: Actual handler browser retry and two-build service worker rollout
-        env:
-          CHRONICLE_RUN_BROWSER_RETRY_POSTGRES: "1"
-          PGPASSWORD: fixture-only
-        run: |
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/browser-retry-p1.ts
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/app-updates-browser.ts
-      - name: Isolated image retry and update guards in production React
-        run: |
-          npm run verify:visual-gallery-ui
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/app-update-guards-browser.ts
-      - name: Isolated browser lifecycle, client ordering and modal checks
-        env:
-          CHRONICLE_UI_ISOLATED: "1"
-          SMOKE_BASE_URL: http://127.0.0.1:3130
-          CHRONICLE_PUBLIC_ORIGIN: http://127.0.0.1:3130
-        run: |
-          node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3130 > /tmp/chronicle-web.log 2>&1 &
-          web_pid=$!
-          trap 'kill "$web_pid" || true' EXIT
-          node --input-type=module -e 'for(let i=0;i<30;i++){try{if((await fetch("http://127.0.0.1:3130/api/health")).ok)process.exit(0)}catch{}await new Promise(r=>setTimeout(r,1000))}process.exit(1)'
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/ui-audit.ts --self-test
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/client-state-browser.ts
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/turn-request-lifecycle-browser.ts
-          node --import tsx --import ./tests/helpers/test-environment.ts scripts/client-audit-browser.ts
-          npm run verify:revisions-ui
-      - uses: actions/upload-artifact@v4
-        if: always()
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CHRONICLE_AUTO_MIGRATE: "0"
+      NEXT_TELEMETRY_DISABLED: "1"
+      TZ: UTC
+      DATABASE_URL: postgresql://test:test@127.0.0.1:1/chronicle_build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          name: browser-evidence
-          path: |
-            output/playwright/revisions
-            output/playwright/visual-gallery
-            output/playwright/app-update-guards
-            output/playwright/workspace-latency
-            output/playwright/settings-latency
-            output/playwright/settings-draft-p2
-            output/playwright/pollinations-settings
-            output/playwright/provider-selection
-            output/playwright/notification-feedback
-            output/playwright/client-state
-            output/playwright/turn-request-lifecycle
-            output/playwright/client-audit
-            output/p1-continuation/pwa
-            output/p1-continuation/browser-retry
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+  verify:
+    if: ${{ always() }}
+    needs: [static, unit-tests, postgres, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      STATIC_RESULT: ${{ needs.static.result }}
+      UNIT_RESULT: ${{ needs.unit-tests.result }}
+      POSTGRES_RESULT: ${{ needs.postgres.result }}
+      BUILD_RESULT: ${{ needs.build.result }}
+    steps:
+      - name: Require every core check to succeed
+        run: |
+          if [[ "$STATIC_RESULT" != success || "$UNIT_RESULT" != success || "$POSTGRES_RESULT" != success || "$BUILD_RESULT" != success ]]; then
+            printf 'Core verification failed: static=%s unit=%s postgres=%s build=%s\n' "$STATIC_RESULT" "$UNIT_RESULT" "$POSTGRES_RESULT" "$BUILD_RESULT"
+            exit 1
+          fi

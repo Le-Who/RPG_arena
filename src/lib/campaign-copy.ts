@@ -60,7 +60,7 @@ async function insertCampaignSnapshot(tx: DbTransaction, copy: CheckpointSnapsho
   for (const rows of chunk(copy.links)) await tx.insert(memoryLinks).values(rows);
   const [settings] = await tx.select({ dims: aiSettings.embeddingDims }).from(aiSettings).where(eq(aiSettings.id, ownerId));
   const dims = settings?.dims ?? DEFAULT_EMBEDDING_DIMS;
-  for (const rows of chunk(copy.memories.map(row => ({ memoryNodeId: row.id, sessionId: session.id, model: EMBEDDING_MODEL, dims, contentHash: hashContent(EMBEDDING_MODEL, String(dims), formatDocument(row.title, row.content)), status: "pending" as const })))) await tx.insert(memoryEmbeddings).values(rows);
+  for (const rows of chunk(copy.memories.map(row => ({ memoryNodeId: row.id, sessionId: session.id, model: EMBEDDING_MODEL, dims, contentHash: hashContent(EMBEDDING_MODEL, String(dims), formatDocument(row.title, row.content)), status: "pending" as const, nextAttemptAt: new Date() })))) await tx.insert(memoryEmbeddings).values(rows);
   return session;
 }
 
@@ -96,6 +96,7 @@ export async function importCampaign(input: { profileId: string; requestId: stri
   if (!requestKey(input.requestId)) throw new HttpError(400, "INVALID_INPUT", "Для импорта нужен requestId.");
   const document = parsePortableDocument(input.document);
   const title = input.title === undefined ? document.title : requiredText(input.title, "Название кампании");
+  if (title.includes("\u0000") || !title.isWellFormed()) throw new HttpError(400, "INVALID_INPUT", "Название кампании содержит недопустимые символы.");
   const inputHash = portableFingerprint(document, title);
   return db.transaction(async tx => {
     // Admit one import per profile without holding pool connections behind another import.

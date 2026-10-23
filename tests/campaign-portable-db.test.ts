@@ -176,6 +176,63 @@ test("portable HTTP export is owner-only and import remaps structured data witho
   } finally { await fixture.close(); }
 });
 
+test("portable HTTP import rejects strings PostgreSQL cannot store before inserting campaign data", async t => {
+  const fixture = await portableDb();
+  try {
+    const { auth } = await import("../src/lib/auth");
+    const { POST } = await import("../src/app/api/sessions/import/route");
+    const { createPortableDocument } = await import("../src/lib/campaign-portable");
+    const { snapshotChecksum } = await import("../src/lib/checkpoint-snapshot");
+    const account = await auth.register(newGuestToken(), "portable-unicode", "correct horse battery staple");
+    const cookie = `chronicle_guest=${account.guestToken}; chronicle_session=${account.sessionToken}`;
+    for (const [name, mutate] of [
+      ["NUL in JSONB text", (document: ReturnType<typeof createPortableDocument>) => { document.snapshot.session.character.backstory = "До\u0000после"; }],
+      ["NUL in a JSONB key", (document: ReturnType<typeof createPortableDocument>) => { document.snapshot.session.worldState.flags["флаг\u0000"] = true; }],
+      ["unpaired high surrogate", (document: ReturnType<typeof createPortableDocument>) => { document.snapshot.session.character.backstory = "До\ud800после"; }],
+      ["unpaired low surrogate in a JSONB key", (document: ReturnType<typeof createPortableDocument>) => { document.snapshot.session.worldState.flags["флаг\udc00"] = true; }],
+    ] as const) await t.test(name, async () => {
+      const document = createPortableDocument(portableFixture());
+      mutate(document);
+      document.checksum = snapshotChecksum(document.snapshot);
+      const response = await cookieContext(cookie, () => POST(new Request("https://game.test/api/sessions/import", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requestId: "unicode-import", document }),
+      })));
+      assert.equal(response.status, 400);
+      assert.equal((await response.json()).code, "INVALID_DOCUMENT");
+      for (const table of ["game_sessions", "campaign_imports", "owner_activity"]) {
+        assert.equal(Number((await fixture.pg.query<{ n: number }>(`SELECT count(*)::int n FROM ${table}`)).rows[0].n), 0);
+      }
+    });
+    await t.test("invalid override title", async () => {
+      for (const title of ["До\u0000после", "До\ud800после", "До\udc00после"]) {
+        const document = createPortableDocument(portableFixture());
+        const response = await cookieContext(cookie, () => POST(new Request("https://game.test/api/sessions/import", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ requestId: "unicode-title", document, title }),
+        })));
+        assert.equal(response.status, 400);
+        assert.equal((await response.json()).code, "INVALID_INPUT");
+      }
+      for (const table of ["game_sessions", "campaign_imports", "owner_activity"]) {
+        assert.equal(Number((await fixture.pg.query<{ n: number }>(`SELECT count(*)::int n FROM ${table}`)).rows[0].n), 0);
+      }
+    });
+    const document = createPortableDocument(portableFixture());
+    document.snapshot.session.character.backstory = "Встреча у кафе ☕ и прогулка 🌊";
+    document.snapshot.session.worldState.flags["символ🌊"] = "доверие";
+    document.checksum = snapshotChecksum(document.snapshot);
+    const response = await cookieContext(cookie, () => POST(new Request("https://game.test/api/sessions/import", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "unicode-import", document }),
+    })));
+    assert.equal(response.status, 201);
+    const { session } = await response.json();
+    assert.equal(session.character.backstory, "Встреча у кафе ☕ и прогулка 🌊");
+    assert.equal(session.worldState.flags["символ🌊"], "доверие");
+  } finally { await fixture.close(); }
+});
+
 test("portable failed import leaves neither target nor ledger", async () => {
   const fixture = await portableDb();
   try {

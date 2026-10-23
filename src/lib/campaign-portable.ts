@@ -51,13 +51,18 @@ function preflight(value: unknown): void {
   while (stack.length) {
     const { value: current, depth } = stack.pop()!;
     if (++nodes > 100_000 || depth > 20) invalid("document");
-    if (typeof current === "string") bytes += Buffer.byteLength(current, "utf8");
+    if (typeof current === "string") {
+      // JSON permits escaped NUL and lone UTF-16 surrogates; PostgreSQL text/JSONB do not.
+      if (current.includes("\u0000") || !current.isWellFormed()) invalid("document");
+      bytes += Buffer.byteLength(current, "utf8");
+    }
     else if (typeof current === "number" && !Number.isFinite(current)) invalid("document");
     else if (current && typeof current === "object") {
       if (seen.has(current)) invalid("document");
       seen.add(current);
       if (Object.keys(current).length > 3000) invalid("document");
       for (const [key, child] of Object.entries(current)) {
+        if (key.includes("\u0000") || !key.isWellFormed()) invalid("document");
         bytes += Buffer.byteLength(key, "utf8") + 8;
         stack.push({ value: child, depth: depth + 1 });
       }

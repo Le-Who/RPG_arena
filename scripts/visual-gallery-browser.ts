@@ -2,6 +2,7 @@
 import { chromium, expect } from "@playwright/test";
 import { build } from "esbuild";
 import { createServer } from "node:http";
+import { launchFixtureBrowser } from "./lib/launch-fixture-browser";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 async function main() {
@@ -24,7 +25,7 @@ async function main() {
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l1sAAAAASUVORK5CYII=", "base64");
-  const browser = await chromium.launch();
+  const browser = await launchFixtureBrowser(server, () => chromium.launch());
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
     const errors: string[] = [];

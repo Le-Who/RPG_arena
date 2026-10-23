@@ -17,7 +17,7 @@ import { sessionOwnerId } from "./campaign-access";
 export const MEMORY_JOB_LEASE_MS = 60_000;
 export function retryDelayMs(attempt: number): number { return Math.min(300_000, 5000 * 2 ** Math.max(0, Math.min(attempt, 6))); }
 export async function enqueueSemanticJob(tx: DbTransaction, input: { sessionId: string; turnNumber: number; payload: MemoryJobPayload }) {
-  await tx.insert(memoryJobs).values({ sessionId: input.sessionId, turnNumber: input.turnNumber, kind: "semantic", payload: input.payload }).onConflictDoNothing({ target: [memoryJobs.sessionId, memoryJobs.turnNumber, memoryJobs.kind] });
+  await tx.insert(memoryJobs).values({ sessionId: input.sessionId, turnNumber: input.turnNumber, kind: "semantic", payload: input.payload, nextAttemptAt: new Date() }).onConflictDoNothing({ target: [memoryJobs.sessionId, memoryJobs.turnNumber, memoryJobs.kind] });
 }
 export async function processSemanticJob(opts: { sessionId?: string; cfg?: AIConfig } = {}): Promise<{ processed: number; extracted: number; failed: number; delayed: boolean }> {
   if (!opts.sessionId) throw new Error("A campaign is required for scoped memory processing");

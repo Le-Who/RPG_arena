@@ -125,6 +125,20 @@ test("resolution batch: a scene object can return to its initial state within on
   assert.match(canonical[0].content, /состояние: закрыта/);
 });
 
+test("a referenced scene object keeps its actual location in canonical memory after the hero moves", () => {
+  const value = input(JSON.stringify({ stateChanges: {
+    location: { action: "move", ref: "archive", name: "Архив" },
+    sceneObjects: [{ ref: "door", state: "заперта" }],
+  } }));
+  value.locations.push({ id: "archive", name: "Архив", x: 7, y: 5, current: false, discovered: true, danger: 0 });
+  const result = checkedApply(value);
+  assert.equal(result.world.currentLocation, "Архив");
+  assert.deepEqual(result.ops.filter(op => op.t === "scene.update"), [{ t: "scene.update", id: "s1", patch: { state: "заперта", description: undefined } }]);
+  const canonical = selectStateEvents(result.events).find(event => event.entityKey === "object:door");
+  assert.equal(canonical?.title, "Объект: Дверь (Площадь)");
+  assert.equal(canonical?.content, "Дверь в «Площадь» — состояние: заперта.  (ход 7)");
+});
+
 // Inserts use ON CONFLICT DO NOTHING: announcing a second same-key row would invent state.
 test("resolution batch: duplicate new entity keys report only the row that can be persisted", () => {
   const result = checkedApply(input(JSON.stringify({ stateChanges: {

@@ -1,0 +1,208 @@
+name: Chronicle supplementary checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+# These checks remain automatic and fail visibly, but are not dependencies of verify.
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check:docs
+  map-dialog-browsers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    env:
+      CHRONICLE_AUTO_MIGRATE: "0"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Prefer official HTTPS Ubuntu package mirrors
+        # Azure's archive can throttle downloads without triggering apt failover.
+        run: sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Map labels, keyboard navigation and modal lifecycle
+        run: |
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/world-map-dense-a11y-browser.ts --browser=${{ matrix.browser }} --final
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/world-map-keyboard-p2-browser.ts --browser=${{ matrix.browser }} --final
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/dialog-inert-a11y-browser.ts --browser=${{ matrix.browser }} --final
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: map-dialog-${{ matrix.browser }}
+          path: |
+            output/playwright/map-cross-browser/${{ matrix.browser }}
+            output/p2-map-cross-browser/${{ matrix.browser }}-*
+  chromium-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CHRONICLE_AUTO_MIGRATE: "0"
+      NEXT_TELEMETRY_DISABLED: "1"
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Prefer official HTTPS Ubuntu package mirrors
+        # Azure's archive can throttle downloads without triggering apt failover.
+        run: sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
+      - run: npx playwright install --with-deps chromium
+      - name: Isolated workspace and settings latency regressions
+        run: |
+          node --import tsx scripts/workspace-latency-browser.ts
+          node --import tsx scripts/settings-latency-browser.ts
+          node --import tsx scripts/settings-draft-p2-browser.ts
+          node --import tsx scripts/pollinations-settings-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/provider-selection-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/notification-feedback-browser.ts
+      - name: Isolated image retry and update guards in production React
+        run: |
+          npm run verify:visual-gallery-ui
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/app-update-guards-browser.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chromium-fixtures-evidence
+          path: |
+            output/playwright/workspace-latency
+            output/playwright/settings-latency
+            output/playwright/settings-draft-p2
+            output/playwright/pollinations-settings
+            output/playwright/provider-selection
+            output/playwright/notification-feedback
+            output/playwright/visual-gallery
+            output/playwright/app-update-guards
+  browser-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      import-postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: chronicle_test
+          POSTGRES_PASSWORD: fixture-only
+          POSTGRES_DB: chronicle_auth_test
+          TZ: UTC
+          PGTZ: UTC
+        ports:
+          - 55439:5432
+        options: >-
+          --health-cmd "pg_isready -U chronicle_test -d chronicle_auth_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      CHRONICLE_AUTO_MIGRATE: "0"
+      NEXT_TELEMETRY_DISABLED: "1"
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Prefer official HTTPS Ubuntu package mirrors
+        # Azure's archive can throttle downloads without triggering apt failover.
+        run: sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
+      - run: npx playwright install --with-deps chromium
+      - name: Actual handler browser retry and two-build service worker rollout
+        env:
+          CHRONICLE_RUN_BROWSER_RETRY_POSTGRES: "1"
+          PGPASSWORD: fixture-only
+        run: |
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/browser-retry-p1.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/app-updates-browser.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-recovery-evidence
+          path: |
+            output/p1-continuation/pwa
+            output/p1-continuation/browser-retry
+  browser-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chronicle_ci
+          TZ: UTC
+          PGTZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chronicle_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      CHRONICLE_AUTO_MIGRATE: "0"
+      NEXT_TELEMETRY_DISABLED: "1"
+      TZ: UTC
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/chronicle_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Fresh schema and replay
+        run: |
+          npm run migrate
+          npm run migrate
+      - run: npm run build
+      - name: Prefer official HTTPS Ubuntu package mirrors
+        # Azure's archive can throttle downloads without triggering apt failover.
+        run: sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
+      - run: npx playwright install --with-deps chromium
+      - name: Isolated browser lifecycle, client ordering and modal checks
+        env:
+          CHRONICLE_UI_ISOLATED: "1"
+          SMOKE_BASE_URL: http://127.0.0.1:3130
+          CHRONICLE_PUBLIC_ORIGIN: http://127.0.0.1:3130
+        run: |
+          node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3130 > /tmp/chronicle-web.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$web_pid" || true' EXIT
+          node --input-type=module -e 'for(let i=0;i<30;i++){try{if((await fetch("http://127.0.0.1:3130/api/health")).ok)process.exit(0)}catch{}await new Promise(r=>setTimeout(r,1000))}process.exit(1)'
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/ui-audit.ts --self-test
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/client-state-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/turn-request-lifecycle-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/client-audit-browser.ts
+          npm run verify:revisions-ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-lifecycle-evidence
+          path: |
+            output/playwright/revisions
+            output/playwright/client-state
+            output/playwright/turn-request-lifecycle
+            output/playwright/client-audit
+            /tmp/chronicle-web.log

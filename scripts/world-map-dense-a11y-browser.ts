@@ -4,6 +4,7 @@
 import { chromium, firefox, webkit, expect, type Locator, type Page } from "@playwright/test";
 import { build } from "esbuild";
 import { createServer } from "node:http";
+import { launchFixtureBrowser } from "./lib/launch-fixture-browser";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -341,7 +342,7 @@ async function main() {
   const server = createServer((req, res) => { res.setHeader("Content-Type", req.url === "/fixture.js" ? "text/javascript" : req.url === "/fixture.css" ? "text/css" : "text/html"); res.end(req.url === "/fixture.js" ? bundle.outputFiles[0].text : req.url === "/fixture.css" ? css : html); });
   await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  const results: Result[] = [], browser = await ({ chromium, firefox, webkit }[engine]).launch();
+  const results: Result[] = [], browser = await launchFixtureBrowser(server, () => ({ chromium, firefox, webkit }[engine]).launch());
   const browserVersion = browser.version();
   try {
     for (const testCase of cases) {

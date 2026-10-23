@@ -88,7 +88,7 @@ export async function forkCheckpoint(input: { sessionId: string; checkpointId: s
     for (const rows of chunk(copy.links)) await tx.insert(memoryLinks).values(rows);
     const [settings] = await tx.select({ dims: aiSettings.embeddingDims }).from(aiSettings).where(eq(aiSettings.id, source.ownerId ?? "unowned"));
     const dims = settings?.dims ?? DEFAULT_EMBEDDING_DIMS;
-    for (const rows of chunk(copy.memories.map((r) => ({ memoryNodeId: r.id, sessionId: branchId, model: EMBEDDING_MODEL, dims, contentHash: hashContent(EMBEDDING_MODEL, String(dims), formatDocument(r.title, r.content)), status: "pending" as const })))) await tx.insert(memoryEmbeddings).values(rows);
+    for (const rows of chunk(copy.memories.map((r) => ({ memoryNodeId: r.id, sessionId: branchId, model: EMBEDDING_MODEL, dims, contentHash: hashContent(EMBEDDING_MODEL, String(dims), formatDocument(r.title, r.content)), status: "pending" as const, nextAttemptAt: new Date() })))) await tx.insert(memoryEmbeddings).values(rows);
     await tx.insert(checkpointForks).values({ checkpointId: checkpoint.id, branchId, requestId: input.requestId, inputHash });
     return { session, replay: false };
   });

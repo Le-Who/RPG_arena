@@ -2,6 +2,7 @@
 import { chromium, expect, type Page } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, request } from "node:http";
+import { launchFixtureBrowser } from "./lib/launch-fixture-browser";
 import { createWriteStream, readdirSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { installUiMock, mockSessionId, mockSnapshot } from "./ui-mock";
@@ -67,7 +68,7 @@ async function main() {
   await new Promise<void>(resolve => proxy.listen(0, "127.0.0.1", resolve));
   const address = proxy.address(); if (!address || typeof address === "string") throw Error("Missing proxy address");
   const base = `http://127.0.0.1:${address.port}`;
-  const browser = await chromium.launch();
+  const browser = await launchFixtureBrowser(proxy, () => chromium.launch());
   try {
     await build("update-fixture-a"); await start("update-fixture-a");
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: "reduce" });

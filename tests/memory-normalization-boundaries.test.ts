@@ -30,3 +30,34 @@ test("memory extraction defaults object-valued importance while preserving evide
     ["npc:anna", 65, "Анна работает в городском архиве"],
   ]);
 });
+
+test("state-owned resource facts cannot enter semantic memory under another fact type", () => {
+  // Catches trusting the model's type label to bypass the resource/state boundary.
+  const resource = "Герой получил 500 XP.";
+  for (const type of ["npc", "world", "character", "relationship", "promise", "secret", "event"]) {
+    const facts = normalizeExtractedFacts({ facts: [
+      {
+        ...fact, type, entityKey: `${type}:experience`, content: resource, evidence: resource,
+      },
+      fact,
+    ] }, `${resource} ${narration}`, "Осматриваюсь");
+    assert.deepEqual(facts, [fact], type);
+  }
+});
+
+test("semantic character facts retain everyday experience without a numeric resource change", () => {
+  const content = "Мария получила опыт ухода за детьми.";
+  const characterFact = { ...fact, type: "character", entityKey: "character:care", content, evidence: content };
+  assert.deepEqual(normalizeExtractedFacts({ facts: [characterFact] }, content, "Обсуждаю её работу"), [characterFact]);
+});
+
+for (const [type, content] of [
+  ["character", "Мария подобрала слова, чтобы поддержать Анну."],
+  ["npc", "Анна прибыла в город десять лет назад."],
+  ["relationship", "Банк потерял кредит доверия Анны."],
+  ["character", "Мария получила кредит на лечение и должна банку."],
+  ["character", "Мария получила опыт за годы работы с детьми."],
+] as const) test(`semantic ${type} facts preserve descriptive and biographical facts: ${content}`, () => {
+  const descriptiveFact = { ...fact, type, content, evidence: content };
+  assert.deepEqual(normalizeExtractedFacts({ facts: [descriptiveFact] }, content, "Расспрашиваю о её жизни"), [descriptiveFact]);
+});

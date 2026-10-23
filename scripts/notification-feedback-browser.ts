@@ -2,6 +2,7 @@
 import { chromium, expect } from "@playwright/test";
 import { build } from "esbuild";
 import { createServer } from "node:http";
+import { launchFixtureBrowser } from "./lib/launch-fixture-browser";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { settings } from "./ui-mock";
 declare global {
@@ -36,7 +37,7 @@ async function main() {
   const server=createServer((req,res)=>{res.setHeader("Content-Type",req.url==="/app.js"?"text/javascript":req.url==="/style.css"?"text/css":"text/html");res.end(req.url==="/app.js"?bundle.outputFiles[0].text:req.url==="/style.css"?css:html)});
   await new Promise<void>(r=>server.listen(0,"127.0.0.1",r));
   const base=`http://127.0.0.1:${(server.address() as {port:number}).port}`;
-  const browser=await chromium.launch(), checks:string[]=[], errors:string[]=[];
+  const browser=await launchFixtureBrowser(server, () => chromium.launch()), checks:string[]=[], errors:string[]=[];
   try {
     for(const width of [1280,390,320]){
       const page=await browser.newPage({viewport:{width,height:900},reducedMotion:"reduce"});

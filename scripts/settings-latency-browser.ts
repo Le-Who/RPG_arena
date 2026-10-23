@@ -2,6 +2,7 @@
 import { chromium, expect, type Page } from "@playwright/test";
 import { build } from "esbuild";
 import { createServer } from "node:http";
+import { launchFixtureBrowser } from "./lib/launch-fixture-browser";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Settings } from "../src/lib/ui-data";
@@ -53,7 +54,7 @@ async function main() {
   const server = createServer((req, res) => { res.setHeader("Content-Type", req.url === "/fixture.js" ? "text/javascript" : req.url === "/fixture.css" ? "text/css" : "text/html"); res.end(req.url === "/fixture.js" ? bundle.outputFiles[0].text : req.url === "/fixture.css" ? css : html); });
   await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  const browser = await chromium.launch(); const checks: string[] = [], errors: string[] = []; let active: Page | undefined;
+  const browser = await launchFixtureBrowser(server, () => chromium.launch()); const checks: string[] = [], errors: string[] = []; let active: Page | undefined;
   try {
     for (const viewport of [{ name: "desktop", width: 1280, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
       const page = await browser.newPage({ viewport }); active = page; page.on("pageerror", e => errors.push(e.message));

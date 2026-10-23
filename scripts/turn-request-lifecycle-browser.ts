@@ -2,6 +2,7 @@
 import { chromium, expect } from "@playwright/test";
 import { build } from "esbuild";
 import { createServer } from "node:http";
+import { launchFixtureBrowser } from "./lib/launch-fixture-browser";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { mockSnapshot } from "./ui-mock";
@@ -38,7 +39,7 @@ async function main() {
     res.end(req.url === "/fixture.js" ? bundle.outputFiles[0].text : '<!doctype html><html lang="ru"><meta name="viewport" content="width=device-width,initial-scale=1"><body><main id="root"></main><script src="/fixture.js"></script></body></html>');
   });
   await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
-  const browser = await chromium.launch();
+  const browser = await launchFixtureBrowser(server, () => chromium.launch());
   const reports: unknown[] = [];
   try {
     for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {

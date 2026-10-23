@@ -2,6 +2,7 @@
 import { chromium, expect } from '@playwright/test';
 import { build } from 'esbuild';
 import { createServer } from 'node:http';
+import { launchFixtureBrowser } from './lib/launch-fixture-browser';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 async function main() {
@@ -14,7 +15,7 @@ const css = (await Promise.all(['globals','pages','preferences','dialogs'].map(n
 const server = createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/fixture.js'?'text/javascript':req.url==='/fixture.css'?'text/css':'text/html');res.end(req.url==='/fixture.js'?bundle.outputFiles[0].text:req.url==='/fixture.css'?css:'<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><body><main id="root" style="max-width:1200px;margin:auto;padding:12px"></main><script src="/fixture.js"></script></body></html>');});
 await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));
 const base = `http://127.0.0.1:${(server.address() as {port:number}).port}`;
-const browser = await chromium.launch();
+const browser = await launchFixtureBrowser(server, () => chromium.launch());
 const checks:string[] = [], errors:string[] = [];
 try {
   for (const width of [1280,390,320]) {

@@ -908,8 +908,8 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         events.push({
           layer: "semantic",
           category: "world",
-          title: `Объект: ${existing.name} (${world.currentLocation})`,
-          content: `${existing.name} в «${world.currentLocation}» — состояние: ${o.state}. ${o.note || ""} (ход ${turnNumber})`,
+          title: `Объект: ${existing.name} (${existing.locationName})`,
+          content: `${existing.name} в «${existing.locationName}» — состояние: ${o.state}. ${o.note || ""} (ход ${turnNumber})`,
           importance: 55,
           entityKey: `object:${existing.key}`,
           mode: "upsert",
