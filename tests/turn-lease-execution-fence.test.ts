@@ -37,7 +37,14 @@ test("turn authority checks expiry when queued SQL executes, preserving atomic r
           const timestamps = (config.values ?? []).filter((value): value is string => typeof value === "string" && /^\d{4}-\d\d-\d\dT/.test(value));
           const constructedAt = timestamps.at(-1) ?? new Date().toISOString();
           await fixture.pg.query("UPDATE turn_requests SET lease_expires_at=$2::timestamp + interval '1 microsecond' WHERE id=$1", [lease.id, constructedAt]);
-          const [{ expired }] = (await fixture.pg.query<{ expired: boolean }>("SELECT lease_expires_at < clock_timestamp() AS expired FROM turn_requests WHERE id=$1", [lease.id])).rows;
+          // PGlite can execute both statements within one clock tick. Wait for
+          // the actual SQL precondition, retaining expiry after the legacy bound.
+          let expired = false;
+          const deadline = performance.now() + 2000;
+          do {
+            [{ expired }] = (await fixture.pg.query<{ expired: boolean }>("SELECT lease_expires_at <= (clock_timestamp() AT TIME ZONE 'UTC') AS expired FROM turn_requests WHERE id=$1", [lease.id])).rows;
+            if (!expired) await new Promise<void>(resolve => setImmediate(resolve));
+          } while (!expired && performance.now() < deadline);
           assert.equal(expired, true, "the query gate must establish expiry before authority SQL executes");
         }
         return fixture.run(...args);
