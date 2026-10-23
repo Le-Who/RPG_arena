@@ -447,7 +447,15 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
 
   // ── Обязательства ──
   for (const change of input.life.commitments) {
-    let status = change.status ?? "proposed";
+    const matches = change.ref
+      ? life.commitments.filter((c) => c.id === change.ref)
+      : life.commitments.filter((c) => change.title && normName(c.title) === normName(change.title) && !["fulfilled", "cancelled", "broken"].includes(c.status));
+    if (matches.length > 1 || (change.ref && !matches.length)) {
+      rejected.push(`COMMITMENT: «${change.ref || change.title}» — ${matches.length > 1 ? "неоднозначная договорённость" : "неизвестная ссылка"}`);
+      continue;
+    }
+    const existing = matches[0];
+    let status = change.status ?? existing?.status ?? "proposed";
     let downgraded = false;
     if ((input.intent === "claim" || input.intent === "intend") && (status === "accepted" || status === "fulfilled")) {
       // «Я получил работу» / «хочу договориться» — ещё не принятое обязательство.
@@ -461,7 +469,6 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
       continue;
     }
     const due: WorldClock | null = hasTime && dueMinute === null ? null : change.day != null || dueMinute != null ? { day: change.day ?? life.clock.day, minute: dueMinute ?? 12 * 60 } : null;
-    const existing = change.ref ? life.commitments.find((c) => c.id === change.ref) : life.commitments.find((c) => change.title && normName(c.title) === normName(change.title) && !["fulfilled", "cancelled", "broken"].includes(c.status));
     if (existing) {
       if (["fulfilled", "cancelled", "broken"].includes(existing.status)) { rejected.push(`COMMITMENT: «${existing.title}» уже закрыто`); continue; }
       if (existing.status === "accepted" && downgraded) { continue; }
@@ -482,6 +489,7 @@ export function applyLife(input: ApplyLifeInput): ApplyLifeResult {
       events.push({ layer: "semantic", category: "quest", title: `Договорённость: ${existing.title}`, content: `${COMMITMENT_LABELS[status]}${existing.parties.length ? ` — ${existing.parties.join(", ")}` : ""}${existing.place ? `, место: ${existing.place}` : ""}${existing.due ? `, срок: ${formatClock(existing.due)}` : ""}.`, importance: status === "accepted" ? 70 : 55, entityKey: `commitment:${existing.id}`, mode: "upsert" });
     } else {
       if (!change.title) continue;
+      if (["fulfilled", "cancelled", "broken"].includes(status)) { rejected.push(`COMMITMENT: «${change.title}» — закрытие требует существующей договорённости`); continue; }
       if (life.commitments.filter((c) => c.status === "proposed" || c.status === "accepted").length >= MAX_ACTIVE_COMMITMENTS) { rejected.push("COMMITMENT: слишком много открытых договорённостей"); continue; }
       const created: Commitment = { id: makeId(), title: change.title, parties: change.parties, place: change.place, due, status, createdTurn: input.turnNumber, updatedTurn: input.turnNumber, note: change.note, revision: 1 };
       life.commitments.push(created);

@@ -48,6 +48,8 @@ const MAX_AHEAD = 30 * 24 * 60;
 const UPCOMING_WINDOW = 24 * 60;
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
+// Evidence is matched verbatim against final narration; internal whitespace is data.
+const evidenceQuote = (v: unknown) => typeof v === "string" ? v.trim().slice(0, 180) : "";
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 const numericValue = (v: unknown) => v !== null && typeof v === "object" ? Number.NaN : Number(v);
 const shortId = () => globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2, 10);
@@ -163,11 +165,11 @@ export function parseAgendaChanges(sc: Record<string, unknown>): AgendaChanges {
       note: str(e.note, 240),
       cancel: e.cancel === true,
       complete: e.complete === true,
-      evidence: str(e.evidence, 180),
+      evidence: evidenceQuote(e.evidence),
     })).filter((e) => e.title || e.ref);
   }
   if (Array.isArray(sc.npcGoals)) {
-    out.npcGoals = sc.npcGoals.filter(isRecord).slice(0, 4).map((g) => ({ npc: str(g.npc, 80), goal: str(g.goal, 160), routine: str(g.routine, 160), ...(str(g.evidence, 180) ? { evidence: str(g.evidence, 180) } : {}) })).filter((g) => g.npc && (g.goal || g.routine));
+    out.npcGoals = sc.npcGoals.filter(isRecord).slice(0, 4).map((g) => ({ npc: str(g.npc, 80), goal: str(g.goal, 160), routine: str(g.routine, 160), ...(evidenceQuote(g.evidence) ? { evidence: evidenceQuote(g.evidence) } : {}) })).filter((g) => g.npc && (g.goal || g.routine));
   }
   return out;
 }
@@ -277,7 +279,14 @@ export function applyAgenda(input: ApplyAgendaInput): ApplyAgendaResult {
       else if (npc.status === "dead") { rejected.push(`EVENT: «${change.title}» — ${npc.name} не может прийти`); continue; }
     }
     const duplicate = agenda.events.find((e) => (e.status === "pending" || e.status === "due") && normName(e.title) === normName(change.title) && clockValue(e.at) === clockValue(at!) && e.kind === kind && e.npcKey === (npc?.key ?? ""));
-    if (duplicate) { duplicate.at = at; duplicate.note = change.note || duplicate.note; continue; }
+    if (duplicate) {
+      duplicate.at = at;
+      duplicate.note = change.note || duplicate.note;
+      const quote = change.evidence?.trim() ?? "";
+      if (change.complete && duplicate.status === "due" && quote.length >= 8 && (input.narration ?? "").includes(quote)) recordFired(duplicate);
+      else if (change.complete) rejected.push(`EVENT: «${change.title}» — нет подтверждения события в итоговом рассказе`);
+      continue;
+    }
     if (agenda.events.filter((e) => e.status === "pending" || e.status === "due").length >= MAX_PENDING) { rejected.push(`EVENT: «${change.title}» — слишком много запланированного, сначала пусть что-то произойдёт`); continue; }
     const event: AgendaEvent = { id: makeId(), title: change.title, kind, npcKey: npc?.key ?? "", npcName: npc?.name ?? "", at, note: change.note, status: clockValue(at) <= now ? "due" : "pending", createdTurn: input.turnNumber };
     agenda.events.push(event);

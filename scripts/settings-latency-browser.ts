@@ -38,7 +38,7 @@ async function main() {
   const app = `import React,{createContext,useContext,useState,useCallback} from 'react';
     const Context=createContext(null);export function useApp(){return useContext(Context)};
     export function FixtureApp({children}){const [settings,setSettings]=useState(${JSON.stringify(initial)}),[notices,setNotices]=useState([]);
-    const refresh=useCallback(async()=>{document.body.dataset.refreshes=String(Number(document.body.dataset.refreshes||0)+1);await fetch('/api/auth/me')},[]);
+    const refresh=useCallback(async()=>{document.body.dataset.refreshes=String(Number(document.body.dataset.refreshes||0)+1);await fetch('/api/auth/me');return true},[]);
     const acceptSettings=useCallback((value,profileId)=>{if(profileId==='fixture-owner'){setSettings(value);document.body.dataset.accepted=JSON.stringify(value)}},[]);
     const notify=useCallback(text=>setNotices(old=>[...old,text]),[]);
     return <Context.Provider value={{settings,acceptSettings,refresh,notify,resolveNotification:()=>{},workspace:{id:'fixture-owner',displayName:'Гость',favorites:[],reading:{textScale:'normal',measure:'normal',theme:'midnight',motion:'reduced'}},identity:{kind:'guest',profileId:'fixture-owner'},administration:false,loading:false,updateReading:async()=>{}}}>{children}<aside aria-label='Сообщения'>{notices.map((n,i)=><p key={i}>{n}</p>)}</aside></Context.Provider>}`;

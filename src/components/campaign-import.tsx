@@ -40,7 +40,7 @@ export function CampaignImport() {
       const result = await api<{ session: Session; replay: boolean }>("/api/sessions/import", jsonBody(attempt.current));
       if (!mounted.current) return;
       if (!result?.session || typeof result.session.id !== "string" || !result.session.id) throw new Error("Ответ сервера прервался. Можно безопасно повторить импорт — вторая кампания не появится.");
-      attempt.current = null; setName(""); setOpen(false); await refresh();
+      attempt.current = null; setName(""); setOpen(false); if (!await refresh(identity?.profileId)) return;
       if (!mounted.current) return;
       notify(result.replay ? "Ранее импортированная кампания найдена." : "Кампания импортирована как приватная история.");
       router.push(`/play/${result.session.id}`);

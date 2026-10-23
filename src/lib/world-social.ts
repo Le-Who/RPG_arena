@@ -69,6 +69,8 @@ export const MISS_GRACE_MINUTES = 60;
 //  Утилиты
 // ─────────────────────────────────────────────────────────────
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
+// Evidence is matched verbatim against final narration; internal whitespace is data.
+const evidenceQuote = (v: unknown) => typeof v === "string" ? v.trim().slice(0, 180) : "";
 const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 const numericValue = (v: unknown) => v !== null && typeof v === "object" ? Number.NaN : Number(v);
 const shortId = () => globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2, 10);
@@ -266,12 +268,12 @@ export function parseSocialChanges(sc: Record<string, unknown>): SocialChanges {
       npc: str(s.npc, 80), place: str(s.place, 160), from: str(s.from, 5), to: str(s.to, 5),
       repeat: s.repeat === "once" ? ("once" as const) : ("daily" as const),
       day: s.day !== null && s.day !== "" && Number.isFinite(numericValue(s.day)) && numericValue(s.day) >= 1 ? Math.min(9999, Math.round(numericValue(s.day))) : null,
-      note: str(s.note, 200), remove: s.remove === true, evidence: str(s.evidence, 180),
+      note: str(s.note, 200), remove: s.remove === true, evidence: evidenceQuote(s.evidence),
     })).filter((s) => s.npc && (s.remove || (s.place && s.from && s.to)));
   }
   if (Array.isArray(sc.npcKnowledge)) {
     out.knowledge = sc.npcKnowledge.filter(isRecord).slice(0, 4)
-      .map((k) => ({ npc: str(k.npc, 80), fact: str(k.fact, 200), evidence: str(k.evidence, 180) }))
+      .map((k) => ({ npc: str(k.npc, 80), fact: str(k.fact, 200), evidence: evidenceQuote(k.evidence) }))
       .filter((k) => k.npc && k.fact);
   }
   return out;

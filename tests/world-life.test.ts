@@ -136,6 +136,50 @@ test("an invalid commitment time is rejected instead of silently becoming noon",
   assert.match(result.rejected.join(" "), /время|формат/i);
 });
 
+test("an unknown explicit commitment reference cannot create a replacement or use a matching title", () => {
+  const scheduled = base({ life: life({ commitments: [{ ref: null, title: "Встреча", parties: ["Анна"], place: "Кафе", day: 1, time: "10:00", status: "accepted", note: "" }] }) });
+  const before = structuredClone(scheduled.world);
+  const result = base({ world: scheduled.world, defaultMinutes: 0, life: life({ commitments: [
+    { ref: "unknown", title: "Встреча", parties: [], place: "", day: null, time: "", status: "fulfilled", note: "" },
+  ] }) });
+  assert.deepEqual(result.world, before);
+  assert.deepEqual(result.applied.commitments, []);
+  assert.equal(result.rejected.length, 1);
+});
+
+test("a commitment note update without a status preserves acceptance", () => {
+  const scheduled = base({ life: life({ commitments: [{ ref: null, title: "Встреча", parties: ["Анна"], place: "Кафе", day: 1, time: "10:00", status: "accepted", note: "" }] }) });
+  const result = base({ world: scheduled.world, life: life({ commitments: [
+    { ref: "id1", title: "", parties: [], place: "", day: null, time: "", status: null, note: "Принести книгу" },
+  ] }) });
+  assert.equal(readLife(result.world).commitments[0].status, "accepted");
+  assert.equal(result.applied.commitments[0].status, "accepted");
+  assert.match(readLife(result.world).commitments[0].note, /Принести книгу/);
+});
+
+test("ambiguous commitment titles require an explicit identity", () => {
+  const entry = { id: "c1", title: "Встреча", parties: ["Анна"], place: "Кафе", due: null, status: "accepted" as const, createdTurn: 1, updatedTurn: 1, note: "" };
+  const state = world({ commitments: [entry, { ...entry, id: "c2", parties: ["Борис"] }] });
+  const before = structuredClone(state.commitments);
+  const result = base({ world: state, life: life({ commitments: [
+    { ref: null, title: "Встреча", parties: [], place: "", day: null, time: "", status: "cancelled", note: "" },
+  ] }) });
+  assert.deepEqual(readLife(result.world).commitments, before);
+  assert.deepEqual(result.applied.commitments, []);
+  assert.equal(result.rejected.length, 1);
+});
+
+for (const status of ["fulfilled", "broken", "cancelled"] as const) {
+  test(`a new commitment cannot start ${status} without an existing agreement`, () => {
+    const result = base({ life: life({ commitments: [
+      { ref: null, title: "Встреча", parties: [], place: "", day: null, time: "", status, note: "" },
+    ] }) });
+    assert.deepEqual(readLife(result.world).commitments, []);
+    assert.deepEqual(result.applied.commitments, []);
+    assert.equal(result.rejected.length, 1);
+  });
+}
+
 test("story shape drives chapter boundaries and arc resolution", () => {
   const arc = base({ mainQuestCompleted: true, life: life({ story: { status: null, epilogue: "" } }) });
   assert.equal(readLife(arc.world).story.status, "resolved");

@@ -169,6 +169,22 @@ test("an already planned event can be confirmed in the same turn that crosses it
   assert.equal(readAgenda(crossed.world).events[0].status, "fired");
 });
 
+test("a repeated same-turn proposal can confirm its previously scheduled event without duplicating it", () => {
+  const quote = "Встреча началась у фонтана";
+  const proposal = { ref: null, title: "Встреча", kind: "world" as const, npc: "", inMinutes: 30, day: null, time: "", note: "", cancel: false, evidence: quote };
+  const state = world({ clock: { day: 2, minute: 10 * 60 + 45 } });
+  const before = structuredClone(state);
+  const result = run({ world: state, startClock: { day: 2, minute: 10 * 60 }, narration: `${quote}.`,
+    changes: changes({ events: [proposal, { ...proposal, complete: true }] }) });
+  assert.deepEqual(state, before);
+  const events = readAgenda(result.world).events;
+  assert.equal(events.length, 1);
+  assert.equal(events[0].status, "fired");
+  assert.equal(events[0].firedTurn, 5);
+  assert.deepEqual(result.applied.fired, [{ title: "Встреча", kind: "world" }]);
+  assert.equal(result.events.at(-1)?.title, "Событие: Встреча");
+});
+
 test("same-title events at different times on one day remain separate", () => {
   const first = run({ changes: changes({ events: [{ ref: null, title: "Поезд", kind: "world", npc: "", inMinutes: 60, day: null, time: "", note: "", cancel: false }] }) });
   const second = applyAgenda({ world: first.world, npcs: [anna], changes: changes({ events: [{ ref: null, title: "Поезд", kind: "world", npc: "", inMinutes: 120, day: null, time: "", note: "", cancel: false }] }), intent: "act", turnNumber: 6 });
@@ -188,4 +204,15 @@ test("new agenda facts need a quote in the final narration when committed by a t
   assert.equal(readAgenda(confirmed.world).npcAgendas.length, 1);
   const cancelledWithoutQuote = applyAgenda({ world: confirmed.world, npcs: [anna], changes: changes({ events: [{ ref: "ev1", title: "", kind: "world", npc: "", inMinutes: null, day: null, time: "", note: "", cancel: true, evidence: "Анна отменила встречу" }] }), intent: "act", turnNumber: 6, narration: "Погода прояснилась." });
   assert.equal(readAgenda(cancelledWithoutQuote.world).events[0].status, "pending");
+});
+
+test("agenda quote parsing preserves whitespace from final narration", () => {
+  const quote = "Анна обещала\nприйти  вечером";
+  const result = run({ narration: `${quote}.`, changes: parseAgendaChanges({
+    events: [{ title: "Визит", npc: "anna", kind: "npc", inMinutes: 60, evidence: quote }],
+    npcGoals: [{ npc: "anna", goal: "прийти вечером", evidence: quote }],
+  }) });
+  assert.deepEqual(result.rejected, []);
+  assert.equal(readAgenda(result.world).events.length, 1);
+  assert.equal(readAgenda(result.world).npcAgendas.length, 1);
 });

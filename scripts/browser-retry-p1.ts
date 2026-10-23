@@ -51,7 +51,7 @@ async function main() {
     await pool.query("INSERT INTO game_turns(session_id,turn_number,role,content,choices) VALUES ($1,1,'narrator','Тихое утро в гавани.',$2)", [nativeSession, JSON.stringify(["Осмотреться"])]);
     await pool.query("INSERT INTO ai_settings(id,use_live_ai,embeddings_enabled,semantic_extraction_enabled) VALUES ($1,false,false,false)", [owner]);
 
-    const appStub = `const app={identity:${JSON.stringify(account.identity)},settings:{useLiveAI:false,keysCount:0,envKeysCount:0},sessions:[],workspace:{reading:{motion:"reduced"}},refresh:async()=>{document.body.dataset.refreshed="yes"},notify:message=>{document.body.dataset.notification=message},resolveNotification:()=>{},setPlayCommands:()=>{},loading:false};export function useApp(){return app}`;
+    const appStub = `const app={identity:${JSON.stringify(account.identity)},settings:{useLiveAI:false,keysCount:0,envKeysCount:0},sessions:[],workspace:{reading:{motion:"reduced"}},refresh:async()=>{document.body.dataset.refreshed="yes";return true},notify:message=>{document.body.dataset.notification=message},resolveNotification:()=>{},setPlayCommands:()=>{},loading:false};export function useApp(){return app}`;
     const bundle = await build({ stdin: { contents: `
       import React from "react";import {createRoot} from "react-dom/client";
       import {PlayRoom} from "./src/components/play-room";import {CampaignImport} from "./src/components/campaign-import";

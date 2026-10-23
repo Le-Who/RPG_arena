@@ -123,12 +123,43 @@ export function buildJevRequestBody<Label extends string>(task: JevTask<Label>, 
 
 export type JevTransport = (input: { taskId: string; taskVersion: string; provider: JevProvider; endpoint: string; body: string; apiKey: string; signal: AbortSignal }) => Promise<unknown>;
 
-/** Транспорт по умолчанию: HTTPS без редиректов, HTTP-ошибка — `provider_error`. */
+/** A handful of choice answers must never buffer an unbounded provider response. */
+const MAX_JEV_RESPONSE_BYTES = 200_000;
+
+/** Транспорт по умолчанию: ограниченное тело, отмена чтения и HTTPS без редиректов. */
 export function fetchJevTransport(fetchImpl: typeof fetch = fetch): JevTransport {
   return async ({ endpoint, body, apiKey, signal }) => {
+    signal.throwIfAborted();
     const res = await fetchImpl(endpoint, { method: "POST", redirect: "error", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body, signal });
-    if (!res.ok) { await res.body?.cancel().catch(() => undefined); throw new Error("provider_error"); }
-    return res.json();
+    if (signal.aborted || !res.ok || !res.body || Number(res.headers.get("content-length")) > MAX_JEV_RESPONSE_BYTES) {
+      void res.body?.cancel().catch(() => undefined);
+      signal.throwIfAborted();
+      if (!res.ok) throw new Error("provider_error");
+      throw new JevResponseError();
+    }
+    const reader = res.body.getReader();
+    const cancel = () => { void reader.cancel().catch(() => undefined); };
+    signal.addEventListener("abort", cancel, { once: true });
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    let text = "", size = 0;
+    try {
+      while (true) {
+        signal.throwIfAborted();
+        const part = await reader.read();
+        signal.throwIfAborted();
+        size += part.value?.byteLength ?? 0;
+        if (size > MAX_JEV_RESPONSE_BYTES) throw new JevResponseError();
+        text += part.done ? decoder.decode() : decoder.decode(part.value, { stream: true });
+        if (part.done) return JSON.parse(text) as unknown;
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError || error instanceof TypeError) throw new JevResponseError();
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", cancel);
+      cancel();
+      reader.releaseLock();
+    }
   };
 }
 

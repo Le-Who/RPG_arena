@@ -76,6 +76,42 @@ test("parseResolution: нормализует и клампит JSON", () => {
   assert.equal(r.payload.stateChanges.flags.k, "v");
 });
 
+for (const operation of ["use", "consum", "", null, undefined]) {
+  test(`invalid inventory operation ${String(operation)} never grants an item`, () => {
+    const payload = parseResolution(JSON.stringify({ stateChanges: { inventory: [
+      { op: operation, name: "Аптечка", ref: "#aaaaaa", quantity: 2 },
+      { op: "equip", ref: "#aaaaaa" },
+    ] } })).payload;
+    const result = applyResolution(baseInput({ payload }));
+    assert.deepEqual(result.ops, [{ t: "inv.update", id: "aaaaaaaa-0000-0000-0000-000000000000", patch: { equipped: true } }]);
+    assert.deepEqual(result.applied.inventory.map(item => item.op), ["equip"]);
+    assert.equal(result.events.some(event => event.category === "item"), false);
+  });
+}
+
+test("adding to an existing item by reference keeps its canonical identity in memory", () => {
+  const payload = parseResolution(JSON.stringify({ stateChanges: { inventory: [
+    { op: "add", ref: "#aaaaaa", name: "Секретный ключ", kind: "quest", description: "Открывает сейф", quantity: 1 },
+  ] } })).payload;
+  const result = applyResolution(baseInput({ payload }));
+  assert.deepEqual(result.ops, [{ t: "inv.update", id: "aaaaaaaa-0000-0000-0000-000000000000", patch: { quantity: 2 } }]);
+  assert.equal(result.applied.inventory[0].name, "Аптечка");
+  const event = result.events.find(event => event.category === "item")!;
+  assert.equal(event.entityKey, "item:аптечка");
+  assert.equal(event.title, "Предмет: Аптечка");
+  assert.match(event.content, /Аптечка \(consumable\)/);
+  assert.doesNotMatch(event.content, /Секретный ключ|Открывает сейф/);
+});
+
+for (const status of ["dead", "missing", "unknown"] as const) {
+  test(`new NPC ${status} is recorded with its accepted status in canonical memory`, () => {
+    const payload = parseResolution(JSON.stringify({ stateChanges: { npcs: [{ name: "Марта", status }] } })).payload;
+    const result = applyResolution(baseInput({ payload }));
+    assert.equal(result.ops.find(op => op.t === "npc.insert")?.row.status, status);
+    assert.match(result.events.find(event => event.entityKey === "npc:марта")!.content, new RegExp(`статус: ${status}`));
+  });
+}
+
 test("resolution proposal arrays ignore null and primitive entries without losing valid changes", () => {
   const invalid = [null, 7, false, "not a proposal", []];
   const parsed = parseResolution(JSON.stringify({ stateChanges: {

@@ -17,7 +17,7 @@ function bootstrap(profileId = profileA, displayName = "Первое прост�
   return { ok: true, identity: identity(profileId), sessions: [], settings, workspace: { id: profileId, displayName, favorites: [], reading: { ...DEFAULT_READING, motion: "reduced" } } };
 }
 type Result = { name: string; viewport: string; status: "passed" | "failed"; error?: string; requests: string[]; browserErrors: string[] };
-type FixtureWindow = Window & { workspaceFixture: { applyIdentityChange: (identity: IdentityView) => Promise<void>; acceptSettings: (value: typeof settings, profileId: string) => void } };
+type FixtureWindow = Window & { originRefresh?: Promise<boolean>; newerRefresh?: Promise<boolean>; workspaceFixture: { refresh: (expectedProfileId?: string) => Promise<boolean>; applyIdentityChange: (identity: IdentityView) => Promise<void>; acceptSettings: (value: typeof settings, profileId: string) => void } };
 
 async function keyboardActivate(page: Page, name: string) {
   await page.getByRole("button", { name, exact: true }).first().focus();
@@ -33,7 +33,8 @@ async function main() {
     import {createRoot} from "react-dom/client";
     import {AppShell,useApp} from "./src/components/app-shell";
     import {Overview} from "./src/components/overview";
-    function Fixture(){const app=useApp();useEffect(()=>{window.workspaceFixture=app;},[app]);return <><Overview/><output hidden data-testid="workspace-fixture-state">{JSON.stringify({profileId:app.identity?.profileId??null,displayName:app.workspace.displayName,loading:app.loading,model:app.settings?.narrationModel??null})}</output></>;}
+    import {CampaignCopyButton} from "./src/components/campaign-copy-button";
+    function Fixture(){const app=useApp();useEffect(()=>{window.workspaceFixture=app;},[app]);return <><Overview/><CampaignCopyButton sessionId="public-fixture"/><output hidden data-testid="workspace-fixture-state">{JSON.stringify({profileId:app.identity?.profileId??null,displayName:app.workspace.displayName,loading:app.loading,model:app.settings?.narrationModel??null})}</output></>;}
     createRoot(document.getElementById("root")).render(<AppShell><Fixture/></AppShell>);
   `, resolveDir: process.cwd(), loader: "tsx" }, bundle: true, write: false, outdir: "fixture", platform: "browser", jsx: "automatic", tsconfig: "tsconfig.json", define: { "process.env.NODE_ENV": '"production"' }, plugins: [{ name: "isolated-environment", setup(builder) {
     builder.onResolve({ filter: /^(next\/link|next\/image|next\/navigation|\.\/settings-overlay|\.\/command-palette|\.\/pwa|\.\/app-update)$/ }, args => ({ path: args.path, namespace: "fixture-environment" }));
@@ -59,12 +60,13 @@ async function main() {
   const results: Result[] = [];
   try {
     for (const viewport of [{ name: "desktop", width: 1280, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
-      for (const name of ["pending-draft", "focus-identity-race", "settings-save-race", "profile-change-after-save", "revoked-session", "error-retry"]) {
+      for (const name of ["pending-draft", "focus-identity-race", "settings-save-race", "profile-change-after-save", "revoked-session", "error-retry", "refresh-origin-fence", "initial-create-same-owner", "initial-create-changed-owner", "initial-create-before-bootstrap", "initial-copy-same-owner", "initial-copy-changed-owner"]) {
         const page = await browser.newPage({ viewport, reducedMotion: "reduce" });
         page.setDefaultTimeout(5000);
         const result: Result = { name, viewport: viewport.name, status: "passed", requests: [], browserErrors: [] };
         const pending: Route[] = [];
-        let held = name === "pending-draft", failNext = name === "error-retry";
+        const creations: Route[] = [];
+        let held = name === "pending-draft" || name.startsWith("initial-"), failNext = name === "error-retry";
         let current = bootstrap();
         page.on("pageerror", error => result.browserErrors.push(error.message));
         await page.route("**/*", async route => {
@@ -75,6 +77,7 @@ async function main() {
             return route.continue();
           }
           result.requests.push(`${route.request().method()} ${url.pathname}`);
+          if (["/api/sessions", "/api/sessions/public-fixture/copy"].includes(url.pathname) && route.request().method() === "POST") { creations.push(route); return; }
           if (url.pathname === "/api/bootstrap") {
             if (held) { pending.push(route); return; }
             if (failNext) { failNext = false; return route.fulfill({ status: 503, json: { message: "Тест: пространство временно недоступно" } }); }
@@ -92,7 +95,60 @@ async function main() {
           await page.goto(base);
           await expect(page.getByRole("heading", { name: "Хороший день для новой истории." })).toBeVisible();
           await expect.poll(() => result.requests.length).toBeGreaterThan(0);
-          if (name === "pending-draft") {
+          if (name.startsWith("initial-")) {
+            const copying = name.startsWith("initial-copy-");
+            if (!copying) await keyboardActivate(page, "Новая история");
+            await keyboardActivate(page, copying ? "Продолжить в своей копии" : "Начать историю");
+            await expect.poll(() => creations.length).toBe(1);
+            if (name.endsWith("changed-owner")) current = bootstrap(profileB, "Второе пространство");
+            if (name === "initial-create-before-bootstrap") {
+              await creations.shift()!.fulfill({ json: { session: { id: "created-story", ownerId: profileA } } });
+              await expect.poll(() => pending.length).toBe(2);
+              await pending.pop()!.fulfill({ json: current });
+              await pending.shift()!.fulfill({ json: current }); held = false;
+            } else {
+              await pending.shift()!.fulfill({ json: current }); held = false;
+              await expect.poll(async () => (await state(page)).profileId).toBe(current.identity.profileId);
+              await creations.shift()!.fulfill({ json: { session: { id: "created-story", ownerId: profileA } } });
+            }
+            if (!name.endsWith("changed-owner")) await expect.poll(() => new URL(page.url()).pathname).toBe("/play/created-story");
+            else {
+              await expect(page.getByRole("button", { name: copying ? "Продолжить в своей копии" : "Начать историю" })).toBeEnabled();
+              expect(new URL(page.url()).pathname).toBe("/");
+            }
+          } else if (name === "refresh-origin-fence") {
+            await expect.poll(async () => (await state(page)).loading).toBe(false);
+            expect(await page.evaluate(profile => (window as unknown as FixtureWindow).workspaceFixture.refresh(profile), profileA)).toBe(true);
+            failNext = true;
+            expect(await page.evaluate(profile => (window as unknown as FixtureWindow).workspaceFixture.refresh(profile), profileA)).toBe(true);
+            held = true;
+            await page.evaluate(profile => { const fixture = window as unknown as FixtureWindow; fixture.originRefresh = fixture.workspaceFixture.refresh(profile); }, profileA);
+            await expect.poll(() => pending.length).toBe(1);
+            await page.evaluate(profile => { const fixture = window as unknown as FixtureWindow; fixture.newerRefresh = fixture.workspaceFixture.refresh(profile); }, profileA);
+            await expect.poll(() => pending.length).toBe(2);
+            await pending.shift()!.fulfill({ json: current });
+            expect(await page.evaluate(() => (window as unknown as FixtureWindow).originRefresh)).toBe(true);
+            await pending.shift()!.fulfill({ json: current });
+            expect(await page.evaluate(() => (window as unknown as FixtureWindow).newerRefresh)).toBe(true);
+            await page.evaluate(profile => { const fixture = window as unknown as FixtureWindow; fixture.originRefresh = fixture.workspaceFixture.refresh(profile); }, profileA);
+            await expect.poll(() => pending.length).toBe(1);
+            await page.evaluate(profile => { const fixture = window as unknown as FixtureWindow; fixture.newerRefresh = fixture.workspaceFixture.refresh(profile); }, profileA);
+            await expect.poll(() => pending.length).toBe(2);
+            await pending.shift()!.fulfill({ status: 401, json: { code: "UNAUTHORIZED", message: "Сеанс завершён" } });
+            expect(await page.evaluate(() => (window as unknown as FixtureWindow).originRefresh)).toBe(false);
+            expect((await state(page)).profileId).toBe(profileA);
+            await pending.shift()!.fulfill({ json: current });
+            expect(await page.evaluate(() => (window as unknown as FixtureWindow).newerRefresh)).toBe(true);
+            expect((await state(page)).profileId).toBe(profileA);
+            held = false;
+            current = bootstrap(profileB, "Второе пространство");
+            expect(await page.evaluate(profile => (window as unknown as FixtureWindow).workspaceFixture.refresh(profile), profileA)).toBe(false);
+            await expect.poll(async () => (await state(page)).profileId).toBe(profileB);
+            const count = result.requests.length;
+            expect(await page.evaluate(profile => (window as unknown as FixtureWindow).workspaceFixture.refresh(profile), profileA)).toBe(false);
+            expect(result.requests.length).toBe(count);
+            expect(await page.evaluate(profile => (window as unknown as FixtureWindow).workspaceFixture.refresh(profile), profileB)).toBe(true);
+          } else if (name === "pending-draft") {
             oneBootstrap(result.requests);
             await expect(page.getByRole("status")).toContainText("Загружаем ваши истории");
             await keyboardActivate(page, "Как это работает");

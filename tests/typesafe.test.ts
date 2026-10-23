@@ -107,9 +107,9 @@ test("provider call uses bearer auth, has no retries, and validates the complete
 
 test("five-second timeout covers response body reading and still makes one attempt", async () => {
   let calls = 0;
-  const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
+  const fetchImpl = async () => {
     calls++;
-    return { ok: true, status: 200, json: () => new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })) } as Response;
+    return new Response(new ReadableStream<Uint8Array>(), { headers: { "Content-Type": "application/json" } });
   };
   const report = await verifyTypeSafeFacts({ enabled: true, apiKey: "secret", facts: [fact(0)], narration: "Текст", playerAction: "Действие", fetchImpl, timeoutMs: 15 });
   assert.equal(calls, 1);

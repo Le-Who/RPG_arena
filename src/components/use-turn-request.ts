@@ -43,13 +43,13 @@ export function useTurnRequest(sessionId: string, onCommitted: (result: TurnResp
     try { if (next) sessionStorage.setItem(storageKey, JSON.stringify(next)); else sessionStorage.removeItem(storageKey); } catch { /* server-side request ledger remains the source of truth */ }
   }, [storageKey]);
   const finish = useCallback(async (id: string, result: TurnResponse) => {
-    if (handled.current === id) return;
+    if (handled.current === id || pendingRef.current?.id !== id) return;
     result = { ...result, playerAction: result.playerAction ?? pendingRef.current?.action };
     handled.current = id;
     if (activeSend.current?.id === id) { activeSend.current.controller.abort(); activeSend.current = null; }
     setStage("completed"); setError("");
     if (startedRef.current !== null) performance.measure("chronicle:turn:committed", { start: startedRef.current, detail: { requestId: id, server: result.timings } });
-    try { await publishCommittedTurn(result, committed.current, () => { setPreview(""); remember(null); }); }
+    try { await publishCommittedTurn(result, committed.current, () => { if (pendingRef.current?.id === id) { setPreview(""); remember(null); } }); }
     catch { setError("Ход сохранён, но обновление экрана не удалось. Перезагрузите страницу — действие не нужно повторять."); }
     finally { sendingRef.current = false; setSending(false); setRemoteRunning(false); }
   }, [remember]);
@@ -62,7 +62,17 @@ export function useTurnRequest(sessionId: string, onCommitted: (result: TurnResp
       recoveryReady.current = true;
       setRecoveredSession(sessionId);
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      recoveryReady.current = false;
+      // Stop this screen's transport without discarding the persisted request:
+      // the server may still commit it, and the next mount must recover its ID.
+      pendingRef.current = null;
+      const active = activeSend.current;
+      activeSend.current = null;
+      active?.controller.abort();
+      sendingRef.current = false;
+    };
   }, [sessionId, storageKey]);
   useEffect(() => {
     if (!pending) return;

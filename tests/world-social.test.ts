@@ -58,6 +58,18 @@ test("unconfirmed, claimed, malformed or ambiguous schedules are rejected", () =
   assert.deepEqual(readSocial(run({ changes: annaSchedule({ evidence: "нет цитаты" }), narration }).world).schedules, []);
 });
 
+test("social quote parsing preserves whitespace from final narration", () => {
+  const scheduleQuote = "Я здесь\nкаждый день  с семи до трёх";
+  const knowledgeQuote = "Значит, ты\nищешь  брата";
+  const result = run({ narration: `Анна сказала: «${scheduleQuote}». «${knowledgeQuote}».`, changes: parseSocialChanges({
+    npcSchedule: [{ npc: "anna", place: "Пекарня", from: "07:00", to: "15:00", evidence: scheduleQuote }],
+    npcKnowledge: [{ npc: "anna", fact: "герой ищет брата", evidence: knowledgeQuote }],
+  }) });
+  assert.deepEqual(result.rejected, []);
+  assert.equal(readSocial(result.world).schedules.length, 1);
+  assert.deepEqual(readSocial(result.world).bonds[0].knows, [{ text: "герой ищет брата", turn: 5 }]);
+});
+
 test("overnight and one-off windows, and place matching by whole words", () => {
   const night = { from: 22 * 60, to: 2 * 60, repeat: "daily" as const, day: null };
   assert.equal(slotActive(night, { day: 3, minute: 60 }), true);

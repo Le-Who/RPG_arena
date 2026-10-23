@@ -139,6 +139,20 @@ test("portable import rejects duplicate link IDs even when checksum is recalcula
   assert.throws(() => parsePortableDocument(document), { name: "HttpError", code: "INVALID_DOCUMENT" });
 });
 
+for (const table of ["quests", "npcs", "sceneObjects"] as const) test(`portable import rejects duplicate ${table} keys before database insertion`, async () => {
+  const { createPortableDocument, parsePortableDocument } = await import("../src/lib/campaign-portable");
+  const { snapshotChecksum } = await import("../src/lib/checkpoint-snapshot");
+  const document = createPortableDocument(snapshot(), now);
+  const rows = document.snapshot[table];
+  rows.push({ ...rows[0], id: randomUUID() } as never);
+  document.checksum = snapshotChecksum(document.snapshot);
+  assert.throws(() => parsePortableDocument(document), { name: "HttpError", code: "INVALID_DOCUMENT", status: 400 });
+  // Distinct stable keys may share a display name; matching names are not a collision.
+  rows[1].key = `${rows[0].key}-other`;
+  document.checksum = snapshotChecksum(document.snapshot);
+  assert.equal(parsePortableDocument(document).snapshot[table].length, 2);
+});
+
 test("portable import rejects noncanonical and case-colliding UUID identities", async () => {
   const { createPortableDocument, parsePortableDocument } = await import("../src/lib/campaign-portable");
   const { snapshotChecksum } = await import("../src/lib/checkpoint-snapshot");

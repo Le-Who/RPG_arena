@@ -28,7 +28,7 @@ async function main() {
     export function FixtureApp({children}){
       const [settings,setSettings]=useState(${JSON.stringify(initialSettings)});
       const [notices,setNotices]=useState([]);
-      const refresh=useCallback(async()=>{const r=await fetch('/api/settings');setSettings(await r.json())},[]);
+      const refresh=useCallback(async()=>{const r=await fetch('/api/settings');setSettings(await r.json());return true},[]);
       const acceptSettings=useCallback(value=>setSettings(value),[]);
       const notify=useCallback((message,error=false)=>setNotices(old=>[...old,{message,error}]),[]);
       const value={settings,workspace:{displayName:'Гость',favorites:[],reading:{textScale:'normal',measure:'normal',theme:'midnight',motion:'reduced'}},identity:location.search.includes('account=1')?{kind:'account',profileId:'fixture-account',account:{login:'fixture_user'},isAdmin:false,pendingGuestCampaigns:0}:null,administration:false,loading:false,hasOpenDraft:false,refresh,acceptSettings,notify,resolveNotification:()=>{},updateReading:async()=>{}};

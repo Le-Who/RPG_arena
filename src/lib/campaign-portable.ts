@@ -280,6 +280,10 @@ export function parsePortableDocument(input: unknown): PortableDocument {
     document.snapshot.quests, document.snapshot.npcs, document.snapshot.sceneObjects, document.snapshot.memories,
     document.snapshot.links, document.snapshot.agreements ?? []].flatMap(rows => rows.map(row => row.id))];
   if (new Set(allIds).size !== allIds.length) invalid("document.snapshot.ids");
+  for (const table of ["quests", "npcs", "sceneObjects"] as const) {
+    const keys = document.snapshot[table].map(row => row.key);
+    if (new Set(keys).size !== keys.length) invalid(`document.snapshot.${table}.key`);
+  }
   const agenda = document.snapshot.session.worldState.agenda ?? [];
   if (new Set(agenda.map(event => event.id)).size !== agenda.length
     || agenda.filter(event => event.status === "pending" || event.status === "due").length > 24

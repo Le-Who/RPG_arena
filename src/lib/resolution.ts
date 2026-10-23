@@ -333,8 +333,13 @@ export function parseResolution(raw: string): { payload: ResolutionPayload; pars
 
   const inventory: InventoryOp[] = arr<Record<string, unknown>>(sc.inventory, 6)
     .filter(isRecord)
+    .filter((i) => {
+      const valid = (["add", "consume", "remove", "equip", "unequip"] as const).includes(i.op as InventoryOp["op"]);
+      if (!valid) warnings.push("INVALID_INVENTORY_OP");
+      return valid;
+    })
     .map((i) => ({
-      op: (["add", "consume", "remove", "equip", "unequip"] as const).includes(i.op as InventoryOp["op"]) ? (i.op as InventoryOp["op"]) : "add",
+      op: i.op as InventoryOp["op"],
       ref: str(i.ref, 64).replace(/^#/, "") || null,
       name: str(i.name, 80),
       kind: str(i.kind, 20, "misc") || "misc",
@@ -784,8 +789,8 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         layer: "semantic",
         category: "npc",
         title: `NPC: ${n.name}`,
-        content: `${n.name}${n.role ? ` (${n.role})` : ""}. Отношение ${relation > 0 ? "+" : ""}${relation}. ${n.note || ""} Встречен в «${world.currentLocation}», ход ${turnNumber}.`,
-        importance: 70,
+        content: `${n.name}${n.role ? ` (${n.role})` : ""}. Отношение ${relation > 0 ? "+" : ""}${relation}${status !== "alive" ? `, статус: ${status}` : ""}. ${n.note || ""} Встречен в «${world.currentLocation}», ход ${turnNumber}.`,
+        importance: status === "dead" ? 90 : 70,
         entityKey: `npc:${key}`,
         mode: "upsert",
       });
@@ -831,13 +836,14 @@ export function applyResolution(input: ApplyInput): ApplyResult {
         invState.push({ ...row, equipped: false, power: 0 });
         invApplied.push({ op: "add", name: op.name, quantity: qty, ok: true });
       }
+      const canonicalItem = found ?? op;
       events.push({
         layer: "semantic",
         category: "item",
-        title: `Предмет: ${op.name}`,
-        content: `${op.name}${op.kind ? ` (${op.kind})` : ""}: ${op.description || "без описания"}. Получен на ходу ${turnNumber}${found ? `, всего ×${found.quantity}` : qty > 1 ? ` ×${qty}` : ""}.`,
-        importance: op.kind === "quest" ? 78 : 60,
-        entityKey: `item:${slugify(op.name)}`,
+        title: `Предмет: ${canonicalItem.name}`,
+        content: `${canonicalItem.name}${canonicalItem.kind ? ` (${canonicalItem.kind})` : ""}: ${canonicalItem.description || "без описания"}. Получен на ходу ${turnNumber}${found ? `, всего ×${found.quantity}` : qty > 1 ? ` ×${qty}` : ""}.`,
+        importance: canonicalItem.kind === "quest" ? 78 : 60,
+        entityKey: `item:${slugify(canonicalItem.name)}`,
         mode: "upsert",
       });
     } else if (op.op === "consume" || op.op === "remove") {

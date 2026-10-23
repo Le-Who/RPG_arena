@@ -19,7 +19,7 @@ import { AppUpdateProvider, useAppUpdateGuard } from "./app-update";
 import { UPDATE_DRAFT_KEY } from "@/lib/update-draft";
 import { PRODUCT_INFO, PRODUCT_REVIEWED_LABEL } from "@/lib/product-info";
 export type PlayCommand = { id: string; label: string; run: () => void; jumpToTurn?: (turn: number) => void; maxTurn?: number };
-type AppContext = { playCommands: PlayCommand[]; setPlayCommands: (commands: PlayCommand[]) => void; identity: IdentityView | null; administration: boolean; hasOpenDraft: boolean; applyIdentityChange: (identity: IdentityView) => Promise<void>; settingsOpen: boolean; openSettings: (section?: string) => void; sessions: Session[]; settings: Settings | null; acceptSettings: (settings: Settings, profileId: string | undefined) => void; workspace: Workspace; loading: boolean; loadError: string; refresh: () => Promise<void>; newStory: (id?: string, mode?: "preset" | "free") => void; notify: (message: string, error?: boolean | "warning", scope?: string, ownerProfileId?: string) => void; resolveNotification: (scope: string) => void; toggleFavorite: (id: string) => Promise<void>; updateReading: (reading: ReadingPreferences) => Promise<void>; showGuide: () => void };
+type AppContext = { playCommands: PlayCommand[]; setPlayCommands: (commands: PlayCommand[]) => void; identity: IdentityView | null; administration: boolean; hasOpenDraft: boolean; applyIdentityChange: (identity: IdentityView) => Promise<void>; settingsOpen: boolean; openSettings: (section?: string) => void; sessions: Session[]; settings: Settings | null; acceptSettings: (settings: Settings, profileId: string | undefined) => void; workspace: Workspace; loading: boolean; loadError: string; refresh: (expectedProfileId?: string) => Promise<boolean>; newStory: (id?: string, mode?: "preset" | "free") => void; notify: (message: string, error?: boolean | "warning", scope?: string, ownerProfileId?: string) => void; resolveNotification: (scope: string) => void; toggleFavorite: (id: string) => Promise<void>; updateReading: (reading: ReadingPreferences) => Promise<void>; showGuide: () => void };
 const Context = createContext<AppContext | null>(null);
 export function useApp() { const value = useContext(Context); if (!value) throw new Error("App context missing"); return value; }
 const navigation = [
@@ -106,7 +106,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
     settingsRevision.current++;
     setSettings(saved);
   }, []);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (expectedProfileId = identityRef.current?.profileId) => {
+    // Mutation continuations pass their originating render profile; refs change before React cleanup.
+    if (identityRef.current && expectedProfileId !== identityRef.current.profileId) return false;
     const ticket = loadGate.current.begin();
     const revision = settingsRevision.current;
     const edits = workspaceEdits.current;
@@ -114,7 +116,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
     const favoritePending = edits.favorites.pending, readingPending = edits.reading.pending > 0;
     try {
       const snapshot = parseWorkspaceSnapshot(await api("/api/bootstrap"));
-      if (!loadGate.current.isCurrent(ticket)) return;
+      if (!loadGate.current.isCurrent(ticket)) return expectedProfileId === identityRef.current?.profileId && expectedProfileId === snapshot.identity.profileId;
       const changed = profileChanged(identityRef.current, snapshot.identity);
       acceptIdentity(snapshot.identity);
       setSessions(snapshot.sessions);
@@ -124,6 +126,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       if (!keepReading) { workspaceEdits.current.reading.confirmed = snapshot.workspace.reading; cacheReading(snapshot.workspace.reading); }
       setWorkspace(current => ({ ...snapshot.workspace, favorites: keepFavorites ? current.favorites : snapshot.workspace.favorites, reading: keepReading ? current.reading : snapshot.workspace.reading }));
       setWorkspaceLoaded(true); setLoadError("");
+      return expectedProfileId === snapshot.identity.profileId;
     } catch (error) {
       if (loadGate.current.isCurrent(ticket)) {
         if (error instanceof ApiError && error.status === 401) {
@@ -131,8 +134,14 @@ function AppShellContent({ children }: { children: ReactNode }) {
         }
         setLoadError(error instanceof Error ? error.message : "Не удалось загрузить пространство");
       }
+      // Even a superseded request's 401 forbids its own mutation continuation;
+      // only the current request may replace the visible workspace above.
+      if (error instanceof ApiError && error.status === 401) return false;
     }
     finally { loadGate.current.finish(ticket); if (loadGate.current.isCurrent(ticket)) setLoading(false); }
+    // A temporary bootstrap failure does not undo a completed campaign write.
+    // Return ownership continuity, including when a newer refresh superseded us.
+    return expectedProfileId === identityRef.current?.profileId;
   }, [acceptIdentity, clearPrivateWorkspace]);
   const applyIdentityChange = useCallback(async (next: IdentityView) => {
     loadGate.current.invalidate();
@@ -240,7 +249,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
     <div className="app-body"><header className="topbar"><button className="icon-button menu-toggle" onClick={toggleSidebar} aria-controls="app-navigation" aria-expanded={mobile ? sidebar : !desktopCollapsed} aria-label={(mobile ? sidebar : !desktopCollapsed) ? "Скрыть меню" : "Открыть меню"}><Menu size={21} /></button><div className="breadcrumbs"><Compass size={15} /><span>Пространство</span><ChevronRight size={13} /><strong>{title}</strong></div><div className="topbar-actions"><button className="global-search" onClick={() => setDialog("search")} aria-label="Поиск по пространству"><Search size={16} /><span>Быстрый поиск</span><kbd>⌘ K</kbd></button><Link className={`connection-status ${live ? "live" : ""}`} href="/settings"><i />{live ? "Рассказчик подключён" : "Базовый режим"}</Link><div className="topbar-divider" /><button className="icon-button" onClick={() => setDialog("guide")} aria-label="Как это работает"><HelpCircle size={19} /></button><button className="icon-button notification-button" onClick={() => setDialog("updates")} aria-label="Обновления движка"><Bell size={18} /><i /></button></div></header><main className="main-content" id="main-content"><Fragment key={contentGeneration}>{children}</Fragment></main></div>
     </div>
     {settingsOpen && <SettingsOverlay key={identity?.profileId} section={settingsSection} onClose={closeSettings} returnLabel={creator ? "Вернуться к истории" : "Вернуться в игру"} />}
-    {creator && <StoryCreator initialScenario={creator.id} initialMode={creator.mode} onClose={closeCreator} onCreated={refresh} live={live} onSettings={() => openSettings()} suspended={settingsOpen} />}
+    {creator && <StoryCreator initialScenario={creator.id} initialMode={creator.mode} onClose={closeCreator} onCreated={ownerProfileId => identity && identity.profileId !== ownerProfileId ? Promise.resolve(false) : refresh(ownerProfileId)} live={live} onSettings={() => openSettings()} suspended={settingsOpen} />}
     {dialog === "guide" && <Dialog onClose={closeDialog} title="Как это работает" suspended={settingsOpen}><span className="dialog-emblem"><Compass size={27} /></span><div className="eyebrow">ВАША ИСТОРИЯ, ВАШИ ПРАВИЛА</div><h2>Здесь нет неправильного пути</h2><p className="dialog-intro">Chronicle Engine — интерактивная история, в которой вы не зритель, а главный герой.</p><div className="guide-steps">{[{ n: "01", title: "Найдите свой мир", text: "Выберите авторский сценарий или придумайте собственный сеттинг — от уютной драмы до далёких галактик." }, { n: "02", title: "Сделайте первый шаг", text: "Выбирайте предложенные действия или пишите свои. Продолжение и последствия появятся в истории." }, { n: "03", title: "Оставьте след в истории", text: "Предметы, отношения и принятые решения сохраняются. К важным событиям можно вернуться в журнале и памяти мира." }].map((step) => <div key={step.n}><span>{step.n}</span><section><h3>{step.title}</h3><p>{step.text}</p></section></div>)}</div><div className="notice"><Sparkles size={17} /><p>Готовые сценарии доступны в базовом режиме. Для свободной истории подключите рассказчика в настройках.</p></div><button className="button primary full-width" onClick={() => newStory()}>Отправиться в приключение <ArrowRight size={16} /></button></Dialog>}
     {dialog === "updates" && <Dialog onClose={closeDialog} title="Обновления" suspended={settingsOpen}><span className="pill violet">CHRONICLE {PRODUCT_INFO.version}</span><h2>Ваши истории<br />и новые возможности.</h2><p className="dialog-intro">Обновление {PRODUCT_INFO.version} · сведения проверены {PRODUCT_REVIEWED_LABEL}.</p><div className="update-list">{["В «Жизни» можно отметить исход договорённости, перенести её или открыть заново", "Подробности последствий показывают прежние и новые значения ресурсов", "Введите «ход 12» в палитре Ctrl/⌘ K, чтобы перейти к записи", "Скачайте HTML-книгу, чтобы читать историю без сети", "Новую версию можно применить по кнопке с сохранением черновика; незавершённый ход защищён от перезагрузки"].map((text) => <p key={text}><Check size={17} />{text}</p>)}</div><Link href="/blueprint" onClick={closeDialog} className="button secondary full-width">Заглянуть под капот <ArrowRight size={16} /></Link></Dialog>}
     {dialog === "search" && <CommandPalette key={identity?.profileId} onClose={closeDialog} suspended={settingsOpen} />}

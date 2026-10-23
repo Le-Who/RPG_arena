@@ -182,11 +182,12 @@ test("portable failed import leaves neither target nor ledger", async () => {
     const { createPortableDocument } = await import("../src/lib/campaign-portable");
     const { importCampaign } = await import("../src/lib/campaign-copy");
     const document = createPortableDocument(portableFixture());
-    // A valid document with a duplicate relational key passes document integrity but fails SQL.
-    document.snapshot.quests.push({ ...document.snapshot.quests[0], id: randomUUID() });
-    const { snapshotChecksum } = await import("../src/lib/checkpoint-snapshot");
-    document.checksum = snapshotChecksum(document.snapshot);
-    await assert.rejects(() => importCampaign({ profileId: "owner", requestId: "rollback", document }), error => /duplicate|unique/i.test(String((error as Error & { cause?: Error }).cause)));
+    // Fail after the session and earlier entity tables have been inserted, so
+    // this checks transaction rollback independently of document validation.
+    await fixture.pg.exec(`CREATE FUNCTION reject_import_quest() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'IMPORT_QUEST_WRITE_FAILED'; END $$;
+      CREATE TRIGGER reject_import_quest BEFORE INSERT ON quests FOR EACH ROW EXECUTE FUNCTION reject_import_quest();`);
+    await assert.rejects(() => importCampaign({ profileId: "owner", requestId: "rollback", document }), error => /IMPORT_QUEST_WRITE_FAILED/.test(String((error as Error & { cause?: Error }).cause)));
     assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM game_sessions")).rows[0].n), 0);
     assert.equal(Number((await fixture.pg.query<{ n: number }>("SELECT count(*)::int n FROM campaign_imports")).rows[0].n), 0);
   } finally { await fixture.close(); }

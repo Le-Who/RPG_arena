@@ -1,6 +1,6 @@
 import type { ExtractedFact } from "./memory";
 import type { TypeSafeEvaluation, TypeSafeReport, TypeSafeVerdict } from "./typesafe-report";
-import { runJevTask, type JevTask, type JevTransport } from "./jev-tasks";
+import { fetchJevTransport, runJevTask, type JevTask, type JevTransport } from "./jev-tasks";
 
 export const TYPE_SAFE_MODEL = "jev-1.13.0" as const;
 export const TYPE_SAFE_PROMPT_VERSION = "fact-verification-v1" as const;
@@ -124,10 +124,10 @@ export async function verifyTypeSafeFacts(input: {
   const timeoutMs = input.timeoutMs ?? 5000;
   let httpStatus: number | null = null;
   // Транспорт пилота сохраняет прежний контракт ошибок (HTTP-код в сообщении, единый таймаут 5 с).
-  const transport: JevTransport = input.transport ?? (async ({ endpoint, body, apiKey, signal }) => {
-    const response = await (input.fetchImpl ?? fetch)(endpoint, { method: "POST", redirect: "error", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body, signal });
-    if (!response.ok) { await response.body?.cancel().catch(() => undefined); httpStatus = response.status; throw new Error("provider_error"); }
-    return response.json();
+  const transport: JevTransport = input.transport ?? fetchJevTransport(async (url, init) => {
+    const response = await (input.fetchImpl ?? fetch)(url, init);
+    if (!response.ok) httpStatus = response.status;
+    return response;
   });
   const outcome = await runJevTask(factVerificationJevTask({ ...input, facts }), { apiKey: input.apiKey, provider: "typesafe", timeoutMs, maxTimeoutMs: Math.max(timeoutMs, 5000), transport });
   if (outcome.status !== "answered") {

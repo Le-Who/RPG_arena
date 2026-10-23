@@ -9,7 +9,7 @@ import { api, jsonBody } from "@/lib/api-client";
 import type { CheckpointSummary } from "@/lib/checkpoint-types";
 import type { Session } from "@/lib/ui-data";
 export function CheckpointDialog({ session, onClose }: { session: Session; onClose: () => void }) {
-  const router = useRouter(); const { refresh, notify } = useApp();
+  const router = useRouter(); const { refresh, notify, identity } = useApp();
   const [points, setPoints] = useState<CheckpointSummary[]>([]);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const [title, setTitle] = useState(`Перед следующим шагом · ход ${session.turnCount}`);
@@ -17,6 +17,8 @@ export function CheckpointDialog({ session, onClose }: { session: Session; onClo
   const [branchTitle, setBranchTitle] = useState(""); const [remove, setRemove] = useState<string | null>(null);
   const saveRequest = useRef<{ title: string; id: string } | null>(null);
   const forkRequest = useRef<{ point: string; title: string; id: string } | null>(null);
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const load = useCallback(async () => {
     const data = await api<{ checkpoints: CheckpointSummary[] }>(`/api/sessions/${session.id}/checkpoints`); setPoints(data.checkpoints);
   }, [session.id]);
@@ -30,8 +32,8 @@ export function CheckpointDialog({ session, onClose }: { session: Session; onClo
   const fork = async (event: FormEvent) => {
     event.preventDefault(); if (!selected || !branchTitle.trim() || busy) return; setBusy(true); setError("");
     if (forkRequest.current?.point !== selected.id || forkRequest.current.title !== branchTitle.trim()) forkRequest.current = { point: selected.id, title: branchTitle.trim(), id: crypto.randomUUID() };
-    try { const result = await api<{ session: Session }>(`/api/sessions/${session.id}/checkpoints/${selected.id}/fork`, jsonBody({ title: branchTitle.trim(), requestId: forkRequest.current.id })); await refresh(); notify("Новая ветка готова. Исходная история не изменилась."); onClose(); router.push(`/play/${result.session.id}`); }
-    catch (e) { setError(e instanceof Error ? e.message : "Не удалось создать ветку"); setBusy(false); }
+    try { const result = await api<{ session: Session }>(`/api/sessions/${session.id}/checkpoints/${selected.id}/fork`, jsonBody({ title: branchTitle.trim(), requestId: forkRequest.current.id })); if (!mounted.current) return; if (!await refresh(identity?.profileId)) { if (mounted.current) setBusy(false); return; } if (!mounted.current) return; notify("Новая ветка готова. Исходная история не изменилась."); onClose(); router.push(`/play/${result.session.id}`); }
+    catch (e) { if (mounted.current) { setError(e instanceof Error ? e.message : "Не удалось создать ветку"); setBusy(false); } }
   };
   const deletePoint = async (id: string) => {
     setBusy(true); setError("");
