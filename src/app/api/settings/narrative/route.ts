@@ -13,8 +13,8 @@ async function handleGET() {
 async function handlePOST(request: Request) {
   try {
     const input = await readJsonObject(request, 4096);
-    return await withCurrentIdentityWork(async () => Response.json(await updateNarrativeSettings(input), { headers: { "Cache-Control": "no-store" } }));
+    return Response.json(await updateNarrativeSettings(input), { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return httpError(error); }
 }
 export const GET = withIdentityWork(handleGET);
-export const POST = handlePOST;
+export const POST = withIdentityWork(handlePOST);
