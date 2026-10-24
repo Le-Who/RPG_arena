@@ -1,0 +1,4 @@
+## 2023-10-21 - [API Route Missing Export-Level Authorization Wrapper]
+**Vulnerability:** The `POST` export in `src/app/api/settings/narrative/route.ts` was not wrapped in `withIdentityWork`, whereas `GET` was. This bypassed early authentication checks and request diagnostics, parsing the request body before authenticating the user via the inner wrapper.
+**Learning:** In Next.js API routes using custom access-control wrappers like `withIdentityWork`, failing to wrap the exported method directly leaves the initial request parsing vulnerable to unauthenticated abuse, even if inner logic tries to authenticate later.
+**Prevention:** Always verify that every exported HTTP method handler (`GET`, `POST`, `PATCH`, etc.) in `route.ts` files is wrapped with the correct access-control middleware (`withIdentityWork`, `withAdminAccess`, etc.) at the export level.
