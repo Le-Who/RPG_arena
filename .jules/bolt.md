@@ -1,0 +1,3 @@
+## 2026-09-29 - O(1) turn history optimization
+**Learning:** Found an O(N) array mapping combined with a spread operator `Math.min(...turns().map(turn => turn.turnNumber))` used for extracting the minimum turn number. In scenarios with a very large history log, this can crash the Node process entirely due to maximum call stack size limits, while remaining a hidden performance sink for standard iterations. Since `turns()` guarantees ascending sort order, picking the first element solves this in O(1) safely.
+**Action:** Always check context when grabbing minimums/maximums of derived arrays. If the underlying data structure is already sorted (like histories or logs), index access prevents O(N) memory allocations and dangerous spread operations.

@@ -21,7 +21,11 @@ export function createTurnHistory<T extends HistoryTurn>({ current = [], fetchPa
   const turns = () => mergeHistoryTurns(older, current);
   const loadEarlier = (): Promise<boolean> => {
     if (pending) return pending;
-    const before = Math.min(...turns().map(turn => turn.turnNumber));
+    // ⚡ Bolt: turns() guarantees elements are sorted by turnNumber in ascending order.
+    // Reading turns()[0] reduces time complexity from O(N) to O(1) and prevents
+    // maximum call stack size exceeded errors by avoiding the spread operator.
+    const currentTurns = turns();
+    const before = currentTurns.length > 0 ? currentTurns[0].turnNumber : Infinity;
     if (exhausted || !Number.isFinite(before) || before <= 1) return Promise.resolve(false);
     const started = generation;
     controller = new AbortController();
@@ -43,7 +47,9 @@ export function createTurnHistory<T extends HistoryTurn>({ current = [], fetchPa
     while (started === generation) {
       const loaded = turns();
       if (loaded.some(turn => turn.turnNumber === target)) return true;
-      if (Math.min(...loaded.map(turn => turn.turnNumber)) <= target || !(await loadEarlier())) return false;
+      // ⚡ Bolt: loaded is guaranteed to be sorted by turnNumber in ascending order.
+      // O(1) minimum check prevents max call stack errors.
+      if ((loaded[0]?.turnNumber ?? Infinity) <= target || !(await loadEarlier())) return false;
     }
     throw new Error("Переход отменён.");
   };
