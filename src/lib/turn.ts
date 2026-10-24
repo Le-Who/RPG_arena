@@ -1,5 +1,6 @@
 import { resourceSnapshot } from "./applied-changes";
 import { measurePromptBudget, type PromptBudget } from "./prompt-budget";
+import { findLast } from "./find-last";
 // ── Оркестратор хода (RES-1f): контекст → проверка → AI/offline → reducers → транзакция → фон ──
 import { after } from "next/server";
 import { and, asc, count, desc, eq, gt, sql } from "drizzle-orm";
@@ -237,7 +238,7 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
   const actionForModel = actionWithItemBindings(playerAction, opts.itemIds, inventory);
   const recent = [...recentRaw].reverse();
   const recentTurns = recent.map((t) => `[${t.role} #${t.turnNumber}]: ${t.content.slice(0, recentCharLimit)}`).join("\n");
-  const lastNarration = [...recent].reverse().find((t) => t.role === "narrator")?.content.slice(0, 240) ?? "";
+  const lastNarration = findLast(recent, (t) => t.role === "narrator")?.content.slice(0, 240) ?? "";
   const nextTurn = (session.turnCount ?? 0) + 1;
   if (narrativeConfig.enabled && cfg.canUseLive) {
     try { agreements = await loadAgreementHistory(db, sessionId, nextTurn); }

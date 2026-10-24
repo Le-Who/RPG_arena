@@ -34,7 +34,7 @@ test("shared smoke keyring decrypts across processes while an independent ring c
     const shared = installSyntheticSecretKeyring("shared-v1");
     const context = secretContext("smoke-owner", "typesafe-pilot");
     const sealed = sealSecret("synthetic-cross-process", context, shared);
-    const childCode = `import { openSecret } from './src/lib/secret-vault.ts'; openSecret(process.env.FIXTURE, process.env.CONTEXT);`;
+    const childCode = `(await import('./src/lib/secret-vault.ts')).default?.openSecret(process.env.FIXTURE, process.env.CONTEXT) ?? (await import('./src/lib/secret-vault.ts')).openSecret(process.env.FIXTURE, process.env.CONTEXT);`;
     const baseEnv = { ...process.env, FIXTURE: sealed, CONTEXT: context, ARENA_ISOLATED_TEST_DB: "1" };
     const independent = { active: "other-v1", keys: { "other-v1": Buffer.alloc(32, 31).toString("base64") } };
     await assert.rejects(exec(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", childCode], {

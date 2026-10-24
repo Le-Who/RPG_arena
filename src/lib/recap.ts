@@ -6,6 +6,7 @@ import type { CharacterState, WorldState } from "@/db/schema";
 import { commitmentAlerts, formatClock, readLife, COMMITMENT_LABELS, STORY_SHAPE_LABELS } from "./world-life";
 import { agendaAlerts, readAgenda } from "./world-agenda";
 import { conditionEffects } from "./conditions";
+import { findLast } from "./find-last";
 
 export type RecapMemory = { layer: string; category: string; title: string; content: string; importance: number; turnTo?: number | null; sourceTurn?: number | null };
 export type RecapQuest = { title: string; status: string; progress: number; isMain: boolean };
@@ -68,7 +69,7 @@ export function shouldOfferRecap(input: { turnCount: number; updatedAt?: Date | 
 
 /** Session.updatedAt can change when settings are edited; prefer the saved narrator turn. */
 export function recapLastTurnAt(turns: readonly { role: string; createdAt?: Date | string | null }[], fallback?: Date | string | null): Date | string | null {
-  return [...turns].reverse().find((turn) => turn.role === "narrator" && turn.createdAt)?.createdAt ?? fallback ?? null;
+  return findLast(turns, (turn) => turn.role === "narrator" && Boolean(turn.createdAt))?.createdAt ?? fallback ?? null;
 }
 
 export function buildRecap(input: RecapInput): Recap {
@@ -101,7 +102,7 @@ export function buildRecap(input: RecapInput): Recap {
   const events = input.memories.filter((m) => m.layer === "episodic" && m.importance >= 55).sort((a, b) => (b.sourceTurn ?? b.turnTo ?? 0) - (a.sourceTurn ?? a.turnTo ?? 0)).slice(0, 6).reverse();
   const happened = [...chronicle.map((m) => clip(m.content.replace(/^\[[^\]]*\]\s*/, ""), 220)), ...events.map((m) => `${m.title}${m.sourceTurn ? ` (ход ${m.sourceTurn})` : ""}`)];
   if (!happened.length) {
-    const lastNarration = [...input.recentTurns].reverse().find((t) => t.role !== "player");
+    const lastNarration = findLast(input.recentTurns, (t) => t.role !== "player");
     if (lastNarration) happened.push(clip(lastNarration.content, 300));
   }
   if (happened.length) sections.push({ id: "happened", title: "Что произошло", lines: happened });
@@ -123,8 +124,8 @@ export function buildRecap(input: RecapInput): Recap {
   if (people.length) sections.push({ id: "people", title: "Люди", lines: people });
 
   // Последний момент
-  const lastPlayer = [...input.recentTurns].reverse().find((t) => t.role === "player");
-  const lastNarrator = [...input.recentTurns].reverse().find((t) => t.role !== "player");
+  const lastPlayer = findLast(input.recentTurns, (t) => t.role === "player");
+  const lastNarrator = findLast(input.recentTurns, (t) => t.role !== "player");
   const last: string[] = [];
   if (lastPlayer) last.push(`Вы: ${clip(lastPlayer.content, 160)}`);
   if (lastNarrator) last.push(clip(lastNarrator.content, 360));
