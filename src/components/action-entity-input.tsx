@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState, type RefObject } from "react";
-import { ACTION_MAX_LENGTH, actionEntitySuggestions, completeActionEntity, type ActionEntitySuggestion } from "@/lib/action-composer";
+import { ACTION_MAX_LENGTH, actionEntitySuggestions, actionInventoryMention, completeActionEntity, type ActionEntitySuggestion } from "@/lib/action-composer";
 import type { InteractionState } from "@/lib/interactions";
 import "./action-entity-input.css";
 
@@ -17,6 +17,7 @@ export function ActionEntityInput({ value, inputRef, state, disabled, onChange, 
   const suggestions = useMemo(() =>
     focused && !dismissed && !disabled ? actionEntitySuggestions(value, cursor, state) : [],
   [focused, dismissed, disabled, value, cursor, state]);
+  const inventoryMention = focused && !dismissed && !disabled ? actionInventoryMention(value, cursor) : null;
   const selected = Math.min(active, Math.max(0, suggestions.length - 1));
   const pick = (entity: ActionEntitySuggestion) => {
     const result = completeActionEntity(value, entity);
@@ -28,22 +29,31 @@ export function ActionEntityInput({ value, inputRef, state, disabled, onChange, 
   };
   return <div className="gx-entity-input">
     <textarea ref={inputRef} id="action-input" aria-label="Ваше действие" aria-describedby="action-entity-hint" aria-autocomplete="list" aria-controls={suggestions.length ? "action-entity-options" : undefined} aria-activedescendant={suggestions.length ? `action-entity-option-${selected}` : undefined}
-      placeholder="Я хочу… — опишите своё действие, и мир ответит" value={value} maxLength={ACTION_MAX_LENGTH} rows={2} disabled={disabled}
-      onFocus={event => { setFocused(true); setCursor(event.currentTarget.selectionStart); }} onBlur={() => setFocused(false)}
+      placeholder="Опишите действие… @ — выбрать предмет" value={value} maxLength={ACTION_MAX_LENGTH} rows={2} disabled={disabled}
+      onFocus={event => { setFocused(true); setCursor(event.currentTarget.selectionStart); setDismissed(false); }} onBlur={() => setFocused(false)}
       onSelect={event => setCursor(event.currentTarget.selectionStart)}
       onChange={event => { onChange(event.target.value); setCursor(event.target.selectionStart); setActive(0); setDismissed(false); }}
       onKeyDown={event => {
         if (event.nativeEvent.isComposing) return;
         if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); onSubmit(); return; }
+        if (event.key === "Escape" && (suggestions.length || inventoryMention)) { event.preventDefault(); setDismissed(true); return; }
         if (!suggestions.length) return;
-        if (event.key === "Escape") { event.preventDefault(); setDismissed(true); }
-        else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setActive((selected + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length); }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const next = (selected + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length;
+          setActive(next);
+          document.getElementById(`action-entity-option-${next}`)?.scrollIntoView({ block: "nearest" });
+        }
         else if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); pick(suggestions[selected]); }
       }} />
-    {!!suggestions.length && <div id="action-entity-options" className="gx-entity-options" role="listbox" aria-label="Имена и предметы мира">
-      {suggestions.map((entity, index) => <button key={`${entity.kind}:${entity.ref}:${index}`} id={`action-entity-option-${index}`} type="button" role="option" aria-selected={index === selected} className={index === selected ? "is-selected" : ""} onMouseDown={event => event.preventDefault()} onClick={() => pick(entity)}><span>{entity.name}</span><small>{KIND_LABELS[entity.kind]}</small></button>)}
-      <p>↑ ↓ выбрать · Enter вставить · Esc закрыть</p>
+    {(!!suggestions.length || inventoryMention) && <div className="gx-entity-menu">
+      {inventoryMention && <p className="gx-entity-menu-title">Предметы из инвентаря</p>}
+      {!!suggestions.length && <div id="action-entity-options" className="gx-entity-options" role="listbox" aria-label={inventoryMention ? "Предметы из инвентаря" : "Имена и предметы мира"}>
+        {suggestions.map((entity, index) => <button key={`${entity.kind}:${entity.ref}:${index}`} id={`action-entity-option-${index}`} type="button" role="option" tabIndex={-1} aria-selected={index === selected} className={index === selected ? "is-selected" : ""} onPointerDown={event => event.preventDefault()} onClick={() => pick(entity)}><span>{entity.name}</span><small>{KIND_LABELS[entity.kind]}</small></button>)}
+      </div>}
+      {!suggestions.length && <p role="status">{state.inventory.some(item => item.quantity > 0) ? "Предмет не найден. Попробуйте другое слово из названия." : "В инвентаре пока нет предметов."}</p>}
+      {!!suggestions.length && <p>↑ ↓ выбрать · Enter вставить · Esc закрыть</p>}
     </div>}
-    <p id="action-entity-hint" className="gx-entity-hint">Начните вводить имя, вещь или место — появятся подсказки из вашей истории.</p>
+    <p id="action-entity-hint" className="gx-entity-hint">Введите @, чтобы выбрать предмет из инвентаря. Имена и места тоже подсказываются при вводе.</p>
   </div>;
 }

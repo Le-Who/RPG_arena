@@ -8,8 +8,7 @@ export function settingsView(s: Awaited<ReturnType<typeof getRawSettingsRow>>) {
   const { keysMasked, credentialIssues } = settingsCredentialsView(s);
   const textProvider = s.textProvider ?? "gemini";
   const pollinationsKeyExpired = Boolean(s.pollinationsKeyExpiresAt && s.pollinationsKeyExpiresAt.getTime() <= Date.now());
-  // Gemini is also loaded by the shared runtime config for embeddings.
-  const canUseLive = s.useLiveAI && !credentialIssues.includes("gemini") && !credentialIssues.some(provider => provider === textProvider)
+  const canUseLive = s.useLiveAI && !credentialIssues.some(provider => provider === textProvider)
     && (textProvider === "gemini" ? keysMasked.length > 0
     : Boolean(s.textModel && (textProvider === "openrouter" ? s.openrouterKey : textProvider === "pollinations" && s.pollinationsKey && !pollinationsKeyExpired)));
   return {

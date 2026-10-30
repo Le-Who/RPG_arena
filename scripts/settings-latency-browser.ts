@@ -58,7 +58,7 @@ async function main() {
   try {
     for (const viewport of [{ name: "desktop", width: 1280, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
       const page = await browser.newPage({ viewport }); active = page; page.on("pageerror", e => errors.push(e.message));
-      const writes: Record<string, unknown>[] = [], reads: string[] = []; let state = { ...initial }; let delayed: ReturnType<typeof gate> | null = null; let delayedCanonicalRead: ReturnType<typeof gate> | null = null; let fail = false;
+      const writes: Record<string, unknown>[] = [], reads: string[] = []; let state = { ...initial }; let delayed: ReturnType<typeof gate> | null = null; let delayedCanonicalRead: ReturnType<typeof gate> | null = null; let delayedProviderWrite: ReturnType<typeof gate> | null = null; let fail = false, failConnection = false, failCanonical = false;
       const providerWrites: Record<string, unknown>[] = [], connectionWrites: Record<string, unknown>[] = [];
       let providerState = { provider: "gemini", model: "", openrouterConfigured: false, pollinationsConfigured: false, useLiveAI: false };
       await page.route("**/api/**", async route => {
@@ -73,18 +73,24 @@ async function main() {
               const keysMasked = submitted.keysText ? [...state.keysMasked, "••••fixture"] : Array.isArray(submitted.removeIndex) ? state.keysMasked.filter((_, index) => !submitted.removeIndex.includes(index)) : state.keysMasked;
               state = { ...state, dailyFlashLimit: submitted.dailyFlashLimit ?? state.dailyFlashLimit, keysCount: keysMasked.length, keysMasked }; body = { ok: true, ...state };
             }
-          } else { reads.push(path); body = structuredClone(state); if (delayedCanonicalRead) await delayedCanonicalRead.promise; }
+          } else { reads.push(path); body = structuredClone(state); if (delayedCanonicalRead) await delayedCanonicalRead.promise; if (failCanonical) { status=503;body={message:"Не удалось подтвердить состояние подключения"}; } }
         } else if (path === "/api/settings/text-provider") {
           if (route.request().method() === "POST") {
             const input = route.request().postDataJSON(); providerWrites.push(input);
+            if(delayedProviderWrite) await delayedProviderWrite.promise;
             providerState = { ...providerState, provider: input.provider, model: input.model, openrouterConfigured: true, useLiveAI: input.useLiveAI };
             state = { ...state, textProvider: "openrouter", textModel: input.model, useLiveAI: input.useLiveAI, canUseLive: input.useLiveAI };
           }
           body = providerState;
         }
         else if (path === "/api/settings/provider-connections") {
-          if(route.request().method()==="POST"){const input=route.request().postDataJSON();connectionWrites.push(input);providerState.openrouterConfigured=!input.clearKey;}
-          body={geminiConfigured:state.keysCount>0,openrouterConfigured:providerState.openrouterConfigured,pollinationsConfigured:false};
+          if(route.request().method()==="POST"){
+            const input=route.request().postDataJSON();connectionWrites.push(input);
+            if (failConnection) { status=503; body={message:"Подключение временно недоступно"}; }
+            else if(input.provider==="gemini") state={...state,keysCount:input.clearKey?0:1,keysMasked:input.clearKey?[]:["••••fixture"]};
+            else { providerState.openrouterConfigured=!input.clearKey;state={...state,canUseLive:state.useLiveAI&&providerState.openrouterConfigured}; }
+          }
+          if(status===200)body={geminiConfigured:state.keysCount>0,openrouterConfigured:providerState.openrouterConfigured,pollinationsConfigured:false};
         }
         else if (path === "/api/settings/text-provider/models") body = { models: [] };
         else if (path === "/api/settings/visual-provider") body = { accountSource: "application", model: "flux", applicationModel: "flux", applicationConfigured: false, pollinationsConfigured: false };
@@ -98,9 +104,9 @@ async function main() {
       const save = page.getByRole("button", { name: "Сохранить настройки", exact: true });
       const limit = page.getByText("Flash · на модель в сутки", { exact: true }).locator("..").locator("input");
       const key = page.locator('input[aria-label="API-ключ Gemini"]:visible');
-      await expect(page.getByRole("button", { name: "Изменить рассказчика", exact: true })).toBeVisible();
+      await expect(page.getByRole("combobox", { name: "Провайдер рассказчика", exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Изменить иллюстрации", exact: true })).toBeVisible();
-      await page.getByText("Дополнительные настройки ИИ", {exact:true}).click();
+      await page.getByRole("button", { name: "Подключить Gemini", exact: true }).click();
       await page.getByText("Лимиты обращений к ИИ", {exact:true}).click();
       await limit.fill("30"); await save.focus(); await page.keyboard.press("Enter");
       await expect(save).toBeEnabled({ timeout: 2000 });
@@ -109,44 +115,109 @@ async function main() {
       expect(JSON.parse((await page.getAttribute("body", "data-accepted"))!)).toMatchObject({ dailyFlashLimit: 30 });
       checks.push(`${viewport.name}:one-post-canonical-no-refresh`);
       delayed = gate(); await limit.fill("31"); await key.fill("synthetic-secret-a"); await save.click(); await expect.poll(() => writes.length).toBe(2);
-      await limit.fill("32"); await key.fill("synthetic-secret-b"); delayed.open(); delayed = null;
-      await expect(save).toBeEnabled(); await expect(limit).toHaveValue("32"); await expect(key).toHaveValue("synthetic-secret-b");
+      await limit.fill("32"); await expect(key).toBeDisabled(); delayed.open(); delayed = null;
+      await expect(save).toBeEnabled(); await expect(limit).toHaveValue("32"); await expect(key).toHaveValue("");
       await expect(page.getByText("Сохранён отправленный вариант. Новые изменения ещё не сохранены.", { exact: true })).toBeVisible();
       checks.push(`${viewport.name}:newer-draft-survives`);
-      fail = true; await save.click(); await expect(save).toBeEnabled(); await expect(page.getByText("Сохранение временно недоступно", { exact: true })).toBeVisible();
+      expect(reads).toEqual(["/api/settings"]);
+      await key.fill("synthetic-secret-b");
+      await page.getByRole("combobox", { name: "Сохранить ключ Gemini", exact: true }).selectOption("replace");
+      failConnection = true; await save.click(); await expect(save).toBeEnabled(); await expect(page.getByText("Подключение временно недоступно", { exact: true })).toBeVisible();
       await expect(limit).toHaveValue("32"); await expect(key).toHaveValue("synthetic-secret-b");
+      expect(writes).toHaveLength(2);
+      failConnection = false; fail = true; await save.click(); await expect(save).toBeEnabled(); await expect(page.getByText("Сохранение временно недоступно", { exact: true })).toBeVisible();
+      await expect(limit).toHaveValue("32"); await expect(key).toHaveValue("");
       fail = false; await save.focus(); await page.keyboard.press("Enter"); await expect(key).toHaveValue(""); await expect(limit).toHaveValue("32");
-      expect(writes[2]).toEqual(writes[3]); expect(reads).toEqual([]); expect(writes).toHaveLength(4);
-      checks.push(`${viewport.name}:failure-retry-retains-key`);
+      await expect(save).toBeEnabled();
+      expect(writes[2]).toEqual(writes[3]); expect(reads).toEqual(["/api/settings", "/api/settings"]); expect(writes).toHaveLength(4);
+      expect(connectionWrites).toEqual([{provider:"gemini",apiKey:"synthetic-secret-a"},{provider:"gemini",apiKey:"synthetic-secret-b"},{provider:"gemini",apiKey:"synthetic-secret-b"}]);
+      checks.push(`${viewport.name}:connection-failure-retry-retains-key`, `${viewport.name}:partial-batch-keeps-saved-credential`);
+      // Replacement resets to appending; the editor stays locked until its canonical read completes.
+      delayedCanonicalRead=gate(); const readsBeforeAppend=reads.length;
+      await expect(page.getByRole("combobox",{name:"Сохранить ключ Gemini",exact:true})).toHaveValue("append");
+      await key.fill("synthetic-secret-extra");
+      await page.getByRole("button",{name:"Сохранить подключения",exact:true}).click();
+      await expect.poll(()=>reads.length).toBe(readsBeforeAppend+1);
+      await expect(key).toBeDisabled(); await expect(save).toBeDisabled();
+      await expect(page.getByRole("button",{name:"Вернуться",exact:true})).toBeDisabled();
+      await limit.fill("33");
+      delayedCanonicalRead.open();delayedCanonicalRead=null;
+      await expect(key).toBeEnabled();await expect(limit).toHaveValue("33");
+      expect(writes[4]).toEqual({keysText:"synthetic-secret-extra",append:true});
+      expect(JSON.parse((await page.getAttribute("body","data-accepted"))!).keysCount).toBe(2);
+      await limit.fill("32");
+      checks.push(`${viewport.name}:default-append-locks-until-canonical-and-keeps-unrelated-draft`);
+      const readsBeforeConnection=reads.length;
       await page.getByRole("button",{name:"Подключить OpenRouter",exact:true}).click();
       await page.getByLabel("API-ключ OpenRouter",{exact:true}).fill("synthetic-router-secret");
       await page.getByRole("button",{name:"Сохранить подключения",exact:true}).focus();await page.keyboard.press("Enter");
-      await expect.poll(()=>reads.length).toBe(1);
-      expect(connectionWrites).toEqual([{provider:"openrouter",apiKey:"synthetic-router-secret"}]);expect(providerWrites).toEqual([]);expect(writes).toHaveLength(4);
+      await expect.poll(()=>reads.length).toBe(readsBeforeConnection+1);
+      await expect(save).toBeEnabled();
+      expect(connectionWrites.at(-1)).toEqual({provider:"openrouter",apiKey:"synthetic-router-secret"});expect(connectionWrites).toHaveLength(4);expect(providerWrites).toEqual([]);expect(writes).toHaveLength(5);
       expect(await page.getAttribute("body","data-refreshes")).toBeNull();
       checks.push(`${viewport.name}:shared-credential-only-one-targeted-read`);
-      await page.getByRole("button",{name:"Изменить рассказчика",exact:true}).click();
       await page.getByRole("combobox", { name: "Провайдер рассказчика" }).selectOption("openrouter");
       await page.locator("#text-provider").getByText("Дополнительные настройки модели",{exact:true}).click();
       await page.getByLabel("Идентификатор модели рассказчика", { exact: true }).fill("vendor/new-model");
       await page.getByRole("switch", { name: "Живой рассказчик" }).click();
+      const readsBeforeProvider=reads.length;
       await save.click(); await expect(save).toBeEnabled();
-      expect(writes).toHaveLength(4); expect(providerWrites).toEqual([{ provider: "openrouter", model: "vendor/new-model", useLiveAI: true }]);
-      expect(reads).toEqual(["/api/settings", "/api/settings"]); expect(await page.getAttribute("body", "data-refreshes")).toBeNull();
+      expect(writes).toHaveLength(5); expect(providerWrites).toEqual([{ provider: "openrouter", model: "vendor/new-model", useLiveAI: true }]);
+      expect(reads.length).toBe(readsBeforeProvider+1); expect(await page.getAttribute("body", "data-refreshes")).toBeNull();
       expect(JSON.parse((await page.getAttribute("body", "data-accepted"))!)).toMatchObject({ textProvider: "openrouter", textModel: "vendor/new-model", canUseLive: true });
       checks.push(`${viewport.name}:provider-only-one-targeted-read`);
+      await page.getByRole("button", { name: "Изменить Gemini", exact: true }).click();
+      delayedProviderWrite=gate(); const postsBeforeStandalone=providerWrites.length;
       delayedCanonicalRead = gate();
       const readsBeforeStandalone = reads.length;
       await page.getByLabel("Идентификатор модели рассказчика", { exact: true }).fill("vendor/standalone-model");
       await page.getByRole("button", { name: "Сохранить рассказчика", exact: true }).click();
+      await expect.poll(()=>providerWrites.length).toBe(postsBeforeStandalone+1);
+      await expect(page.getByRole("button", { name: "Удалить ключ 1", exact: true })).toBeDisabled();
+      await expect(key).toBeDisabled();
+      delayedProviderWrite.open(); delayedProviderWrite=null;
       await expect.poll(() => reads.length).toBe(readsBeforeStandalone + 1);
       const keysBeforeDelete = state.keysCount;
+      await expect(page.getByRole("button", { name: "Удалить ключ 1", exact: true })).toBeDisabled();
+      delayedCanonicalRead.open(); delayedCanonicalRead = null;
+      await expect(save).toBeEnabled();
       await page.getByRole("button", { name: "Удалить ключ 1", exact: true }).click();
       await expect.poll(async () => JSON.parse((await page.getAttribute("body", "data-accepted"))!).keysCount).toBe(keysBeforeDelete - 1);
-      delayedCanonicalRead.open(); delayedCanonicalRead = null;
-      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       expect(JSON.parse((await page.getAttribute("body", "data-accepted"))!).keysCount).toBe(keysBeforeDelete - 1);
-      checks.push(`${viewport.name}:standalone-provider-read-cannot-undo-key-removal`);
+      checks.push(`${viewport.name}:standalone-provider-read-serializes-key-removal`);
+      // A successful mutation followed by a failed canonical GET cannot expose stale readiness or resend the secret on retry.
+      await expect(save).toBeEnabled();
+      failCanonical=true;
+      const connectionReads=reads.length, connectionPosts=connectionWrites.length;
+      await page.getByRole("button",{name:"Изменить OpenRouter",exact:true}).click();
+      await page.getByRole("button",{name:"Отключить OpenRouter",exact:true}).click();
+      await page.getByRole("button",{name:"Отключить при сохранении",exact:true}).click();
+      await page.getByRole("button",{name:"Сохранить подключения",exact:true}).click();
+      await expect.poll(()=>reads.length).toBe(connectionReads+1);
+      await expect(save).toBeDisabled();
+      await expect(page.getByRole("button",{name:"Вернуться",exact:true})).toBeDisabled();
+      await expect(page.getByLabel("API-ключ OpenRouter",{exact:true})).toBeDisabled();
+      await expect(page.getByRole("combobox",{name:"Провайдер рассказчика",exact:true})).toBeDisabled();
+      const retryCanonical=page.getByRole("button",{name:"Повторить загрузку настроек",exact:true});
+      await expect(retryCanonical).toBeVisible();
+      expect(JSON.parse((await page.getAttribute("body","data-accepted"))!).canUseLive).toBe(false);
+      expect(connectionWrites).toHaveLength(connectionPosts+1);
+      failCanonical=false;await retryCanonical.click();await expect(save).toBeEnabled();
+      expect(reads).toHaveLength(connectionReads+2);expect(connectionWrites).toHaveLength(connectionPosts+1);
+      expect(JSON.parse((await page.getAttribute("body","data-accepted"))!).canUseLive).toBe(false);
+      checks.push(`${viewport.name}:failed-connection-canonical-read-blocks-close-and-retries-without-write`);
+      failCanonical=true;
+      const narratorReads=reads.length,narratorPosts=providerWrites.length;
+      await page.getByRole("switch",{name:"Живой рассказчик",exact:true}).click();
+      await page.getByRole("button",{name:"Сохранить рассказчика",exact:true}).click();
+      await expect.poll(()=>reads.length).toBe(narratorReads+1);
+      await expect(retryCanonical).toBeVisible();await expect(save).toBeDisabled();
+      await expect(page.getByRole("button",{name:"Вернуться",exact:true})).toBeDisabled();
+      failCanonical=false;await retryCanonical.click();await expect(save).toBeEnabled();
+      expect(reads).toHaveLength(narratorReads+2);expect(providerWrites).toHaveLength(narratorPosts+1);
+      expect(JSON.parse((await page.getAttribute("body","data-accepted"))!).useLiveAI).toBe(false);
+      checks.push(`${viewport.name}:failed-narrator-canonical-read-retries-without-mutation`);
+      await page.getByRole("button",{name:"Изменить Gemini",exact:true}).click();
       // Keep geometry evidence even on CI platforms whose system font differs.
       if (diagnosticFont) await page.evaluate(font => document.documentElement.style.setProperty("--font", font), diagnosticFont);
       for (const width of viewport.name === "mobile" ? [390, 320] : [viewport.width]) {

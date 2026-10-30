@@ -39,7 +39,7 @@ async function main() {
     import React,{useCallback,useState} from "react";import {createRoot} from "react-dom/client";
     import {FixtureApp} from "fixture:app";import {TextProviderSettings} from "./src/components/text-provider-settings";
     import {SettingsPanel} from "./src/components/settings-panel"; import {DeveloperSettings} from "./src/components/developer-settings";
-    function ProviderFixture(){const [dirty,setDirty]=useState(false);const [saved,setSaved]=useState([]);const ready=useCallback(()=>{},[]);return <><TextProviderSettings onDirtyChange={setDirty} onSaveReady={ready} onSaved={value=>setSaved(old=>[...old,value])}/><output aria-label="Черновик">{dirty?'изменён':'сохранён'}</output><output aria-label="События сохранения">{JSON.stringify(saved)}</output></>}
+    function ProviderFixture(){const [dirty,setDirty]=useState(false);const [saved,setSaved]=useState([]);const ready=useCallback(()=>{},[]);return <><TextProviderSettings geminiModels={${JSON.stringify(initialSettings)}} onGeminiModelChange={ready} onDirtyChange={setDirty} onSaveReady={ready} onSaved={value=>setSaved(old=>[...old,value])}/><output aria-label="Черновик">{dirty?'изменён':'сохранён'}</output><output aria-label="События сохранения">{JSON.stringify(saved)}</output></>}
     createRoot(document.getElementById('root')).render(location.pathname==='/provider'?<ProviderFixture/>:<FixtureApp><nav aria-label="Переходы фикстуры"><a href="/">Главная</a><a href="/overview">Обзор</a><a href="/campaigns">Мои кампании</a></nav>{location.pathname==='/developer'?<DeveloperSettings returnLabel="Назад к настройкам" onClose={()=>{document.body.dataset.closed='yes'}}/>:<SettingsPanel {...(location.pathname==='/standalone'?{}:{onClose:()=>{document.body.dataset.closed='yes'},returnLabel:'Вернуться в историю'})}/>}</FixtureApp>);
   `, resolveDir: process.cwd(), loader: "tsx" }, bundle: true, write: false, outfile: "fixture.js", platform: "browser", jsx: "automatic", tsconfig: "tsconfig.json", define: { "process.env.NODE_ENV": '"production"' }, plugins: [{ name: "settings-environment", setup(build) {
     build.onResolve({ filter: /(?:^|\/)app-shell$|^fixture:app$/ }, () => ({ path: "app-shell", namespace: "fixture" }));
@@ -82,7 +82,6 @@ async function main() {
         await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
       });
       await page.goto(`${base}/provider`);
-      await page.getByRole("button", { name: "Изменить рассказчика", exact: true }).click();
       const provider = page.getByRole("combobox", { name: "Провайдер рассказчика" });
       await expect(provider).toHaveValue("gemini");
       await provider.focus(); await page.keyboard.press("Home"); await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
@@ -109,7 +108,7 @@ async function main() {
       await expect(page.getByLabel("События сохранения")).toHaveText("[false]");
       const expectedRouter = { provider: "openrouter", model: "vendor/draft", useLiveAI: true };
       expect(providerWrites).toEqual([expectedRouter, expectedRouter, expectedRouter]);
-      await page.reload(); await page.getByRole("button", { name: "Изменить рассказчика", exact: true }).click();
+      await page.reload();
       await expect(provider).toHaveValue("openrouter");
       await page.getByText("Дополнительные настройки модели", { exact: true }).click();
       await expect(model).toHaveValue("vendor/canonical");
@@ -125,9 +124,17 @@ async function main() {
       const firstSave = gate();
       let settingsState = { ...initialSettings };
       const settingsWrites: Record<string, unknown>[] = [];
+      const connectionWrites: Record<string, unknown>[] = [];
       await panel.route("**/api/**", async route => {
         const url = new URL(route.request().url()); let body: unknown; let status = 200;
-        if (url.pathname === "/api/settings/provider-connections") body = { geminiConfigured: false, openrouterConfigured: false, pollinationsConfigured: false };
+        if (url.pathname === "/api/settings/provider-connections") {
+          if (route.request().method() === "POST") {
+            connectionWrites.push(route.request().postDataJSON());
+            if (connectionWrites.length === 2) { status = 503; body = { message: "Подключение временно недоступно" }; }
+            else settingsState = { ...settingsState, keysCount: 1, keysMasked: [connectionWrites.length === 1 ? "••••draft-a" : "••••draft-b"] };
+          }
+          if (status === 200) body = { geminiConfigured: settingsState.keysCount > 0, openrouterConfigured: false, pollinationsConfigured: false };
+        }
         else if (url.pathname === "/api/settings/text-provider") body = emptyProvider;
         else if (url.pathname === "/api/settings/visual-provider") body = { accountSource: "application", model: "fixture/image", applicationModel: "fixture/image", applicationConfigured: false, pollinationsConfigured: false };
         else if (url.pathname === "/api/settings/pollinations/connect") body = { available: false };
@@ -139,11 +146,11 @@ async function main() {
             settingsWrites.push(route.request().postDataJSON());
             if (settingsWrites.length === 1) {
               await firstSave.promise;
-              settingsState = { ...initialSettings, dailyFlashLimit: 30, keysCount: 1, keysMasked: ["••••draft-a"] };
+              settingsState = { ...settingsState, dailyFlashLimit: 30 };
               body = { ok: true, ...settingsState };
             } else if (settingsWrites.length === 2) { status = 503; body = { code: "UNAVAILABLE", message: "Общие настройки временно недоступны" }; }
             else if (settingsWrites.length === 3) {
-              settingsState = { ...initialSettings, dailyFlashLimit: 41, keysCount: 2, keysMasked: ["••••draft-a", "••••draft-b"] };
+              settingsState = { ...settingsState, dailyFlashLimit: 41 };
               body = { ok: true, ...settingsState };
             } else { unexpected.push("extra settings write"); status = 500; body = {}; }
           }
@@ -151,8 +158,8 @@ async function main() {
         await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
       });
       await panel.goto(`${base}/panel`);
-      await expect(panel.getByRole("button", { name: "Изменить рассказчика" })).toBeVisible();
-      await panel.getByText("Дополнительные настройки ИИ", { exact: true }).click();
+      await expect(panel.getByRole("combobox", { name: "Провайдер рассказчика" })).toBeVisible();
+      await panel.getByRole("button", { name: "Подключить Gemini", exact: true }).click();
       await panel.getByText("Лимиты обращений к ИИ", { exact: true }).click();
       const limit = panel.getByRole("spinbutton", { name: "Flash · на модель в сутки", exact: true });
       const gemini = panel.locator('input[aria-label="API-ключ Gemini"]:visible');
@@ -165,30 +172,39 @@ async function main() {
       await expect.poll(() => settingsWrites.length).toBe(1);
       await expect(saveAll).toBeDisabled();
       await panel.getByRole("button", { name: "Продолжить редактирование", exact: true }).click();
-      await limit.fill("41"); await gemini.fill("synthetic-gemini-draft-b");
+      await limit.fill("41"); await expect(gemini).toBeDisabled();
       await panel.screenshot({ path: `${output}/${viewport.name}-panel-newer-draft.png`, fullPage: true });
       firstSave.open(); await expect(saveAll).toBeEnabled();
-      await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("synthetic-gemini-draft-b");
+      await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("");
       await expect(panel.getByText("••••draft-a", { exact: true })).toBeVisible();
       await expect(panel.getByText("Сохранён отправленный вариант. Новые изменения ещё не сохранены.", { exact: true })).toBeVisible();
       await expect(panel.getByText("Настройки сохранены.", { exact: true })).toHaveCount(0);
       await expect(panel.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true })).toHaveCount(0);
       expect(await panel.getAttribute("body", "data-closed")).toBeNull();
+      await gemini.fill("synthetic-gemini-draft-b");
+      await panel.getByRole("combobox", { name: "Сохранить ключ Gemini", exact: true }).selectOption("replace");
+      await saveAll.click();
+      await expect(panel.getByText("Подключение временно недоступно", { exact: true })).toBeVisible();
+      await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("synthetic-gemini-draft-b");
+      expect(settingsWrites).toHaveLength(1);
       await saveAll.click();
       await expect(panel.getByText("Общие настройки временно недоступны", { exact: true })).toBeVisible();
-      await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("synthetic-gemini-draft-b");
+      await expect(saveAll).toBeEnabled();
+      await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("");
+      await expect(panel.getByText("••••draft-b", { exact: true })).toBeVisible();
       await saveAll.focus(); await panel.keyboard.press("Enter");
       await expect(panel.getByText("••••draft-b", { exact: true })).toBeVisible();
       await expect(limit).toHaveValue("41"); await expect(gemini).toHaveValue("");
       const generalSettings = Object.fromEntries(Object.entries(initialSettings).filter(([key]) => key !== "useLiveAI"));
-      const submittedA = { ...generalSettings, dailyFlashLimit: 30, keysText: "synthetic-gemini-draft-a", append: true };
-      const submittedB = { ...generalSettings, dailyFlashLimit: 41, keysCount: 1, keysMasked: ["••••draft-a"], keysText: "synthetic-gemini-draft-b", append: true };
-      expect(settingsWrites).toEqual([submittedA, submittedB, submittedB]);
+      const submittedA = { ...generalSettings, dailyFlashLimit: 30 };
+      const submittedB = { ...generalSettings, dailyFlashLimit: 41, keysCount: 1, keysMasked: ["••••draft-a"] };
+      expect(settingsWrites).toEqual([submittedA, submittedB, { ...submittedB, keysMasked: ["••••draft-b"] }]);
+      expect(connectionWrites).toEqual([{ provider: "gemini", apiKey: "synthetic-gemini-draft-a" }, { provider: "gemini", apiKey: "synthetic-gemini-draft-b" }, { provider: "gemini", apiKey: "synthetic-gemini-draft-b" }]);
       expect(unexpected).toEqual([]);
       expect(await panel.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await panel.screenshot({ path: `${output}/${viewport.name}-panel-saved.png`, fullPage: true });
-      checks.push(`${viewport.name}:panel-stale-success-retains`, `${viewport.name}:panel-dirty-close-guard`, `${viewport.name}:panel-503-retains`, `${viewport.name}:panel-keyboard-retry-canonical`, `${viewport.name}:panel-no-overflow`);
-      console.log(`${viewport.name} SettingsPanel: 5 checks passed, 3 exact POST payloads`);
+      checks.push(`${viewport.name}:panel-stale-success-retains`, `${viewport.name}:panel-dirty-close-guard`, `${viewport.name}:connection-503-retains-key`, `${viewport.name}:partial-batch-refreshes-saved-key`, `${viewport.name}:panel-keyboard-retry-canonical`, `${viewport.name}:panel-no-overflow`);
+      console.log(`${viewport.name} SettingsPanel: 6 checks passed, 3 exact settings and 3 exact credential POST payloads`);
       await panel.close();
 
       const crossSection = await browser.newPage({ viewport, reducedMotion: "reduce" }); active = crossSection; watch(crossSection);
@@ -213,7 +229,6 @@ async function main() {
         await route.fulfill({ json: body });
       });
       await crossSection.goto(`${base}/panel`);
-      await crossSection.getByRole("button", { name: "Изменить рассказчика" }).click();
       const crossModel = crossSection.locator('#text-provider input[type="radio"][value="vendor/text-a"]');
       await expect(crossModel).toBeChecked();
       await crossSection.locator('#text-provider input[type="radio"][value="vendor/text-b"]').check();
@@ -224,13 +239,15 @@ async function main() {
       await expect.poll(() => imageSaveHeld).toBe(true);
       expect(crossNarrator.model).toBe("vendor/text-b");
       await crossSection.getByRole("button", { name: "Продолжить редактирование", exact: true }).click();
-      await crossSection.getByRole("button", { name: "Изменить рассказчика" }).click();
-      await crossModel.check();
+      await expect(crossModel).toBeDisabled();
+      await crossSection.getByText("Лимиты обращений к ИИ", { exact: true }).click();
+      const concurrentLimit = crossSection.getByRole("spinbutton", { name: "Flash · на модель в сутки", exact: true });
+      await concurrentLimit.fill("37");
       await crossSection.screenshot({ path: `${output}/${viewport.name}-cross-section-newer-draft.png`, fullPage: true });
       imageSave.open();
       await expect(crossSection.getByRole("button", { name: "Сохранить настройки", exact: true })).toBeEnabled();
-      await expect(crossModel).toBeChecked();
-      expect(await crossSection.getAttribute("body", "data-closed"), "Late narrator edits while the image save is pending must keep the settings open").toBeNull();
+      await expect(crossModel).not.toBeChecked(); await expect(concurrentLimit).toHaveValue("37");
+      expect(await crossSection.getAttribute("body", "data-closed"), "Late quota edits while the image save is pending must keep the settings open").toBeNull();
       await expect(crossSection.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true })).toHaveCount(0);
       checks.push(`${viewport.name}:cross-section-late-edit-keeps-save-and-return-open`);
       await crossSection.goto(`${base}/panel?keep=fixture&pollinations=cancelled#text-provider`);

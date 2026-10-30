@@ -3,9 +3,9 @@ import { installUiMock, mockSessionId, mockSnapshot, settings as mockSettings } 
 import { mkdir } from "node:fs/promises";
 import assert from "node:assert/strict";
 
-async function openAdvanced(scope: Page | Locator) {
-  const summary=scope.getByText("Дополнительные настройки ИИ",{exact:true});
-  if(await summary.locator("..").getAttribute("open")===null)await summary.click();
+async function openGeminiConnection(scope: Page | Locator) {
+  const toggle = scope.getByRole("button", { name: /^(Подключить|Изменить|Заменить ключ) Gemini$/ });
+  if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click();
 }
 async function checkHelp(page: Page, scope: Page | Locator, title: string) {
   const trigger = scope.getByRole("button", { name: `Справка: ${title}`, exact: true });
@@ -37,7 +37,7 @@ async function main() {
     await retryPage.locator("#profile").getByRole("button", { name: "Сохранить", exact: true }).click();
     await expect(retryPage.getByText("Имя профиля сохранено", { exact: true })).toBeVisible();
     await expect(retryPage.getByText("Не удалось сохранить имя: проверка повтора", { exact: true })).toHaveCount(0);
-    await retryPage.getByRole("button", { name: "Изменить рассказчика", exact: true }).click();
+    await expect(retryPage.getByRole("combobox", { name: "Провайдер рассказчика", exact: true })).toBeVisible();
     await retryPage.getByLabel("Профиль Gemini", { exact: true }).selectOption("economy");
     let failGemini = true;
     await retryPage.route("**/api/settings", route => {
@@ -105,7 +105,7 @@ async function main() {
     await expect(page.locator("#action-input")).toHaveValue("Мой несохранённый замысел");
     await expect(page.getByRole("button", { name: "Выйти из режима чтения" })).toBeVisible();
     await page.locator(".bottom-settings").click();
-    await openAdvanced(settings);
+    await openGeminiConnection(settings);
     await settings.locator('input[aria-label="API-ключ Gemini"]:visible').fill("unsaved-test-key");
     await settings.getByRole("button", { name: "Вернуться в игру", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true })).toBeVisible();
@@ -138,6 +138,12 @@ async function main() {
     await creator.getByRole("button", { name: "Далее: герой и правила" }).click();
     await expect(creator.getByLabel("Роль", { exact: true })).toHaveValue("");
     await creator.getByLabel("Имя героя").fill("Вера");
+    await page.route("**/api/story-drafts/autofill", route => {
+      const { draft } = route.request().postDataJSON();
+      expect(draft.title).toBe("Мой бережно сохранённый мир");
+      expect(draft.name).toBe("Вера");
+      return route.fulfill({ status: 409, json: { code: "AI_REQUIRED", message: "Подключите и включите рассказчика." } });
+    });
     await creator.getByRole("button", { name: "Заполнить пустые поля" }).click();
     await expect(settings).toBeVisible();
     await expect(creator).toBeHidden();
@@ -162,14 +168,19 @@ async function main() {
     const overlayWrites: Record<string, unknown>[] = [];
     const overlayErrors: string[] = [];
     overlayHistoryPage.on("pageerror", error => overlayErrors.push(error.message));
-    await overlayHistoryPage.route("**/api/settings", async route => {
+    await overlayHistoryPage.route("**/api/settings", route => {
+      if (route.request().method() === "GET") return route.fulfill({ json: overlaySavedSettings });
+      return route.fallback();
+    });
+    await overlayHistoryPage.route("**/api/settings/provider-connections", async route => {
       const method = route.request().method();
-      if (method === "GET") return route.fulfill({ json: overlaySavedSettings });
+      const connections = () => ({ geminiConfigured: overlaySavedSettings.keysCount > 0, openrouterConfigured: false, pollinationsConfigured: false });
+      if (method === "GET") return route.fulfill({ json: connections() });
       if (method !== "POST") return route.fallback();
       overlayWrites.push(route.request().postDataJSON());
       if (overlaySaveFails) return route.fulfill({ status: 503, json: { error: "Синтетическая ошибка сохранения" } });
       overlaySavedSettings = { ...overlaySavedSettings, keysCount: 1, keysMasked: ["••••-key"] };
-      return route.fulfill({ json: overlaySavedSettings });
+      return route.fulfill({ json: connections() });
     });
     await overlayHistoryPage.goto(`${base}/play/${mockSessionId}`);
     await overlayHistoryPage.locator("#action-input").fill("Замысел остаётся в игре");
@@ -182,8 +193,9 @@ async function main() {
     await expect(overlayHistoryPage.locator("#action-input")).toHaveValue("Замысел остаётся в игре");
     await expect.poll(() => overlayHistoryPage.evaluate(() => Boolean(history.state?.chronicleSettingsOverlay || history.state?.chronicleDirtyGuard))).toBe(false);
     await overlayHistoryPage.locator(".bottom-settings").click();
-    await openAdvanced(overlaySettings);
+    await openGeminiConnection(overlaySettings);
     await overlaySettings.locator('input[aria-label="API-ключ Gemini"]:visible').fill("overlay-dirty-key");
+    await expect.poll(() => overlayHistoryPage.evaluate(() => Boolean(history.state?.chronicleDirtyGuard))).toBe(true);
     await overlayHistoryPage.evaluate(() => history.back());
     await expect(overlayHistoryPage.getByRole("dialog", { name: "Есть несохранённые изменения", exact: true })).toBeVisible();
     await overlayHistoryPage.getByRole("button", { name: "Выйти без сохранения" }).click();
@@ -192,10 +204,11 @@ async function main() {
     await expect(overlayHistoryPage.locator("#action-input")).toHaveValue("Замысел остаётся в игре");
     await expect.poll(() => overlayHistoryPage.evaluate(() => Boolean(history.state?.chronicleSettingsOverlay || history.state?.chronicleDirtyGuard))).toBe(false);
     await overlayHistoryPage.locator(".bottom-settings").click();
-    await openAdvanced(overlaySettings);
+    await openGeminiConnection(overlaySettings);
     await overlaySettings.locator('input[aria-label="API-ключ Gemini"]:visible').fill("overlay-save-key");
+    await expect.poll(() => overlayHistoryPage.evaluate(() => Boolean(history.state?.chronicleDirtyGuard))).toBe(true);
     await overlayHistoryPage.evaluate(() => history.back());
-    const failedSave = overlayHistoryPage.waitForResponse(response => new URL(response.url()).pathname === "/api/settings" && response.request().method() === "POST");
+    const failedSave = overlayHistoryPage.waitForResponse(response => new URL(response.url()).pathname === "/api/settings/provider-connections" && response.request().method() === "POST");
     await overlayHistoryPage.getByRole("button", { name: "Сохранить и выйти" }).click();
     const rejectedSave = await failedSave;
     assert.equal(rejectedSave.status(), 503);
@@ -205,9 +218,9 @@ async function main() {
     await expect(overlaySettings).toBeVisible();
     await expect(overlaySettings.locator('input[aria-label="API-ключ Gemini"]:visible')).toHaveValue("overlay-save-key");
     await expect(overlayHistoryPage.getByRole("button", { name: "Сохранить и выйти" })).toBeEnabled();
-    assert.deepEqual(overlayWrites.map(payload => ({ keysText: payload.keysText, append: payload.append })), [{ keysText: "overlay-save-key", append: true }]);
+    assert.deepEqual(overlayWrites, [{ provider: "gemini", apiKey: "overlay-save-key" }]);
     overlaySaveFails = false;
-    const successfulSave = overlayHistoryPage.waitForResponse(response => new URL(response.url()).pathname === "/api/settings" && response.request().method() === "POST");
+    const successfulSave = overlayHistoryPage.waitForResponse(response => new URL(response.url()).pathname === "/api/settings/provider-connections" && response.request().method() === "POST");
     await overlayHistoryPage.getByRole("button", { name: "Сохранить и выйти" }).click();
     const acceptedSave = await successfulSave;
     assert.equal(acceptedSave.status(), 200);
@@ -216,11 +229,11 @@ async function main() {
     await expect(overlayHistoryPage).toHaveURL(`${base}/play/${mockSessionId}`);
     await expect(overlayHistoryPage.locator("#action-input")).toHaveValue("Замысел остаётся в игре");
     await expect.poll(() => overlayHistoryPage.evaluate(() => Boolean(history.state?.chronicleSettingsOverlay || history.state?.chronicleDirtyGuard))).toBe(false);
-    assert.deepEqual(overlayWrites.map(payload => ({ keysText: payload.keysText, append: payload.append })), [
-      { keysText: "overlay-save-key", append: true }, { keysText: "overlay-save-key", append: true },
+    assert.deepEqual(overlayWrites, [
+      { provider: "gemini", apiKey: "overlay-save-key" }, { provider: "gemini", apiKey: "overlay-save-key" },
     ]);
     await overlayHistoryPage.locator(".bottom-settings").click();
-    await openAdvanced(overlaySettings);
+    await openGeminiConnection(overlaySettings);
     await expect(overlaySettings.locator(".saved-key code")).toHaveText("••••-key");
     await expect(overlaySettings.locator('input[aria-label="API-ключ Gemini"]:visible')).toHaveValue("");
     await overlaySettings.getByRole("button", { name: "Вернуться в игру", exact: true }).click();
@@ -252,7 +265,7 @@ async function main() {
     await typeSafePage.close();
 
     const formPage = await browser.newPage();
-    await installUiMock(formPage, { initialSettings: { ...mockSettings, useLiveAI: true, keysCount: 1 } });
+    await installUiMock(formPage, { initialSettings: { ...mockSettings, useLiveAI: true, canUseLive: true, keysCount: 1 } });
     let generationCalls = 0;
     let release!: () => void;
     await formPage.route("**/api/story-drafts/autofill", async route => {
@@ -282,7 +295,7 @@ async function main() {
     await historyPage.goto(base);
     await historyPage.locator(".bottom-settings").click();
     await expect(historyPage).toHaveURL(`${base}/settings`);
-    await openAdvanced(historyPage);
+    await openGeminiConnection(historyPage);
     for (const value of ["first-cycle", "second-cycle"]) {
       await historyPage.locator('input[aria-label="API-ключ Gemini"]:visible').fill(value);
       await historyPage.locator('input[aria-label="API-ключ Gemini"]:visible').fill("");
@@ -292,8 +305,9 @@ async function main() {
     await expect(historyPage).toHaveURL(`${base}/`);
     await historyPage.locator(".bottom-settings").click();
     await expect(historyPage).toHaveURL(`${base}/settings`);
-    await openAdvanced(historyPage);
+    await openGeminiConnection(historyPage);
     await historyPage.locator('input[aria-label="API-ключ Gemini"]:visible').fill("unsaved-back-key");
+    await expect.poll(() => historyPage.evaluate(() => Boolean(history.state?.chronicleDirtyGuard))).toBe(true);
     await historyPage.evaluate(() => history.back());
     await expect(historyPage.getByText("Есть несохранённые изменения", { exact: true })).toBeVisible();
     await historyPage.getByRole("button", { name: "Продолжить редактирование" }).click();

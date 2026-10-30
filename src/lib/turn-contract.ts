@@ -19,3 +19,5 @@ export const TURN_STAGE_LABELS: Record<TurnStage, string> = {
   context: "Вспоминаем мир и проверяем действие", generation: "Рассказчик готовит продолжение", checking: "Сверяем рассказ с событиями", applying: "Проверяем и сохраняем последствия", completed: "Ход сохранён", failed: "Ход не применён",
 };
 export type TurnRequestView = { requestId: string; status: "running" | "completed" | "failed"; stage: TurnStage; baseTurn: number; retryAfter: number; error: string | null; result: TurnResponse | null };
+/** A status poll may reach an owned campaign before its POST is admitted. */
+export type TurnRequestStatus = TurnRequestView | { requestId: string; status: "not_accepted" };

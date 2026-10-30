@@ -255,12 +255,14 @@ test("unrelated general settings save preserves Live preference after shared cre
       assert.deepEqual((await f.pg.query("SELECT use_live_ai,enforce_limits FROM ai_settings WHERE id=$1", [owner])).rows[0], { use_live_ai: true, enforce_limits: false });
       const explicitEnable = await post({ useLiveAI: true });
       assert.equal(explicitEnable.status, 200);
-      assert.equal((await explicitEnable.json()).useLiveAI, false, "an explicit enable still requires the selected service credential");
+      const pending = await explicitEnable.json();
+      assert.equal(pending.useLiveAI, true);
+      assert.equal(pending.canUseLive, false, "a saved preference cannot make calls without a credential");
     }
   } finally { await f.close(); }
 });
 
-test("general settings explicit Gemini key replacement and removal retain their legacy Live guards", async () => {
+test("general settings explicit Gemini key replacement and removal preserve intent and guard readiness", async () => {
   const f = await accountsDb();
   process.env.CHRONICLE_SECRET_KEYS = JSON.stringify({ test: Buffer.alloc(32, 42).toString("base64") });
   process.env.CHRONICLE_SECRET_ACTIVE_KEY = "test";
@@ -275,10 +277,10 @@ test("general settings explicit Gemini key replacement and removal retain their 
       const removed = await post(removal);
       assert.equal(removed.status, 200);
       const view = await removed.json();
-      assert.equal(view.useLiveAI, false);
+      assert.equal(view.useLiveAI, true);
       assert.equal(view.keysCount, 0);
       assert.equal(view.canUseLive, false);
-      assert.equal((await f.pg.query<{ use_live_ai: boolean }>("SELECT use_live_ai FROM ai_settings WHERE id=$1", [owner])).rows[0].use_live_ai, false);
+      assert.equal((await f.pg.query<{ use_live_ai: boolean }>("SELECT use_live_ai FROM ai_settings WHERE id=$1", [owner])).rows[0].use_live_ai, true);
     }
   } finally { delete process.env.CHRONICLE_SECRET_KEYS; delete process.env.CHRONICLE_SECRET_ACTIVE_KEY; await f.close(); }
 });

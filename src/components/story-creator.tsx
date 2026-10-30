@@ -4,14 +4,14 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, BookOpen, Check, Dices, Feather, Globe2, LoaderCircle, MapPin, ShieldCheck, Sparkles, UserRound, Zap } from "lucide-react";
 import { Dialog } from "./dialog";
-import { api, jsonBody } from "@/lib/api-client";
+import { api, ApiError, jsonBody } from "@/lib/api-client";
 import { WORLDS, ART, coverFor, PROFILE_LABELS, PROFILE_DESCRIPTIONS, type Session } from "@/lib/ui-data";
 import { ARCHETYPES, TONE_PRESETS } from "@/lib/scenarios";
 import { canApplyStoryDraftPatch, storyDraftCreationError, type StoryTextField, type StoryDraft, type StoryDraftPatch } from "@/lib/story-draft";
-
-const INITIAL_FORM: StoryDraft = { title: "", worldName: "", pitch: "", era: "", tone: "", mainQuest: "", startLocation: "", name: "", archetype: "", backstory: "", skills: "", startItems: "", rulesProfile: "narrative" };
+import { INITIAL_STORY_FORM, creatorDraftKey, parseCreatorDraft, saveCreatorDraft } from "@/lib/creator-draft";
 
 type StoryCreatorProps = {
+  profileId: string;
   initialScenario?: string;
   initialMode: "preset" | "free";
   onClose: () => void;
@@ -21,7 +21,7 @@ type StoryCreatorProps = {
   suspended?: boolean;
 };
 
-export function StoryCreator({ initialScenario, initialMode, onClose, onCreated, live, onSettings, suspended = false }: StoryCreatorProps) {
+export function StoryCreator({ profileId, initialScenario, initialMode, onClose, onCreated, live, onSettings, suspended = false }: StoryCreatorProps) {
   const router = useRouter();
   const [mode, setMode] = useState(initialMode);
   const [scenarioId, setScenarioId] = useState(initialScenario ?? WORLDS[0].id);
@@ -32,7 +32,11 @@ export function StoryCreator({ initialScenario, initialMode, onClose, onCreated,
   const [busy, setBusy] = useState(false);
   const [autofillBusy, setAutofillBusy] = useState(false);
   const [error, setError] = useState("");
-  const [form, setForm] = useState<StoryDraft>(INITIAL_FORM);
+  const [form, setForm] = useState<StoryDraft>(INITIAL_STORY_FORM);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftError, setDraftError] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const formRef = useRef(form);
   const mounted = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -43,6 +47,37 @@ export function StoryCreator({ initialScenario, initialMode, onClose, onCreated,
     });
   }, [form, step, mode]);
   const modeRef = useRef(mode);
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      try {
+        const saved = parseCreatorDraft(localStorage.getItem(creatorDraftKey(initialMode)), profileId, initialMode);
+        if (saved && (!initialScenario || saved.scenarioId === initialScenario)) {
+          const world = WORLDS.find(item => item.id === saved.scenarioId);
+          if (world) { setScenarioId(world.id); setCharacterIndex(Math.min(saved.characterIndex, world.characters.length - 1)); }
+          setStep(saved.step); setStoryKind(saved.storyKind); setPublished(saved.published);
+          setForm(saved.form); formRef.current = saved.form;
+        }
+      } catch { setDraftError(true); }
+      setDraftLoaded(true);
+    });
+    return () => { active = false; };
+  }, [profileId, initialMode, initialScenario]);
+  useEffect(() => {
+    if (!draftLoaded) return;
+    try {
+      saveCreatorDraft(localStorage, { profileId, mode, scenarioId, characterIndex, step, storyKind, published, form });
+      // Storage failures are exceptional; defer feedback to avoid effect update loops.
+      void Promise.resolve().then(() => setDraftError(false));
+    } catch { void Promise.resolve().then(() => setDraftError(true)); }
+  }, [draftLoaded, profileId, mode, scenarioId, characterIndex, step, storyKind, published, form]);
+  useEffect(() => {
+    if (!draftError) return;
+    const guard = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [draftError]);
   const autofillRequestRef = useRef(0);
   const autofillAbortRef = useRef<AbortController | null>(null);
   const autofillLockedRef = useRef(false);
@@ -63,20 +98,27 @@ export function StoryCreator({ initialScenario, initialMode, onClose, onCreated,
     });
   };
   const changeMode = (next: "preset" | "free") => {
+    if (next === mode) return;
     cancelAutofill();
     modeRef.current = next;
+    try {
+      const saved = parseCreatorDraft(localStorage.getItem(creatorDraftKey(next)), profileId, next);
+      if (saved) {
+        const world = WORLDS.find(item => item.id === saved.scenarioId);
+        if (world) { setScenarioId(world.id); setCharacterIndex(Math.min(saved.characterIndex, world.characters.length - 1)); }
+        setStep(saved.step); setStoryKind(saved.storyKind); setPublished(saved.published);
+        setForm(saved.form); formRef.current = saved.form;
+      }
+    } catch { setDraftError(true); }
     setMode(next);
     setError("");
   };
-  const close = () => { cancelAutofill(); onClose(); };
+  const close = () => { if (draftError) { setConfirmDiscard(true); return; } cancelAutofill(); onClose(); };
   useEffect(() => () => { autofillRequestRef.current += 1; autofillAbortRef.current?.abort(); }, []);
   const autofill = async () => {
     if (busy || autofillLockedRef.current) return;
-    if (!live) {
-      setError("Для автозаполнения подключите и включите провайдера рассказчика в настройках.");
-      onSettings?.();
-      return;
-    }
+    // The server checks current credentials before quota/provider work. A stale
+    // bootstrap (for example after another tab saves a key) must not block it.
     const requestId = autofillRequestRef.current + 1;
     autofillRequestRef.current = requestId;
     const requested = { ...formRef.current };
@@ -96,7 +138,10 @@ export function StoryCreator({ initialScenario, initialMode, onClose, onCreated,
         return next;
       });
     } catch (e) {
-      if (requestId === autofillRequestRef.current) setError(e instanceof Error ? e.message : "Не удалось заполнить черновик");
+      if (requestId === autofillRequestRef.current) {
+        setError(e instanceof Error ? e.message : "Не удалось заполнить черновик");
+        if (e instanceof ApiError && ["AI_REQUIRED", "SECRET_MIGRATION_REQUIRED", "SECRET_DECRYPTION_FAILED"].includes(e.code ?? "")) onSettings?.();
+      }
     } finally {
       if (requestId === autofillRequestRef.current) {
         autofillAbortRef.current = null;
@@ -116,11 +161,13 @@ export function StoryCreator({ initialScenario, initialMode, onClose, onCreated,
       if (!result.session.ownerId) throw new Error("Не удалось подтвердить владельца созданной истории. Обновите пространство.");
       if (await onCreated(result.session.ownerId) === false) { if (mounted.current) setBusy(false); return; }
       if (!mounted.current) return;
+      try { localStorage.removeItem(creatorDraftKey(mode)); } catch {}
       onClose(); router.push(`/play/${result.session.id}`);
     } catch (e) { if (mounted.current) { setError(e instanceof Error ? e.message : "Не удалось создать историю"); setBusy(false); } }
   };
+  if (!draftLoaded) return <Dialog onClose={onClose} title="Новая история"><p role="status">Восстанавливаем черновик…</p></Dialog>;
   return <Dialog onClose={busy ? () => {} : close} title="Новая история" wide className="creator-dialog" suspended={suspended}><div className="creator-art" style={{ backgroundImage: `url(${mode === "preset" ? coverFor(scenario.id) : "/space-odyssey.webp"})` }}><span className="pill glass"><Globe2 size={13} />{mode === "preset" ? ART[scenario.id].category : "ВАШ СОБСТВЕННЫЙ МИР"}</span><div><span className="eyebrow">{mode === "preset" ? scenario.worldName : "БЕЗ ГРАНИЦ И ШАБЛОНОВ"}</span><h2>{mode === "preset" ? scenario.title : "Всё начинается с чистого листа."}</h2><p>{mode === "preset" ? scenario.pitch : "Город, которого нет на карте. Герой, которого ещё не знают. История, которую можете рассказать только вы."}</p>{mode === "preset" && <div className="creator-world-meta"><span><MapPin size={14} />{scenario.startLocation}</span><span><Dices size={14} />{PROFILE_LABELS[scenario.rulesProfile]}</span><span><ShieldCheck size={14} />Без AI · нужен сервер</span></div>}</div></div><div className="creator-form"><div className="eyebrow">НОВАЯ КАМПАНИЯ</div><h2>Положим начало истории</h2><div className="segmented"><button type="button" className={mode === "preset" ? "selected" : ""} onClick={() => changeMode("preset")}><BookOpen size={15} />Готовый мир</button><button type="button" className={mode === "free" ? "selected" : ""} onClick={() => changeMode("free")}><Sparkles size={15} />Своя история</button></div><form ref={formElement} onSubmit={submit}>
     {mode === "preset" ? <><label className="field"><span>Выберите мир</span><select value={scenarioId} onChange={(e) => { setScenarioId(e.target.value); setCharacterIndex(0); }}>{WORLDS.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label><div className="field-title">Кем вы станете?</div><div className="character-choices">{scenario.characters.map((character, i) => <button key={character.name} type="button" className={`character-choice ${characterIndex === i ? "selected" : ""}`} onClick={() => setCharacterIndex(i)}><span className="character-mini-avatar"><UserRound size={20} /></span><span><strong>{character.name}</strong><small>{character.archetype}</small></span><span className="radio-dot">{characterIndex === i && <Check size={10} />}</span></button>)}</div><p className="character-story">{scenario.characters[characterIndex].backstory}</p><div className="tag-row">{scenario.characters[characterIndex].skills.map((s) => <span className="tag" key={s}>{s}</span>)}</div><div className="notice subtle"><Dices size={17} /><p><strong>{PROFILE_LABELS[scenario.rulesProfile]}</strong><br />{PROFILE_DESCRIPTIONS[scenario.rulesProfile]}<br />Для игры нужно соединение с сервером.</p></div></> : <><div className="form-step"><span className={step === 1 ? "current" : "complete"}>1 <span>Мир</span></span><i /><span className={step === 2 ? "current" : ""}>2 <span>Герой и правила</span></span></div>{step === 1 ? <div className="fields"><label className="field"><span>Название истории <em>*</em></span><input required maxLength={80} name="title" value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Например, Дождь над Берлином" /></label><div className="field-pair"><label className="field"><span>Мир или место</span><input maxLength={80} name="worldName" value={form.worldName} onChange={(e) => set("worldName", e.target.value)} placeholder="Берлин" /></label><label className="field"><span>Эпоха</span><input maxLength={80} name="era" value={form.era} onChange={(e) => set("era", e.target.value)} placeholder="Осень 1989 года" /></label></div><label className="field"><span>Завязка истории <em>*</em></span><textarea required minLength={15} maxLength={2000} name="pitch" value={form.pitch} onChange={(e) => set("pitch", e.target.value)} rows={3} placeholder="Что происходит в этом мире? Какая тайна, встреча или событие изменит вашу жизнь?" /></label><label className="field"><span>Тон повествования</span><input list="story-tones" name="tone" value={form.tone} onChange={(e) => set("tone", e.target.value)} maxLength={80} placeholder="Выберите тон или оставьте генератору" /><datalist id="story-tones">{TONE_PRESETS.map((tone) => <option key={tone} value={tone} />)}</datalist></label><div className="field-pair"><label className="field"><span>Цель героя</span><input maxLength={500} name="mainQuest" value={form.mainQuest} onChange={(e) => set("mainQuest", e.target.value)} placeholder="Найти пропавшего брата" /></label><label className="field"><span>Стартовая локация</span><input maxLength={80} name="startLocation" value={form.startLocation} onChange={(e) => set("startLocation", e.target.value)} placeholder="Кафе у вокзала" /></label></div></div> : <div className="fields"><div className="field-pair"><label className="field"><span>Имя героя <em>*</em></span><input required maxLength={40} name="name" value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Как вас зовут?" /></label><label className="field"><span>Роль</span><input list="archetypes" maxLength={40} name="archetype" value={form.archetype} onChange={(e) => set("archetype", e.target.value)} placeholder="Выберите роль или оставьте генератору" /><datalist id="archetypes">{ARCHETYPES.map((a) => <option key={a} value={a} />)}</datalist></label></div><label className="field"><span>Предыстория</span><textarea rows={2} maxLength={800} name="backstory" value={form.backstory} onChange={(e) => set("backstory", e.target.value)} placeholder="Что привело вас сюда?" /></label><div className="field-pair"><label className="field"><span>Навыки, через запятую</span><input name="skills" value={form.skills} onChange={(e) => set("skills", e.target.value)} maxLength={240} placeholder="Анализ, переговоры" /></label><label className="field"><span>Вещи с собой</span><input name="startItems" value={form.startItems} onChange={(e) => set("startItems", e.target.value)} maxLength={360} placeholder="Блокнот, фотоаппарат" /></label></div><label className="field"><span>Форма истории</span><select name="storyKind" value={storyKind} onChange={(e) => setStoryKind(e.target.value as StoryShapeKind)}>{(Object.keys(STORY_SHAPE_LABELS) as StoryShapeKind[]).map((kind) => <option key={kind} value={kind}>{STORY_SHAPE_LABELS[kind].title}</option>)}</select><small className="field-hint">{STORY_SHAPE_LABELS[storyKind].description}</small></label><div className="field-title">Как устроена ваша история?</div><div className="rules-choices">{[{ id: "narrative", icon: Feather }, { id: "rules-light", icon: Zap }, { id: "d20", icon: Dices }].map((p) => <button type="button" key={p.id} className={`rules-choice ${form.rulesProfile === p.id ? "selected" : ""}`} onClick={() => set("rulesProfile", p.id)}><p.icon size={18} /><span><strong>{PROFILE_LABELS[p.id]}</strong><small>{PROFILE_DESCRIPTIONS[p.id]}</small></span><span className="radio-dot">{form.rulesProfile === p.id && <Check size={10} />}</span></button>)}</div>{!live && <div className="notice amber"><Sparkles size={16} /><p>Мир можно сохранить сейчас. Для первого хода потребуется <button type="button" className="text-link" onClick={() => onSettings?.()}>подключить рассказчика</button>.</p></div>}</div>}</>}
     <label className="campaign-visibility"><input type="checkbox" checked={published} onChange={e => setPublished(e.target.checked)} /><span><strong>Опубликовать в общей библиотеке</strong><small>{published ? "Другие посетители смогут читать историю. Управление остаётся у вас." : "По умолчанию история доступна только вам. Доступ можно изменить позже."}</small></span></label>
-    <div className="creator-submit">{error && <div className="form-error" role="alert">{error}</div>}{mode === "free" && step === 2 && <button type="button" className="button secondary icon-only" onClick={() => setStep(1)} aria-label="Назад к миру"><ArrowLeft size={18} /></button>}{mode === "free" && <button type="button" className="button secondary full-width" disabled={busy || autofillBusy} onClick={() => void autofill()}>{autofillBusy ? <><LoaderCircle size={16} className="spin" />Заполняем…</> : <><Sparkles size={16} />Заполнить пустые поля</>}</button>}<button className="button primary full-width" disabled={busy || autofillBusy}>{busy ? <><LoaderCircle size={16} className="spin" />Создаём ваш мир…</> : mode === "free" && step === 1 ? <>Далее: герой и правила <ArrowRight size={16} /></> : <>Начать историю <ArrowRight size={16} /></>}</button></div><p className="form-footnote"><ShieldCheck size={12} />Прогресс сохраняется автоматически</p></form></div></Dialog>;
+    <div className="creator-submit">{error && <div className="form-error" role="alert">{error}</div>}{mode === "free" && step === 2 && <button type="button" className="button secondary icon-only" onClick={() => setStep(1)} aria-label="Назад к миру"><ArrowLeft size={18} /></button>}{mode === "free" && <button type="button" className="button secondary full-width" disabled={busy || autofillBusy} onClick={() => void autofill()}>{autofillBusy ? <><LoaderCircle size={16} className="spin" />Заполняем…</> : <><Sparkles size={16} />Заполнить пустые поля</>}</button>}<button className="button primary full-width" disabled={busy || autofillBusy}>{busy ? <><LoaderCircle size={16} className="spin" />Создаём ваш мир…</> : mode === "free" && step === 1 ? <>Далее: герой и правила <ArrowRight size={16} /></> : <>Начать историю <ArrowRight size={16} /></>}</button></div><p className="form-footnote"><ShieldCheck size={12} />{draftError ? "Не удалось сохранить черновик в браузере. Не закрывайте окно; скопируйте введённый текст." : "Черновик сохранён в этом браузере на 7 дней"}</p>{mode === "free" && <button type="button" className="text-button" disabled={busy || autofillBusy} onClick={() => setConfirmReset(true)}>Очистить черновик</button>}{confirmReset && <Dialog title="Очистить черновик?" onClose={() => setConfirmReset(false)}><p>Введённые мир и герой будут удалены из этого черновика. Созданные кампании сохранятся.</p><div className="ai-task-actions"><button type="button" className="button secondary" onClick={() => setConfirmReset(false)}>Продолжить редактирование</button><button type="button" className="button primary" onClick={() => { cancelAutofill(); setForm(INITIAL_STORY_FORM); formRef.current = INITIAL_STORY_FORM; setStep(1); setStoryKind("open-life"); setPublished(false); setError(""); setConfirmReset(false); }}>Очистить</button></div></Dialog>}{confirmDiscard && <Dialog title="Черновик не сохранён" onClose={() => setConfirmDiscard(false)}><p>Закрытие окна удалит введённый текст. Продолжите редактирование или скопируйте его перед выходом.</p><div className="ai-task-actions"><button type="button" className="button secondary" onClick={() => setConfirmDiscard(false)}>Продолжить редактирование</button><button type="button" className="text-button" onClick={() => { cancelAutofill(); onClose(); }}>Закрыть без сохранения</button></div></Dialog>}</form></div></Dialog>;
 }

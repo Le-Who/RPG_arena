@@ -382,3 +382,6 @@ button.gx-map-pin:focus-visible,.gx-map-expand:focus-visible,.gx-map-canvas:focu
 
 /* Nonblocking per-turn status; no toast, animation or live announcement. */
 .gx-verification-note{margin:var(--sp-3) 0 0;font-size:var(--t-2xs);color:var(--ink-3)}
+
+.gx-recovery.has-error { border-color: #af626e; }
+.gx-recovery .gx-recovery-error { color: #f6b5bb; margin: 8px 0; }

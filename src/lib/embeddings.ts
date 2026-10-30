@@ -12,6 +12,7 @@ import { buildMemorySearchQuery, describeRetrievedNode, type DatabaseSearchResul
 import { runSearchQuery } from "./search-database";
 import { quotaAdmission } from "./quota";
 import { admitBeforeFetch } from "./gemini-transport";
+import { readGeminiHttpError } from "./gemini-errors";
 import { QuotaAdmissionError, quotaDeferredWithoutFetch } from "./quota-errors";
 export type { RetrievedNode } from "./memory-search";
 export { DEFAULT_EMBEDDING_DIMS, cosine, formatDocument, formatQuery };
@@ -90,8 +91,7 @@ export async function embedTexts(opts: { keys: string[]; model: string; dims: nu
         return response;
       }), signal);
       if (!response.ok) {
-        void response.body?.cancel().catch(() => {});
-        lastError = `Gemini: HTTP ${response.status}`;
+        lastError = await readGeminiHttpError(response, signal);
         await report(false, lastError);
         if ([400, 404].includes(response.status)) break;
         continue;

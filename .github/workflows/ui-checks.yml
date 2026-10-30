@@ -80,6 +80,8 @@ jobs:
           node --import tsx scripts/pollinations-settings-browser.ts
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/provider-selection-browser.ts
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/notification-feedback-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/turn-request-status-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/service-connections-gemini-browser.ts
       - name: Isolated image retry and update guards in production React
         run: |
           npm run verify:visual-gallery-ui
@@ -95,6 +97,8 @@ jobs:
             output/playwright/pollinations-settings
             output/playwright/provider-selection
             output/playwright/notification-feedback
+            output/playwright/turn-request-status
+            output/playwright/service-connections-gemini
             output/playwright/visual-gallery
             output/playwright/app-update-guards
   browser-recovery:
@@ -195,6 +199,9 @@ jobs:
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/client-state-browser.ts
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/turn-request-lifecycle-browser.ts
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/client-audit-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/settings-story-recovery-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/item-mentions-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/story-experience-browser.ts
           npm run verify:revisions-ui
       - uses: actions/upload-artifact@v4
         if: always()
@@ -205,4 +212,6 @@ jobs:
             output/playwright/client-state
             output/playwright/turn-request-lifecycle
             output/playwright/client-audit
+            output/playwright/settings-story-recovery
+            output/playwright/item-mentions
             /tmp/chronicle-web.log

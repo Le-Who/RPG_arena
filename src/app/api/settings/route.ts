@@ -62,10 +62,9 @@ async function handlePOST(req: Request) {
     const intIn = (v: unknown, lo: number, hi: number, cur: number) => (Number.isFinite(Number(v)) && v !== null && v !== undefined ? Math.max(lo, Math.min(hi, Math.round(Number(v)))) : cur);
     const boolIn = (v: unknown, cur: boolean) => (typeof v === "boolean" ? v : cur);
     const geminiKeyOperation = typeof body.keysText === "string" || Array.isArray(body.removeIndex) || body.clearKeys === true;
-    const selectedCredentialCount = s.textProvider === "openrouter" ? Number(Boolean(s.openrouterKey)) : s.textProvider === "pollinations" ? Number(Boolean(s.pollinationsKey)) : keys.length;
-    // A missing connection affects readiness, not the saved narrator preference on unrelated writes.
-    // Explicit Live changes and the legacy Gemini key controls retain their credential guards.
-    const useLiveAI = body.useLiveAI === undefined && !geminiKeyOperation ? s.useLiveAI : boolInAuto(body.useLiveAI, s.useLiveAI, selectedCredentialCount);
+    // Readiness is derived separately. Replacing/removing a credential must never
+    // erase the user's narrator preference (including an intentional off state).
+    const useLiveAI = boolIn(body.useLiveAI, s.useLiveAI);
     const embeddingDims = intIn(body.embeddingDims, 128, 3072, s.embeddingDims);
     const embeddingModel = "gemini-embedding-2";
 
@@ -80,7 +79,7 @@ async function handlePOST(req: Request) {
         ...(body.customActionModel !== undefined || body.routingProfile ? { customActionModel } : {}),
         ...(body.compactionModel !== undefined || body.routingProfile ? { compactionModel } : {}),
         ...(body.fastTaskModel !== undefined || body.routingProfile ? { fastTaskModel } : {}),
-        ...(body.useLiveAI !== undefined || geminiKeyOperation ? { useLiveAI } : {}),
+        ...(body.useLiveAI !== undefined ? { useLiveAI } : {}),
         ...(body.dailyFlashLimit !== undefined ? { dailyFlashLimit: intIn(body.dailyFlashLimit, 0, 100000, s.dailyFlashLimit) } : {}),
         ...(body.dailyLiteLimit !== undefined ? { dailyLiteLimit: intIn(body.dailyLiteLimit, 0, 1000000, s.dailyLiteLimit) } : {}),
         ...(body.dailyEmbeddingLimit !== undefined ? { dailyEmbeddingLimit: intIn(body.dailyEmbeddingLimit, 0, 1000000, s.dailyEmbeddingLimit) } : {}),
@@ -102,10 +101,5 @@ async function handlePOST(req: Request) {
   }
 }
 
-/** Live нельзя включить без ключей; при удалении всех ключей — выключаем автоматически. */
-function boolInAuto(v: unknown, cur: boolean, totalKeys: number) {
-  const next = typeof v === "boolean" ? v : cur;
-  return totalKeys > 0 ? next : false;
-}
 export const GET = withIdentityWork(handleGET);
 export const POST = withIdentityWork(handlePOST);

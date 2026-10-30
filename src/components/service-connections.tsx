@@ -1,7 +1,7 @@
 "use client";
 import { useFeedbackState } from "./feedback";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { KeyRound, LoaderCircle, Save } from "lucide-react";
+import { KeyRound, LoaderCircle, Save, Trash2 } from "lucide-react";
 import { api, jsonBody } from "@/lib/api-client";
 import { PollinationsConnect } from "./pollinations-connect";
 import { ContextualHelp } from "./contextual-help";
@@ -12,7 +12,8 @@ type Connections={geminiConfigured:boolean;openrouterConfigured:boolean;pollinat
 type Draft={apiKey:string;clearKey:boolean};
 const names:Record<Provider,string>={gemini:"Gemini",openrouter:"OpenRouter",pollinations:"Pollinations"};
 const links:Record<Provider,string>={gemini:"https://aistudio.google.com/apikey",openrouter:"https://openrouter.ai/settings/keys",pollinations:"https://enter.pollinations.ai/keys"};
-export function ServiceConnections({onDraftChange,onDirtyChange,onSaveReady,onSaved,beforeConnect, advancedKeyRevision = 0}:{onDraftChange?:()=>void;onDirtyChange:(dirty:boolean)=>void;onSaveReady:(save:(()=>Promise<boolean>)|null)=>void;onSaved:()=>void;beforeConnect:()=>Promise<boolean>;advancedKeyRevision?:number}) {
+export function ServiceConnections({onSavingChange,onDraftChange,onDirtyChange,onSaveReady,onSaved,beforeConnect, advancedKeyRevision = 0, geminiKeys = [], onRemoveGeminiKey}:{onSavingChange?:(saving:boolean)=>void;onDraftChange?:()=>void;onDirtyChange:(dirty:boolean)=>void;onSaveReady:(save:(()=>Promise<boolean>)|null)=>void;onSaved:()=>void|Promise<void>;beforeConnect:()=>Promise<boolean>;advancedKeyRevision?:number;geminiKeys?:string[];onRemoveGeminiKey?:(index:number)=>Promise<void>}) {
+  const [appendGemini, setAppendGemini] = useState(true);
   const [data,setData]=useState<Connections|null>(null),[drafts,setDrafts]=useState<Partial<Record<Provider,Draft>>>({}),[editing,setEditing]=useState<Provider|null>(null),[busy,setBusy]=useState(false),[connecting,setConnecting]=useState(false),[error,setError]=useState(""),[message,setMessage]=useFeedbackState<string>("", value => Boolean(value)),[remove,setRemove]=useState<Provider|null>(null),[clock,setClock]=useState(()=>Date.now());
   const request=useRef(0),lock=useRef(false);
   const dirty=Object.values(drafts).some(value=>value?.apiKey.trim()||value?.clearKey);
@@ -25,27 +26,34 @@ export function ServiceConnections({onDraftChange,onDirtyChange,onSaveReady,onSa
   useEffect(()=>{onDirtyChange(dirty);},[dirty,onDirtyChange]);
   const change=useCallback((provider:Provider,value:Draft)=>{onDraftChange?.();setDrafts(old=>({...old,[provider]:value}));setMessage("");},[onDraftChange,setMessage]);
   const save=useCallback(async()=>{
-    if(!data)return false;if(!dirty)return true;if(lock.current||connecting)return false;
-    lock.current=true;let wrote=false;setBusy(true);setError("");setMessage("");
+    if(!data||lock.current||connecting)return false;if(!dirty)return true;
+    lock.current=true;let wrote=false;setBusy(true);onSavingChange?.(true);setError("");setMessage("");
     try{for(const provider of ["gemini","openrouter","pollinations"] as Provider[]){const value=drafts[provider];if(!value||(!value.apiKey.trim()&&!value.clearKey))continue;
-      const result=await api<Connections>("/api/settings/provider-connections",jsonBody({provider,...(value.clearKey?{clearKey:true}:{apiKey:value.apiKey.trim()})}));wrote=true;setData(result);
+      let result: Connections;
+      if (provider === "gemini" && geminiKeys.length > 0 && appendGemini && !value.clearKey && !data.credentialIssues?.includes("gemini")) {
+        await api("/api/settings", jsonBody({ keysText: value.apiKey.trim(), append: true })); wrote=true;
+        result = await api<Connections>("/api/settings/provider-connections");
+      } else { result=await api<Connections>("/api/settings/provider-connections",jsonBody({provider,...(value.clearKey?{clearKey:true}:{apiKey:value.apiKey.trim()})})); wrote=true; }
+      setData(result);
+      if (provider === "gemini") setAppendGemini(true);
       setDrafts(old=>{if(old[provider]?.apiKey!==value.apiKey||old[provider]?.clearKey!==value.clearKey)return old;return {...old,[provider]:{apiKey:"",clearKey:false}};});
     }setMessage("Подключения сохранены.");return true;
     }catch(cause){setError(cause instanceof Error?cause.message:"Не удалось сохранить подключение.");return false;}
-    finally{lock.current=false;setBusy(false);if(wrote)onSaved();}
-  },[data,dirty,connecting,drafts,onSaved,setMessage]);
+    finally{try{if(wrote)await onSaved();}finally{lock.current=false;setBusy(false);onSavingChange?.(false);}}
+  },[data,dirty,connecting,drafts,onSaved,setMessage,appendGemini,onSavingChange,geminiKeys.length]);
   useEffect(()=>{onSaveReady(save);return()=>onSaveReady(null);},[save,onSaveReady]);
-  return <section className="settings-card service-connections" id="service-connections"><div className="settings-card-heading"><span className="feature-icon teal"><KeyRound size={20}/></span><div><h3>Подключённые сервисы</h3><p>Один ключ на сервис.</p></div><ContextualHelp title="Подключение сервисов"><p>OpenRouter и Pollinations могут одновременно обслуживать рассказчика и иллюстрации. Подключение ключа не меняет выбранные модели и не запускает генерацию.</p><p>Ключи хранятся зашифрованными на сервере и не возвращаются в браузер. Если удалить ключ сервиса, обе задачи потеряют доступ к нему до нового подключения.</p><p>Ключ Gemini также используется для поиска воспоминаний по смыслу. Несколько ключей Google и отдельная проверка повествования доступны в дополнительных настройках.</p></ContextualHelp></div>
+  return <section className="settings-card service-connections" id="service-connections"><div className="settings-card-heading"><span className="feature-icon teal"><KeyRound size={20}/></span><div><h3>Подключённые сервисы</h3><p>Ключи для рассказчика, иллюстраций и памяти.</p></div><ContextualHelp title="Подключение сервисов"><p>OpenRouter и Pollinations могут одновременно обслуживать рассказчика и иллюстрации. Подключение ключа не меняет выбранные модели и не запускает генерацию.</p><p>Ключи хранятся зашифрованными на сервере и не возвращаются в браузер. Если удалить ключ сервиса, обе задачи потеряют доступ к нему до нового подключения.</p><p>Ключ Gemini также используется для поиска воспоминаний по смыслу. Добавить несколько ключей Google можно здесь. Отдельная проверка повествования настраивается ниже.</p></ContextualHelp></div>
     {!data&&!error&&<p role="status">Загружаем подключения…</p>}
     {data&&(["gemini","openrouter","pollinations"] as Provider[]).map(provider=>{const configured=data[`${provider}Configured`]&&!(provider==="pollinations"&&Number.isFinite(expiry)&&expiry<=clock),needsReplacement=data.credentialIssues?.includes(provider),draft=drafts[provider];return <div key={provider} className="service-connection-row"><div className="service-connection-summary"><strong>{names[provider]}</strong><span>{draft?.clearKey?"Будет отключён":needsReplacement?"Нужно сохранить ключ заново":configured?"Подключён":"Не подключён"}</span><button type="button" className="text-button" disabled={busy||connecting} aria-expanded={editing===provider} onClick={()=>setEditing(value=>value===provider?null:provider)}>{needsReplacement?"Заменить ключ":configured?"Изменить":"Подключить"} {names[provider]}</button></div>
       {needsReplacement&&!draft?.clearKey&&<p className="notice" role="status">Сохранённый ключ {names[provider]} устарел или недоступен. Вставьте и сохраните ключ заново. Ваши кампании сохранены, вход в аккаунт доступен.</p>}
       <div hidden={editing!==provider} className="service-connection-editor">
       {provider==="pollinations"&&<PollinationsConnect disabled={busy||connecting} configured={configured} beforeConnect={beforeConnect} onConnectingChange={setConnecting}/>}
-      <label className="field"><span>API-ключ {names[provider]}</span><input type="password" aria-label={`API-ключ ${names[provider]}`} autoComplete="off" spellCheck={false} maxLength={4096} disabled={busy||connecting} value={draft?.apiKey??""} placeholder={configured?"Вставьте новый ключ для замены":"Вставьте ключ"} onChange={event=>{const apiKey=event.currentTarget.value;change(provider,{apiKey,clearKey:false});}}/></label>
+      <label className="field"><span>API-ключ {names[provider]}</span><input type="password" aria-label={`API-ключ ${names[provider]}`} autoComplete="off" spellCheck={false} maxLength={4096} disabled={busy||connecting} value={draft?.apiKey??""} placeholder={provider === "gemini" && geminiKeys.length > 0 && appendGemini && !needsReplacement ? "Вставьте ещё один ключ" : configured ? "Вставьте новый ключ для замены" : "Вставьте ключ"} onChange={event=>{const apiKey=event.currentTarget.value;change(provider,{apiKey,clearKey:false});}}/></label>
+      {provider === "gemini" && geminiKeys.length > 0 && <><div className="saved-keys">{geminiKeys.map((key, index) => <div className="saved-key" key={`${key}-${index}`}><code>{key}</code><span>Ключ {index + 1}</span><button type="button" className="icon-button" disabled={busy || dirty || connecting} aria-label={`Удалить ключ ${index + 1}`} onClick={async () => { if (lock.current) return; lock.current = true; setBusy(true); onSavingChange?.(true); try { await onRemoveGeminiKey?.(index); await load(); } finally { lock.current = false; setBusy(false); onSavingChange?.(false); } }}><Trash2 size={13}/></button></div>)}</div><label className="field"><span>Сохранить ключ Gemini</span><select value={appendGemini && !needsReplacement ? "append" : "replace"} disabled={busy || connecting || needsReplacement} onChange={event => { onDraftChange?.(); setAppendGemini(event.target.value === "append"); }}><option value="append">Добавить к сохранённым</option><option value="replace">Заменить весь список</option></select></label><p className="field-hint">{appendGemini && !needsReplacement ? "Новый ключ дополнит список (до 10 ключей)." : "Новый ключ заменит весь сохранённый список Gemini."}</p></>}
       <div className="service-connection-links"><a href={links[provider]} target="_blank" rel="noreferrer">Получить ключ {names[provider]}</a>{configured&&<button type="button" className="text-button" disabled={busy||connecting} onClick={()=>setRemove(provider)}>Отключить {names[provider]}</button>}{draft?.clearKey&&<button type="button" className="text-button" onClick={()=>change(provider,{apiKey:"",clearKey:false})}>Отменить отключение</button>}</div>
     </div></div>;})}
     {error&&<p role="alert">{error}</p>}{!data&&error&&<button type="button" className="button secondary" onClick={()=>void load()}>Повторить загрузку подключений</button>}{message&&<p role="status">{message}</p>}
-    {dirty&&<div className="ai-task-actions"><button type="button" className="button secondary" disabled={busy||connecting} onClick={()=>void save()}>{busy?<LoaderCircle size={14} className="spin"/>:<Save size={14}/>}Сохранить подключения</button><button type="button" className="text-button" disabled={busy||connecting} onClick={()=>{onDraftChange?.();setDrafts({});setMessage("");}}>Отменить изменения подключений</button></div>}
+    {dirty&&<div className="ai-task-actions"><button type="button" className="button secondary" disabled={busy||connecting} onClick={()=>void save()}>{busy?<LoaderCircle size={14} className="spin"/>:<Save size={14}/>}Сохранить подключения</button><button type="button" className="text-button" disabled={busy||connecting} onClick={()=>{onDraftChange?.();setDrafts({});setAppendGemini(true);setMessage("");}}>Отменить изменения подключений</button></div>}
     {remove&&<Dialog title={`Отключить ${names[remove]}?`} onClose={()=>setRemove(null)}><p>После сохранения рассказчик и иллюстрации, использующие {names[remove]}, потеряют доступ к сервису. Выбранные модели сохранятся. Другой аккаунт не будет оплачивать запросы автоматически.</p>{remove==="gemini"&&<p>Поиск воспоминаний по смыслу также потребует нового подключения Gemini.</p>}<div className="ai-task-actions"><button type="button" className="button secondary" onClick={()=>setRemove(null)}>Оставить подключение</button><button type="button" className="button primary" onClick={()=>{change(remove,{apiKey:"",clearKey:true});setRemove(null);}}>Отключить при сохранении</button></div></Dialog>}
   </section>;
 }

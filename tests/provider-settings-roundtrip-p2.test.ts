@@ -58,7 +58,7 @@ test("actual provider handlers round trip OpenRouter and Pollinations with seale
   } finally { await f.dispose(); }
 });
 
-test("actual provider POST retains omitted keys, clears only the selected credential, and reloads disabled live mode", async () => {
+test("actual provider POST retains omitted keys, clears only the selected credential, and retains live intent without readiness", async () => {
   const f = await fixture();
   try {
     assert.equal((await f.post({ provider: "openrouter", model: "vendor/first", apiKey: "synthetic-retained-router", useLiveAI: true })).status, 200);
@@ -69,7 +69,7 @@ test("actual provider POST retains omitted keys, clears only the selected creden
     const after = (await f.pg.query<{ openrouter_key: string; pollinations_key: string }>("SELECT openrouter_key,pollinations_key FROM ai_settings WHERE id=$1", [f.owner])).rows[0];
     assert.deepEqual(after, before, "omitting apiKey must preserve both sealed values byte-for-byte");
     assert.equal((await f.post({ provider: "pollinations", model: "openai", clearKey: true, useLiveAI: true })).status, 200);
-    assert.deepEqual(await (await f.get()).json(), { provider: "pollinations", model: "openai", openrouterConfigured: true, pollinationsConfigured: false, useLiveAI: false });
+    assert.deepEqual(await (await f.get()).json(), { provider: "pollinations", model: "openai", openrouterConfigured: true, pollinationsConfigured: false, useLiveAI: true });
     const cleared = (await f.pg.query<{ openrouter_key: string; pollinations_key: string }>("SELECT openrouter_key,pollinations_key FROM ai_settings WHERE id=$1", [f.owner])).rows[0];
     assert.equal(cleared.openrouter_key, before.openrouter_key);
     assert.equal(cleared.pollinations_key, "");
@@ -124,18 +124,18 @@ test("rejected provider POSTs leave the complete persisted draft and secrets unc
   } finally { await f.dispose(); }
 });
 
-test("selected providers without their own credential cannot enable live AI or borrow another provider key", async () => {
+test("selected providers without their own credential cannot make calls or borrow another provider key", async () => {
   const f = await fixture();
   try {
     const { getAIConfig } = await import("../src/lib/ai-settings");
     assert.equal((await f.post({ provider: "openrouter", model: "vendor/ready", apiKey: "synthetic-router-only", useLiveAI: true })).status, 200);
     assert.equal((await f.post({ provider: "pollinations", model: "openai", useLiveAI: true })).status, 200);
-    assert.deepEqual(await (await f.get()).json(), { provider: "pollinations", model: "openai", openrouterConfigured: true, pollinationsConfigured: false, useLiveAI: false });
+    assert.deepEqual(await (await f.get()).json(), { provider: "pollinations", model: "openai", openrouterConfigured: true, pollinationsConfigured: false, useLiveAI: true });
     let cfg = await getAIConfig(f.owner);
     assert.equal(cfg.canUseLive, false);
     assert.equal(cfg.textApiKey, "");
     assert.equal((await f.post({ provider: "gemini", model: "", useLiveAI: true })).status, 200);
-    assert.deepEqual(await (await f.get()).json(), { provider: "gemini", model: "", openrouterConfigured: true, pollinationsConfigured: false, useLiveAI: false });
+    assert.deepEqual(await (await f.get()).json(), { provider: "gemini", model: "", openrouterConfigured: true, pollinationsConfigured: false, useLiveAI: true });
     cfg = await getAIConfig(f.owner);
     assert.equal(cfg.canUseLive, false);
     assert.deepEqual(cfg.keys, []);

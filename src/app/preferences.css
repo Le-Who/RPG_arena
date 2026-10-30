@@ -123,7 +123,7 @@ html[data-motion="reduced"] *::after{animation-duration:.01ms!important;animatio
 .ai-services-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .ai-services-heading h2 { font-size: 20px; margin-bottom: 5px; }
 .ai-services-heading p { color: var(--ink-3); font-size: 13px; }
-.ai-task-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 14px; }
+.ai-task-grid { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 14px; }
 .ai-task-card { min-width: 0; margin: 0; }
 .ai-task-card .settings-card-heading { flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 .ai-task-card .settings-card-heading > div { min-width: 0; flex: 1; }
@@ -134,7 +134,7 @@ html[data-motion="reduced"] *::after{animation-duration:.01ms!important;animatio
 .ai-task-editor { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
 .ai-task-editor[hidden], .service-connection-editor[hidden] { display: none; }
 .ai-task-editor .field, .service-connection-editor .field { margin-bottom: 14px; }
-.ai-task-editor .field input, .ai-task-editor .field select, .service-connection-editor input { width: 100%; min-width: 0; }
+.ai-task-editor .field input, .ai-task-editor .field select, .service-connection-editor input:not([type="checkbox"]) { width: 100%; min-width: 0; }
 .ai-task-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
 .ai-task-actions .button { max-width: 100%; white-space: normal; height: auto; min-height: 42px; text-align: left; }
 .ai-payer { font-size: 13px; margin-top: 16px; }
@@ -167,3 +167,11 @@ html[data-motion="reduced"] *::after{animation-duration:.01ms!important;animatio
 .ai-price-summary .ai-task-price { min-width: 0; }
 .help-content ul { padding-left: 20px; }
 .help-content li + li { margin-top: 8px; }
+
+#text-provider .ai-task-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }
+#text-provider .ai-task-editor[hidden] { display: none; }
+#text-provider .ai-task-editor > * { grid-column: 1 / -1; }
+#text-provider .ai-task-editor > .field { grid-column: auto; }
+#text-provider .ai-task-status { font-size: 13px; }
+.narrator-ready { color: #6ee7bd; }
+@media (max-width: 760px) { #text-provider .ai-task-editor { grid-template-columns: minmax(0, 1fr); } }

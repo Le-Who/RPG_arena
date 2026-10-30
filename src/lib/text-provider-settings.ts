@@ -37,12 +37,14 @@ export function parseTextProviderSettings(body: Record<string, unknown>): TextPr
 }
 
 function view(row: Awaited<ReturnType<typeof getRawSettingsRow>>) {
+  const { credentialIssues } = settingsCredentialsView(row);
   return {
     provider: row.textProvider as TextProvider,
     model: row.textModel,
     openrouterConfigured: Boolean(row.openrouterKey),
     pollinationsConfigured: Boolean(row.pollinationsKey),
     useLiveAI: row.useLiveAI,
+    ...(credentialIssues.length ? { credentialIssues } : {}),
     ...(row.pollinationsKeyExpiresAt ? { pollinationsKeyExpiresAt: row.pollinationsKeyExpiresAt.toISOString() } : {}),
   };
 }
@@ -53,16 +55,14 @@ export async function getTextProviderSettings(ownerId: string) {
 
 export async function saveTextProviderSettings(ownerId: string, input: TextProviderSettingsInput) {
   const parsed = parseTextProviderSettings(input);
-  const row = await getRawSettingsRow(ownerId);
+  await getRawSettingsRow(ownerId);
   const patch: Partial<typeof aiSettings.$inferInsert> = { textProvider: parsed.provider, textModel: parsed.model, updatedAt: new Date() };
-  let hasCredential = parsed.provider === "gemini" ? Boolean(row.keys?.length) : Boolean(parsed.provider === "openrouter" ? row.openrouterKey : row.pollinationsKey);
   if (parsed.apiKey !== undefined || parsed.clearKey) {
     const value = parsed.clearKey ? "" : sealSecret(parsed.apiKey!, secretContext(ownerId, `text:${parsed.provider}`));
     if (parsed.provider === "openrouter") patch.openrouterKey = value;
     if (parsed.provider === "pollinations") { patch.pollinationsKey = value; patch.pollinationsKeyExpiresAt = null; }
-    hasCredential = Boolean(value);
   }
-  patch.useLiveAI = hasCredential && (parsed.useLiveAI ?? row.useLiveAI);
+  if (parsed.useLiveAI !== undefined) patch.useLiveAI = parsed.useLiveAI;
   await db.update(aiSettings).set(patch).where(eq(aiSettings.id, ownerId));
   return getTextProviderSettings(ownerId);
 }
@@ -81,7 +81,7 @@ export async function attachPollinationsKey(ownerId: string, key: string, expire
 export type ProviderConnectionInput = { provider: TextProvider; apiKey?: string; clearKey?: boolean };
 function invalidConnection(): never { throw new HttpError(400, "INVALID_INPUT", "Некорректные настройки подключения сервиса."); }
 
-/** Connections never select a task or enable live calls. The advanced Gemini key list is retained elsewhere. */
+/** Connections never select a task or enable live calls. Gemini append uses the settings endpoint. */
 export function parseProviderConnection(body: Record<string, unknown>): ProviderConnectionInput {
   if (Object.keys(body).some(key => !["provider", "apiKey", "clearKey"].includes(key))) invalidConnection();
   if (typeof body.provider !== "string" || !["gemini", "openrouter", "pollinations"].includes(body.provider)) invalidConnection();

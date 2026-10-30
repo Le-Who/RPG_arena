@@ -43,3 +43,61 @@ test("completion refuses overlong drafts and offers no one-character or already 
   const match = actionEntitySuggestions("Ма", 2, state)[0];
   assert.equal(completeActionEntity("Ма" + " ".repeat(1998), match), null);
 });
+
+const inventoryState: InteractionState = {
+  ...state,
+  inventory: [
+    { id: "underwear", name: "разных цветов трусики", quantity: 2 },
+    { id: "key", name: "Медный ключ", quantity: 1 },
+    { id: "spent", name: "Красные трусы", quantity: 0 },
+  ],
+};
+
+test("inventory suggestions find an internal noun and the трусы / трусики word family", () => {
+  for (const text of ["Я беру трусы", "Я беру трусики", "Я беру трусами", "Я беру цветов"])
+    assert.deepEqual(actionEntitySuggestions(text, text.length, inventoryState).map(item => item.ref), ["underwear"]);
+  const text = "Я беру ключ";
+  assert.equal(actionEntitySuggestions(text, text.length, inventoryState)[0]?.ref, "key");
+  assert.equal(actionEntitySuggestions("облако", 6, inventoryState).length, 0);
+});
+
+test("bare @ lists only available inventory and accepts short, complete and reordered item queries", () => {
+  assert.deepEqual(actionEntitySuggestions("Смотрю на @", 11, inventoryState).map(item => item.ref), ["underwear", "key"]);
+  for (const text of ["@т", "@трусы", "@цветов трусы", "@разных цветов трусики"])
+    assert.equal(actionEntitySuggestions(text, text.length, inventoryState)[0]?.ref, "underwear");
+  assert.equal(actionEntitySuggestions("@Ма", 3, inventoryState).length, 0);
+  assert.equal(actionEntitySuggestions("почта user@трусы", 16, inventoryState).length, 0);
+});
+
+test("selecting @ inventory replaces only the mention query with a canonical name and exact item identity", () => {
+  const text = "Показываю @трусы и улыбаюсь";
+  const match = actionEntitySuggestions(text, "Показываю @трусы".length, inventoryState)[0];
+  assert.ok(match);
+  assert.equal(match.ref, "underwear");
+  assert.deepEqual(completeActionEntity(text, match), {
+    text: "Показываю «разных цветов трусики» и улыбаюсь",
+    caret: "Показываю «разных цветов трусики»".length,
+  });
+  const at = actionEntitySuggestions("Достаю @.", 8, inventoryState)[0];
+  assert.equal(completeActionEntity("Достаю @.", at)?.text, "Достаю «разных цветов трусики».");
+});
+
+test("@ completion does not consume unrelated prose or exceed the action length limit", () => {
+  const text = "@клю|ч и говорю".replace("|", "");
+  const match = actionEntitySuggestions(text, 4, inventoryState)[0];
+  assert.equal(completeActionEntity(text, match)?.text, "«Медный ключ» и говорю");
+  const at = actionEntitySuggestions("@", 1, inventoryState)[0];
+  assert.equal(completeActionEntity("@" + " ".repeat(1999), at), null);
+});
+
+test("a complete multiword inventory name is not suggested again from its final noun", () => {
+  for (const text of ["Я беру Медный ключ", "Я беру разных цветов трусики"])
+    assert.deepEqual(actionEntitySuggestions(text, text.length, inventoryState), []);
+});
+
+test("an @ mention inside existing quotation marks replaces those marks once", () => {
+  const text = "Показываю «@трусы»";
+  const match = actionEntitySuggestions(text, text.length - 1, inventoryState)[0];
+  assert.ok(match);
+  assert.equal(completeActionEntity(text, match)?.text, "Показываю «разных цветов трусики»");
+});

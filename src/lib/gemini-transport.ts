@@ -1,4 +1,5 @@
 import { QuotaAdmissionError } from "./quota-errors";
+import { readGeminiHttpError } from "./gemini-errors";
 export type AttemptInfo = { model: string; keyIndex: number; ok: boolean; latencyMs: number; error?: string; promptTokens?: number; completionTokens?: number };
 export type GeminiCallOptions = {
   keys: string[]; models: string[]; system: string; user: string; maxTokens?: number; temperature?: number;
@@ -49,6 +50,13 @@ async function callback(operation: (() => unknown) | undefined, signal: AbortSig
 }
 const finishReasons = new Set(["MAX_TOKENS", "SAFETY", "RECITATION", "LANGUAGE", "OTHER", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "MALFORMED_FUNCTION_CALL", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_OTHER", "NO_IMAGE", "IMAGE_RECITATION", "UNEXPECTED_TOOL_CALL", "TOO_MANY_TOOL_CALLS", "MISSING_THOUGHT_SIGNATURE", "MALFORMED_RESPONSE", "ESCALATION", "PUP_LIMITED_DISABLED"]);
 const tokens = (value: unknown, fallback: number) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : fallback;
+/** Gemini 3.6+, and 3.5 Flash-Lite, no longer support sampling overrides. */
+function supportsTemperature(model: string): boolean {
+  const version = /^gemini-(\d+)(?:\.(\d+))?(?:-|$)/.exec(model);
+  if (!version) return true;
+  const major = Number(version[1]), minor = Number(version[2] ?? 0);
+  return !(major > 3 || (major === 3 && minor >= 6) || /^gemini-3\.5-flash-lite(?:-|$)/.test(model));
+}
 
 /** Fetch can resolve at headers; keep the deadline active until the entire body is consumed. */
 async function readGeneration(response: Response, signal: AbortSignal, onText?: (delta: string) => void) {
@@ -177,7 +185,7 @@ export async function callGeminiWithRotation(opts: GeminiCallOptions) {
               method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": opts.keys[keyIndex] },
               signal,
               body: JSON.stringify({ system_instruction: { parts: [{ text: opts.system }] }, contents: [{ role: "user", parts: [{ text: opts.user }] }],
-                generationConfig: { temperature: opts.temperature ?? 0.85, maxOutputTokens: opts.maxTokens ?? 1600,
+                generationConfig: { ...(supportsTemperature(model) ? { temperature: opts.temperature ?? 0.85 } : {}), maxOutputTokens: opts.maxTokens ?? 1600,
                   ...(opts.responseSchema ? { responseMimeType: "application/json", responseSchema: opts.responseSchema } : {}) } }),
             }).then(response => {
               if (signal.aborted) void response.body?.cancel().catch(() => {});
@@ -189,8 +197,7 @@ export async function callGeminiWithRotation(opts: GeminiCallOptions) {
             retryable = [408, 429, 500, 502, 503, 504].includes(response.status);
             const retry = response.headers.get("retry-after");
             if (retry) { const ms = /^\d+(\.\d+)?$/.test(retry) ? Number(retry) * 1000 : Date.parse(retry) - Date.now(); if (Number.isFinite(ms)) retryAfterMs = Math.max(retryAfterMs, Math.min(2000, ms)); }
-            void response.body?.cancel().catch(() => {});
-            throw new ProviderFailure(`HTTP ${response.status}: Gemini временно недоступен`);
+            throw new ProviderFailure(await readGeminiHttpError(response, signal));
           }
           retryable = true;
           const { text, usage } = await readGeneration(response, signal, opts.onText);

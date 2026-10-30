@@ -34,7 +34,7 @@ test("text provider settings persist owner-scoped sealed credentials without exp
     const cleared = await saveTextProviderSettings("provider-owner", { provider: "pollinations", model: "openai", clearKey: true });
     assert.equal(cleared.pollinationsConfigured, false);
     assert.equal(cleared.openrouterConfigured, true);
-    assert.equal(cleared.useLiveAI, false);
+    assert.equal(cleared.useLiveAI, true, "removing credentials preserves narrator preference");
     assert.equal((await getTextProviderSettings("unrelated-owner")).openrouterConfigured, false);
     await saveTextProviderSettings("provider-owner", { provider: "openrouter", model: "vendor/model:free", useLiveAI: true });
     const expiration = new Date(Date.now() + 3600000);

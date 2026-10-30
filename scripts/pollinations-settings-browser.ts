@@ -12,7 +12,7 @@ async function main() {
   const bundle = await build({ stdin: { contents: `
     import React,{useCallback,useRef,useState} from 'react';import {createRoot} from 'react-dom/client';
     import {TextProviderSettings} from './src/components/text-provider-settings';import {ImageProviderSettings} from './src/components/image-provider-settings';import {PollinationsConnectionNotice} from './src/components/pollinations-connect';import {ServiceConnections} from './src/components/service-connections';
-    function Fixture(){const [textDirty,setTextDirty]=useState(false),[imageDirty,setImageDirty]=useState(false),[revision,setRevision]=useState(0);const textSave=useRef(null),imageSave=useRef(null),connectionSave=useRef(null);const textReady=useCallback(fn=>{textSave.current=fn},[]),imageReady=useCallback(fn=>{imageSave.current=fn},[]),connectionReady=useCallback(fn=>{connectionSave.current=fn},[]),saved=useCallback(()=>setRevision(x=>x+1),[]),beforeConnect=useCallback(async()=>{for(const ref of [connectionSave,textSave,imageSave])if(ref.current&&!await ref.current())return false;return true},[]);return <div className="settings-page"><h1 tabIndex={-1}>Настройки</h1><PollinationsConnectionNotice/><div className="settings-main"><TextProviderSettings onDirtyChange={setTextDirty} onSaveReady={textReady} onSaved={()=>{}} connectionRevision={revision}/><ImageProviderSettings onDirtyChange={setImageDirty} onSaveReady={imageReady} connectionRevision={revision}/><ServiceConnections onDirtyChange={()=>{}} onSaveReady={connectionReady} onSaved={saved} beforeConnect={beforeConnect}/><output aria-label="Черновик иллюстраций">{imageDirty?'изменён':'сохранён'}</output><output aria-label="Черновик рассказчика">{textDirty?'изменён':'сохранён'}</output></div></div>};createRoot(document.getElementById('root')).render(<Fixture/>);
+    function Fixture(){const [geminiModels,setGeminiModels]=useState({narrationModel:"gemini-3.5-flash-lite",customActionModel:"gemini-3.8-flash",compactionModel:"gemini-3.8-flash",fastTaskModel:"gemini-3.5-flash-lite"});const [textDirty,setTextDirty]=useState(false),[imageDirty,setImageDirty]=useState(false),[revision,setRevision]=useState(0);const textSave=useRef(null),imageSave=useRef(null),connectionSave=useRef(null);const textReady=useCallback(fn=>{textSave.current=fn},[]),imageReady=useCallback(fn=>{imageSave.current=fn},[]),connectionReady=useCallback(fn=>{connectionSave.current=fn},[]),saved=useCallback(()=>setRevision(x=>x+1),[]),beforeConnect=useCallback(async()=>{for(const ref of [connectionSave,textSave,imageSave])if(ref.current&&!await ref.current())return false;return true},[]);return <div className="settings-page"><h1 tabIndex={-1}>Настройки</h1><PollinationsConnectionNotice/><div className="settings-main"><TextProviderSettings geminiModels={geminiModels} onGeminiModelChange={(key,value)=>setGeminiModels(old=>({...old,[key]:value}))} onDirtyChange={setTextDirty} onSaveReady={textReady} onSaved={()=>{}} connectionRevision={revision}/><ImageProviderSettings onDirtyChange={setImageDirty} onSaveReady={imageReady} connectionRevision={revision}/><ServiceConnections onDirtyChange={()=>{}} onSaveReady={connectionReady} onSaved={saved} beforeConnect={beforeConnect}/><output aria-label="Черновик иллюстраций">{imageDirty?'изменён':'сохранён'}</output><output aria-label="Черновик рассказчика">{textDirty?'изменён':'сохранён'}</output></div></div>};createRoot(document.getElementById('root')).render(<Fixture/>);
   `, resolveDir: process.cwd(), loader: "tsx" }, bundle: true, write: false, platform: "browser", jsx: "automatic", tsconfig: "tsconfig.json", define: { "process.env.NODE_ENV": '"production"' } });
   const css = (await Promise.all(["globals", "pages", "preferences", "dialogs"].map(name => readFile(`src/app/${name}.css`, "utf8")))).join("\n").replace('@import "tailwindcss";', "");
   const html = '<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><body><main id="root" style="max-width:1000px;margin:auto"></main><script src="/fixture.js"></script></body></html>';
@@ -24,7 +24,7 @@ async function main() {
   try {
     for (const viewport of [{ name: "desktop", width: 1280, height: 1000 }, { name: "mobile", width: 390, height: 844 }, { name: "mobile-320", width: 320, height: 844 }]) {
       const page = await browser.newPage({ viewport, reducedMotion: "reduce" }); active = page; page.on("pageerror", error => { errors.push(error.message); console.error(error.message); });
-      let narrator = { provider: "gemini", model: "", useLiveAI: false, openrouterConfigured: false, pollinationsConfigured: false };
+      let narrator = { provider: "gemini", model: "", useLiveAI: true, openrouterConfigured: false, pollinationsConfigured: false };
       let images = { accountSource: "application", model: "vendor/image-a", applicationModel: "vendor/shared", applicationConfigured: true, pollinationsConfigured: true };
       const textWrites: unknown[] = [], imageWrites: unknown[] = [];
       let refreshFails = false, denySave = false, connects = 0, failImageLoad = false, denyConnection = 0;
@@ -70,6 +70,9 @@ async function main() {
       });
       await page.route("https://enter.pollinations.ai/**", route => route.fulfill({ contentType: "text/html", body: '<html lang="ru"><h1>Штатный вход Pollinations — фикстура</h1></html>' }));
       await page.goto(base);
+      await expect(page.getByRole("combobox", { name: "Провайдер рассказчика", exact: true })).toBeVisible();
+      await expect(page.getByRole("switch", { name: "Живой рассказчик", exact: true })).toBeChecked();
+      await expect(page.locator("#text-provider .ai-task-status")).toContainText("Нужно подключить Gemini");
       await page.getByRole("button", { name: "Подключить Pollinations", exact: true }).click();
       const connect = page.getByRole("button", { name: "Подключить аккаунт Pollinations", exact: true });
       await expect(connect).toBeEnabled(); await connect.focus(); await page.keyboard.press("Enter");
@@ -99,7 +102,7 @@ async function main() {
       await imageRole.getByText("Дополнительные настройки модели", { exact: true }).click();
       await page.getByLabel("Идентификатор модели изображения", { exact: true }).fill("community/me/custom-image");
       await save.click(); await expect(page.getByLabel("Черновик иллюстраций")).toHaveText("сохранён");
-      await page.getByRole("button", { name: "Изменить рассказчика" }).click();
+      await expect(page.getByRole("combobox", { name: "Провайдер рассказчика", exact: true })).toBeVisible();
       await textRole.locator('input[type="radio"][value="vendor/text-b"]').check();
       await page.getByRole("button", { name: "Сохранить рассказчика", exact: true }).click();
       await expect(page.getByText("Настройки рассказчика сохранены.", { exact: true })).toBeVisible();
@@ -115,6 +118,10 @@ async function main() {
       await expect(page.getByText("Будет отключён",{exact:true})).toBeVisible();
       denyConnection=0; await page.getByRole("button", { name: "Сохранить подключения", exact: true }).click();
       await expect(imageRole.locator(".ai-task-status")).toContainText("Нужно подключить сервис");
+      expect(narrator.useLiveAI).toBe(true);
+      await expect(page.getByRole("switch", { name: "Живой рассказчик", exact: true })).toBeChecked();
+      await expect(textRole.locator(".ai-task-status")).toContainText("Нужно подключить Pollinations");
+      await expect(textRole.locator(".ai-task-status")).not.toContainText("Готов к генерации");
       expect(narrator.model).toBe("vendor/text-b");expect(images.accountSource).toBe("personal");expect(images.model).toBe("community/me/custom-image");
       checks.push(`${viewport.name}:shared-disconnect-retry-preserves-role-preferences`);
       checks.push(`${viewport.name}:disconnect-updates-image-connection`);
@@ -145,7 +152,7 @@ async function main() {
       await expect(page.getByLabel("Черновик иллюстраций")).toHaveText("сохранён");
       checks.push(`${viewport.name}:credential-refresh-initializes-failed-form`);
       await expect(imageRole.locator('input[type="radio"][value="vendor/image-a"]')).toBeEnabled();
-      await page.getByRole("button", { name: "Изменить рассказчика" }).click();
+      await expect(page.getByRole("combobox", { name: "Провайдер рассказчика", exact: true })).toBeVisible();
       const statusGate = gate(), textGate = gate(); holdMetadata = statusGate; holdText = textGate;
       await page.getByLabel("API-ключ Pollinations", { exact: true }).fill("sk_browser_fixture_next");
       await page.getByRole("button", { name: "Сохранить подключения", exact: true }).click();
@@ -197,7 +204,7 @@ async function main() {
         await page.screenshot({ path: `${output}/${viewport.name}-return-${result}-focus.png`, fullPage: true });
         await page.keyboard.press("Enter"); await expect(notice).toHaveCount(0);
         await expect(page).toHaveURL(`${base}/settings?keep=fixture#text-provider`);
-        await expect(page.locator("#text-provider-heading")).toBeFocused();
+        await expect(page.getByRole("combobox", { name: "Провайдер рассказчика", exact: true })).toBeFocused();
         checks.push(`${viewport.name}:return-${result}-announced-dismissed-focus-restored`);
       }
       const narratorGate = gate(); holdNarrator = narratorGate;
@@ -206,7 +213,6 @@ async function main() {
       await earlyDismiss.focus(); await page.keyboard.press("Enter");
       await expect(page.locator("#text-provider-heading")).toBeFocused();
       narratorGate.open();
-      await page.getByRole("button", { name: "Изменить рассказчика" }).click();
       await expect(page.getByRole("combobox", { name: "Провайдер рассказчика", exact: true })).toBeVisible();
       checks.push(`${viewport.name}:return-dismiss-before-settings-loaded-focuses-heading`);
       expect(connectionWrites.length).toBeGreaterThanOrEqual(7);

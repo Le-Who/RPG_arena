@@ -5,6 +5,29 @@ import { QuotaAdmissionError } from "../src/lib/quota-errors";
 
 const success = () => Response.json({ candidates: [{ content: { parts: [{ text: '{"narration":"Готово"}' }] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 8 } });
 const base = { keys: ["key-a"], models: ["lite", "flash"], system: "test", user: "test" };
+test("Gemini requests omit deprecated sampling on new models and retain it on older models", async () => {
+  const old = global.fetch;
+  try {
+    for (const [model, temperature] of [
+      ["gemini-3.5-flash-lite", undefined], ["gemini-3.6-flash", undefined],
+      ["gemini-3.7-flash", undefined], ["gemini-3.8-flash", undefined],
+      ["gemini-4-test", undefined], ["gemini-3.5-flash", 0.4],
+      ["gemini-3.1-pro-preview", 0.4], ["gemini-2.5-flash", 0.4],
+    ] as const) {
+      for (const streaming of [false, true]) {
+        let body: Record<string, unknown> = {};
+        global.fetch = async (_url, init) => { body = JSON.parse(String(init?.body)); return success(); };
+        const schema = { type: "OBJECT", properties: { narration: { type: "STRING" } } };
+        await callGeminiWithRotation({ ...base, models: [model], temperature: 0.4, maxTokens: 1200,
+          responseSchema: schema, ...(streaming ? { onText: () => {} } : {}) });
+        assert.deepEqual(body.generationConfig, { ...(temperature === undefined ? {} : { temperature }),
+          maxOutputTokens: 1200, responseMimeType: "application/json", responseSchema: schema }, model);
+        assert.deepEqual(body.contents, [{ role: "user", parts: [{ text: "test" }] }]);
+      }
+    }
+  } finally { global.fetch = old; }
+});
+
 test("denied admission makes no provider fetch or provider attempt log", async () => {
   const old = global.fetch; let calls = 0, logged = 0;
   try {
@@ -52,6 +75,22 @@ test("key-specific 400 still tries the second key on the same model", async () =
     const result=await callGeminiWithRotation({...base,keys:['key-a','key-b']});
     assert.equal(result.model,'lite');assert.equal(result.keyIndex,1);
   }finally{global.fetch=old;}
+});
+
+test("HTTP errors retain only the safe Google reason in attempt telemetry and terminal failure", async () => {
+  const old = global.fetch;
+  const requests: string[] = [], errors: string[] = [];
+  try {
+    global.fetch = async (url, init) => {
+      requests.push(`${String(url).split("/models/")[1].split(":")[0]}:${new Headers(init?.headers).get("x-goog-api-key")}`);
+      return Response.json({ error: { status: "INVALID_ARGUMENT", message: "SECRET_KEY_SENTINEL",
+        details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_INVALID", metadata: { key: "SECRET_METADATA_SENTINEL" } }] } }, { status: 400 });
+    };
+    await assert.rejects(() => callGeminiWithRotation({ ...base, keys: ["key-a", "key-b"], onAttempt: info => { if (info.error) errors.push(info.error); } }),
+      error => error instanceof Error && error.message === "ALL_MODELS_FAILED:HTTP 400: API_KEY_INVALID");
+    assert.deepEqual(requests, ["lite:key-a", "lite:key-b", "flash:key-a", "flash:key-b"]);
+    assert.deepEqual(errors, Array(4).fill("HTTP 400: API_KEY_INVALID"));
+  } finally { global.fetch = old; }
 });
 test("overload retries same model before falling back, and alternate key comes first", async () => {
   const old = global.fetch;
@@ -209,7 +248,7 @@ for (const status of [400, 401, 403, 404, 408, 429, 500, 502, 503, 504]) test(`H
     const result = await callGeminiWithRotation({ ...base, keys: ["key-a", "key-b"], onAttempt: info => { if (info.error) errors.push(info.error); } });
     const expected = status === 404 ? ["lite:key-a", "flash:key-a"] : [400, 401, 403].includes(status) ? ["lite:key-a", "lite:key-b", "flash:key-a"] : ["lite:key-a", "lite:key-b", "lite:key-a", "lite:key-b", "flash:key-a"];
     assert.equal(result.model, "flash"); assert.deepEqual(requests, expected);
-    assert.ok(errors.every(error => error === `HTTP ${status}: Gemini временно недоступен`));
+    assert.ok(errors.every(error => error === `HTTP ${status}: UNKNOWN`));
   } finally { global.fetch = old; }
 });
 

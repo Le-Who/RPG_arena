@@ -6,7 +6,7 @@ import { launchFixtureBrowser } from './lib/launch-fixture-browser';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 async function main() {
-const settings = {keysMasked:[],keysCount:0,envKeysCount:0,useLiveAI:false,canUseLive:false,textProvider:'gemini',textModel:'',routingProfile:'balanced',narrationModel:'gemini-3.5-flash-lite',customActionModel:'gemini-3.8-flash',compactionModel:'gemini-3.8-flash',fastTaskModel:'gemini-3.5-flash-lite',keysSharedProject:true,dailyEmbeddingLimit:500,dailyFlashLimit:20,dailyLiteLimit:500,enforceLimits:true,embeddingsEnabled:true,embeddingModel:'gemini-embedding-2',embeddingDims:768,semanticExtractionEnabled:true};
+const settings = {keysMasked:[],keysCount:0,envKeysCount:0,useLiveAI:true,canUseLive:false,textProvider:'gemini',textModel:'',routingProfile:'balanced',narrationModel:'gemini-3.5-flash-lite',customActionModel:'gemini-3.8-flash',compactionModel:'gemini-3.8-flash',fastTaskModel:'gemini-3.5-flash-lite',keysSharedProject:true,dailyEmbeddingLimit:500,dailyFlashLimit:20,dailyLiteLimit:500,enforceLimits:true,embeddingsEnabled:true,embeddingModel:'gemini-embedding-2',embeddingDims:768,semanticExtractionEnabled:true};
 const output = resolve('output/playwright/provider-selection');
 await mkdir(output,{recursive:true});
 const appStub = `import React,{useState,useContext,createContext,useCallback} from 'react';const Context=createContext(null);export function useApp(){return useContext(Context)};export function FixtureApp({children}){const [settings,setSettings]=useState(${JSON.stringify(settings)});const [notices,setNotices]=useState([]);const notify=useCallback(text=>setNotices(old=>[...old,text]),[]);const refresh=useCallback(async()=>true,[]);return <Context.Provider value={{settings,workspace:{displayName:'Гость',favorites:[],reading:{textScale:'normal',measure:'normal',theme:'midnight',motion:'reduced'}},identity:null,administration:false,loading:false,refresh,acceptSettings:setSettings,notify,resolveNotification:()=>{},updateReading:async()=>{}}}>{children}<aside aria-label="Уведомления">{notices.map((text,i)=><p key={i}>{text}</p>)}</aside></Context.Provider>}`;
@@ -21,7 +21,7 @@ try {
   for (const width of [1280,390,320]) {
     const page = await browser.newPage({viewport:{width,height:900},reducedMotion:'reduce'});
     page.on('pageerror',error=>errors.push(error.message));
-    let narrator = {provider:'gemini',model:'',openrouterConfigured:true,pollinationsConfigured:true,useLiveAI:false};
+    let narrator = {provider:'gemini',model:'',openrouterConfigured:true,pollinationsConfigured:true,useLiveAI:true};
     let images = {enabled:true,provider:'pollinations',endpoint:null as string|null,accountSource:'personal',model:'image/a',applicationModel:'image/application',applicationConfigured:true,pollinationsConfigured:true,openrouterConfigured:true};
     const connections = {geminiConfigured:false,openrouterConfigured:true,pollinationsConfigured:true};
     const writes:{path:string;body:Record<string,unknown>}[] = [];
@@ -39,7 +39,7 @@ try {
       else if(url.pathname==='/api/settings/visual-provider/models'){catalogReads++;const provider=url.searchParams.get('provider');if(holdMetadata&&url.searchParams.get('model')==='image/d')await new Promise<void>(resolve=>{metadataGate.release=resolve;});data={models:['a','b','c','d'].map((suffix,index)=>({id:`image/${suffix}`,name:`Иллюстрация ${suffix}`,endpoint:provider==='openrouter'&&suffix!=='d'?'seed':undefined,generationSupported:suffix!=='d',price:price(index/100+0.01)})),checkedAt:'2026-10-19T12:00:00Z',stale:false};}
       else if(url.pathname==='/api/settings/text-provider/models'||url.pathname==='/api/settings/pollinations/models'){catalogReads++;data={models:['a','b','c','d'].map((suffix,index)=>({id:`text/${suffix}`,name:`Рассказчик ${suffix}`,structuredOutput:true,streaming:true,price:price(index/100+0.01,'request')})),checkedAt:'2026-10-19T12:00:00Z',stale:false};}
       else if(url.pathname==='/api/settings/pollinations/connect'){if(request.method()==='POST'){await route.fulfill({status:503,json:{error:'Synthetic OAuth stop'}});return;}data={available:true};}
-      else if(url.pathname==='/api/settings')data=settings;
+      else if(url.pathname==='/api/settings')data={...settings,textProvider:narrator.provider,textModel:narrator.model,useLiveAI:narrator.useLiveAI,canUseLive:narrator.useLiveAI&&connections[(narrator.provider+'Configured') as keyof typeof connections]};
       else if(url.pathname==='/api/account')data={account:null,guest:{campaigns:0}};
       else if(url.pathname==='/api/settings/narrative')data={enabled:false,active:false,provider:'openrouter',configured:false,maskedKey:null,model:'typesafe/jev-1.13',credentialSource:'none',administratorAvailable:false};
       else if(url.pathname==='/api/tokens/stats')data={today:{totalReq:0,totalTokens:0,errors:0,embeddingReq:0},quotas:{note:''}};
@@ -50,6 +50,13 @@ try {
     await page.goto(base);
     await expect(page.getByRole('heading',{name:'ИИ для ваших историй',exact:true})).toBeVisible();
     await expect(page.getByRole('button',{name:'Справка: Выбор ИИ',exact:true})).toBeVisible();
+    await expect(page.getByRole('combobox',{name:'Провайдер рассказчика',exact:true})).toBeVisible();
+    await expect(page.getByRole('combobox',{name:'Профиль Gemini',exact:true})).toBeVisible();
+    await expect(page.getByRole('combobox',{name:'Модель Gemini для повествования',exact:true})).toBeVisible();
+    await expect(page.getByRole('switch',{name:'Живой рассказчик',exact:true})).toBeChecked();
+    await expect(page.locator('#text-provider .ai-task-status')).toContainText('Нужно подключить Gemini');
+    await expect(page.locator('#text-provider .ai-task-status')).not.toContainText('Готов к генерации');
+    checks.push(width+':visible-narrator-controls-live-preference-without-key');
     if(catalogReads)throw Error('Catalog blocks initial settings');
     checks.push(width+':lazy-catalog');
     const help=page.getByRole('button',{name:'Справка: Выбор ИИ',exact:true});await help.click();
@@ -69,7 +76,6 @@ try {
     await page.getByRole('button',{name:'Сохранить настройки иллюстраций',exact:true}).click();
     await expect(page.getByText('Настройки новых иллюстраций сохранены.',{exact:true})).toBeVisible();
     const imageWrite=writes.find(item=>item.path==='/api/settings/visual-provider');if(imageWrite?.body.provider!=='openrouter'||imageWrite.body.endpoint!=='seed'||writes.some(item=>item.path==='/api/settings/text-provider'))throw Error('Image setting changed narrator or lost endpoint');checks.push(width+':independent-images');
-    await page.getByRole('button',{name:'Изменить рассказчика',exact:true}).click();
     await page.getByRole('combobox',{name:'Провайдер рассказчика',exact:true}).selectOption('openrouter');
     await page.getByRole('radio',{name:/Рассказчик a/}).check();
     await expect(page.getByRole('radio',{name:/Вариант сообщества/})).toHaveCount(0);checks.push(width+':official-shortlist');
@@ -80,6 +86,7 @@ try {
     await page.getByRole('radio',{name:/Рассказчик d/}).check();
     await page.getByRole('button',{name:'Короткий список',exact:true}).click();await expect(page.getByRole('radio',{name:/Рассказчик d/})).toBeChecked();checks.push(width+':search-pins-selected');
     await page.getByRole('button',{name:'Сохранить рассказчика',exact:true}).click();await expect(page.getByText('Настройки рассказчика сохранены.',{exact:true})).toBeVisible();
+    await expect(page.locator('#text-provider .ai-task-status')).toContainText('Готов к генерации');
     if(images.provider!=='openrouter'||images.model!=='image/b')throw Error('Narrator changed image preferences');checks.push(width+':independent-narrator');
     const beforeKeys={narrator:{...narrator},images:{...images},writes:writes.length};
     await page.getByRole('button',{name:'Изменить OpenRouter',exact:true}).click();
@@ -92,8 +99,10 @@ try {
     await expect(page.getByRole('dialog',{name:'Отключить OpenRouter?',exact:true})).toBeVisible();await page.keyboard.press('Escape');await expect(remove).toBeFocused();
     await remove.click();await page.getByRole('button',{name:'Отключить при сохранении',exact:true}).click();await page.getByRole('button',{name:'Сохранить подключения',exact:true}).click();
     await expect(page.locator('#text-provider')).toContainText('Нужно подключить');await expect(page.locator('#visual-provider')).toContainText('Нужно подключить');
+    expect(narrator.useLiveAI).toBe(true);await expect(page.getByRole('switch',{name:'Живой рассказчик',exact:true})).toBeChecked();
+    await expect(page.locator('#text-provider .ai-task-status')).not.toContainText('Готов к генерации');
     if(narrator.model!==beforeKeys.narrator.model||images.model!==beforeKeys.images.model)throw Error('Disconnect reset preferences');checks.push(width+':shared-disconnect-both-tasks');
-    await page.getByRole('button',{name:'Изменить иллюстрации',exact:true}).click();
+    await expect(page.getByRole('combobox',{name:'Сервис иллюстраций',exact:true})).toBeVisible();
     await page.locator('#visual-provider').getByRole('button',{name:'Все модели и поиск',exact:true}).click();
     await page.getByRole('searchbox',{name:'Найти модель иллюстраций'}).fill('Иллюстрация d');holdMetadata=true;
     await page.getByRole('radio',{name:/Иллюстрация d/}).check();

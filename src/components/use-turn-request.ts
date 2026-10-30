@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api-client";
-import type { TurnRequestView, TurnResponse, TurnStage } from "@/lib/turn-contract";
+import type { TurnRequestStatus, TurnResponse, TurnStage } from "@/lib/turn-contract";
 import { readTurnStream, TurnStreamError } from "@/lib/turn-stream";
 import { normalizeItemIds } from "@/lib/item-bindings";
 import { publishCommittedTurn } from "@/lib/committed-turns";
@@ -80,15 +80,19 @@ export function useTurnRequest(sessionId: string, onCommitted: (result: TurnResp
     const check = async () => {
       if (checking) return; checking = true;
       try {
-        const view = await api<TurnRequestView>(`/api/sessions/${sessionId}/requests/${encodeURIComponent(pending.id)}`);
+        const view = await api<TurnRequestStatus>(`/api/sessions/${sessionId}/requests/${encodeURIComponent(pending.id)}`);
         if (!alive || pendingRef.current?.id !== pending.id || handled.current === pending.id) return;
+        if (view.status === "not_accepted") {
+          if (!sendingRef.current) { setRemoteRunning(false); setError((old) => old.startsWith("Найден") ? "Сервер ещё не принял это действие. Можно безопасно повторить попытку — второй ход не появится." : old); }
+          return;
+        }
         // A poll begun before a retry can still describe the failed previous attempt.
         if (view.status === "failed" && sendingRef.current) return;
         setStage(current => advanceTurnStage(current, view.stage)); setRemoteRunning(view.status === "running");
         if (view.status === "completed" && view.result) await finish(pending.id, view.result);
         if (view.status === "failed" && !sendingRef.current) { setPreview(""); setError((old) => old.startsWith("Найден") ? "Предыдущая попытка не завершилась. Можно безопасно повторить тот же запрос." : old); }
       } catch (e) {
-        if (alive && e instanceof ApiError && e.status === 404 && !sendingRef.current) { setRemoteRunning(false); setError((old) => old.startsWith("Найден") ? "Сервер ещё не принял это действие. Можно безопасно повторить попытку — второй ход не появится." : old); }
+        if (alive && pendingRef.current?.id === pending.id && handled.current !== pending.id && e instanceof ApiError && [401, 403, 404].includes(e.status) && !sendingRef.current) { setRemoteRunning(false); setError(e.message); }
       } finally { checking = false; }
     };
     void check(); const timer = setInterval(() => void check(), 1800);

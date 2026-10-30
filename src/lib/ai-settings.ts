@@ -9,6 +9,7 @@ import { DEFAULT_EMBEDDING_DIMS } from "./embeddings";
 import { decodeGeminiSecrets, decodeSettingsSecrets, openSecret, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
 import type { TextProvider } from "./text-provider-settings";
 import { quotaUsage, quotaTimezone } from "./quota";
+import { isCredentialReadError } from "./settings-credentials-view";
 
 export type AIConfig = {
   ownerId?: string;
@@ -65,10 +66,18 @@ export function prepareGeminiKeysWrite(ownerId: string, keys: string[], keyring?
 
 export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
   quotaTimezone();
-  const s = decodeGeminiSecrets(await getRawSettingsRow(ownerId));
-  const dbKeys = ((s.keys as string[]) ?? []).filter(Boolean);
-  const keys = [...new Set(dbKeys)];
+  const s = await getRawSettingsRow(ownerId);
   const textProvider = (s.textProvider ?? "gemini") as TextProvider;
+  let dbKeys: string[];
+  let geminiUnavailable = false;
+  try { dbKeys = (decodeGeminiSecrets(s).keys ?? []).filter(Boolean); }
+  catch (error) {
+    if (textProvider === "gemini" || !isCredentialReadError(error)) throw error;
+    // Unrelated optional memory credentials cannot block a usable narrator.
+    // The settings projection still exposes the Gemini repair warning.
+    dbKeys = []; geminiUnavailable = true;
+  }
+  const keys = [...new Set(dbKeys)];
   const textApiKey = textProvider === "gemini" ? "" : openSecret(
     textProvider === "openrouter" ? s.openrouterKey : s.pollinationsKey,
     secretContext(s.id, `text:${textProvider}`),
@@ -96,7 +105,7 @@ export async function getAIConfig(ownerId?: string): Promise<AIConfig> {
     enforceLimits: s.enforceLimits ?? true,
     keysSharedProject: s.keysSharedProject ?? true,
     dailyEmbeddingLimit: s.dailyEmbeddingLimit ?? 5000,
-    embeddingsEnabled: s.embeddingsEnabled ?? true,
+    embeddingsEnabled: !geminiUnavailable && (s.embeddingsEnabled ?? true),
     embeddingModel: "gemini-embedding-2",
     embeddingDims: s.embeddingDims || DEFAULT_EMBEDDING_DIMS,
     semanticExtractionEnabled: s.semanticExtractionEnabled ?? true,

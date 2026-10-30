@@ -1,5 +1,6 @@
 import type { AttemptInfo } from "./gemini";
 import { QuotaAdmissionError } from "./quota-errors";
+import { geminiFailureMessage } from "./gemini-errors";
 
 export const STORY_TEXT_FIELDS = [
   "title",
@@ -315,7 +316,8 @@ export function createStoryDraftAutofillService<TConfig extends StoryDraftAIConf
           throw new StoryDraftError(error.code, "Проверка дневного лимита не завершилась вовремя.", 504);
         }
         const timedOut = error instanceof Error && /timeout|deadline|abort/i.test(`${error.name} ${error.message}`);
-        throw new StoryDraftError("AI_FAILED", timedOut ? "Рассказчик не ответил за 30 секунд." : "Провайдер рассказчика сейчас недоступен. Попробуйте ещё раз.", timedOut ? 504 : 502);
+        const reason = (!config.textProvider || config.textProvider === "gemini") && error instanceof Error ? geminiFailureMessage(error.message) : null;
+        throw new StoryDraftError("AI_FAILED", reason ?? (timedOut ? "Рассказчик не ответил за 30 секунд." : "Провайдер рассказчика сейчас недоступен. Попробуйте ещё раз."), timedOut ? 504 : 502);
       }
       await logSuccessfulGeneration(deps, response, config.textProvider);
       try {

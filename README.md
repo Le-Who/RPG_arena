@@ -146,7 +146,7 @@ Production-запуск после миграций: `npm run build`, затем
 Маршруты без версионного префикса; текущие контракты сохраняют защиту надёжных ходов, введённую в v2.2:
 
 - `POST /api/sessions/:id/act`: `{action, custom, requestId?, expectedTurn?}`. `custom:false` допускает только вариант текущей сцены.
-- `GET /api/sessions/:id/requests/:requestId`: этап, статус и сохранённый результат.
+- `GET /api/sessions/:id/requests/:requestId`: этап, статус и сохранённый результат. Пока запрос не принят, возвращает HTTP 200 с `status: "not_accepted"`; отсутствующая или недоступная кампания по-прежнему возвращает HTTP 404.
 - `GET /api/sessions/:id/recap`: сводка из сохранённого состояния и памяти с доступом на чтение.
 - `PATCH /api/sessions/:id` с `{narrator}`: голос рассказчика; изменять может владелец.
 - `GET/POST /api/sessions/:id/checkpoints`: список / `{title, requestId?, expectedTurn?}`.

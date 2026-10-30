@@ -13,11 +13,10 @@ import { ContextualHelp } from "./contextual-help";
 import { PollinationsConnectionNotice } from "./pollinations-connect";
 import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
 import { useDirtyHistory } from "./use-dirty-history";
-import { ArrowRight, BookOpenText, BrainCircuit, Check, ChevronDown, Crown, Database, Eye, EyeOff, ExternalLink, KeyRound, Leaf, LoaderCircle, LockKeyhole, Save, Settings2, ShieldCheck, Sparkles, Trash2, UserRound, Wifi, Zap } from "lucide-react";
+import { ArrowRight, BookOpenText, BrainCircuit, Database, LoaderCircle, LockKeyhole, Save, ShieldCheck, Sparkles, UserRound, Wifi } from "lucide-react";
 import { useApp } from "./app-shell";
 import { api, jsonBody } from "@/lib/api-client";
 import type { Settings } from "@/lib/ui-data";
-import { MODEL_CATALOG } from "@/lib/model-catalog";
 import { READING_OPTIONS } from "@/lib/reading-preferences";
 import type { ReadingPreferences } from "@/db/schema";
 type Usage = { today: { totalReq: number; totalTokens: number; errors: number; embeddingReq: number }; quotas: { note: string } };
@@ -38,10 +37,15 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
   const [baseline, setBaseline] = useState(JSON.stringify(settings));
   const [confirmClose, setConfirmClose] = useState(false);
   const closeAction = useRef(onClose);
-  const [keyText, setKeyText] = useState("");
-  const [showKey, setShowKey] = useState(false);
   const [name, setName] = useState(workspace.displayName);
-  const [saving, setSaving] = useState(false);
+  const [batchSaving, setSaving] = useState(false);
+  const [connectionsSaving, setConnectionsSaving] = useState(false);
+  const [narratorSaving, setNarratorSaving] = useState(false);
+  const [canonicalPending, setCanonicalPending] = useState(false);
+  const [canonicalLoading, setCanonicalLoading] = useState(false);
+  const [canonicalError, setCanonicalError] = useState(false);
+  const canonicalPendingRef = useRef(false);
+  const saving = batchSaving || connectionsSaving || narratorSaving || canonicalPending;
   const draftRevision = useRef(0);
   const markNestedDraftChange = useCallback(() => { draftRevision.current++; }, []);
   const savingAll = useRef(false);
@@ -52,7 +56,7 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
   const [imageProviderDirty, setImageProviderDirty] = useState(false);
   const [advancedKeyRevision, setAdvancedKeyRevision] = useState(0);
   const [connectionsDirty, setConnectionsDirty] = useState(false);
-  const [activeTask, setActiveTask] = useState<"text" | "image" | null>(null);
+  const [imageExpanded, setImageExpanded] = useState(false);
   const connectionsSave = useRef<(() => Promise<boolean>) | null>(null);
   const onConnectionsSaveReady = useCallback((save: (() => Promise<boolean>) | null) => { connectionsSave.current = save; }, []);
   const [pollinationsRevision, setPollinationsRevision] = useState(0);
@@ -60,30 +64,45 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
   const onImageProviderSaveReady = useCallback((save: (() => Promise<boolean>) | null) => { imageProviderSave.current = save; }, []);
   const textProviderSave = useRef<(() => Promise<boolean>) | null>(null);
   const onTextProviderSaveReady = useCallback((save: (() => Promise<boolean>) | null) => { textProviderSave.current = save; }, []);
-  const onTextProviderSaved = useCallback((useLiveAI: boolean, pollinationsChanged = false) => {
+  const clearCanonicalPending = useCallback(() => {
+    canonicalPendingRef.current = false;
+    setCanonicalPending(false); setCanonicalLoading(false); setCanonicalError(false);
+  }, []);
+  const reloadCanonical = useCallback(async () => {
+    const request = ++canonicalRequest.current;
+    const profileId = identity?.profileId;
+    canonicalPendingRef.current = true;
+    setCanonicalPending(true); setCanonicalLoading(true); setCanonicalError(false);
+    try {
+      const saved = await api<Settings>("/api/settings");
+      if (request !== canonicalRequest.current) return null;
+      setDraft(old => ({ ...old, keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, credentialIssues: saved.credentialIssues, canUseLive: saved.canUseLive }));
+      setBaseline(old => JSON.stringify({ ...JSON.parse(old), keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, credentialIssues: saved.credentialIssues, canUseLive: saved.canUseLive }));
+      acceptSettings(saved, profileId); resolveNotification("settings-canonical");
+      clearCanonicalPending();
+      return saved;
+    } catch {
+      if (request !== canonicalRequest.current) return null;
+      // The mutation may already have removed a credential. Never expose its old readiness.
+      if (settings) acceptSettings({ ...settings, canUseLive: false }, profileId);
+      setDraft(old => ({ ...old, canUseLive: false }));
+      setBaseline(old => JSON.stringify({ ...JSON.parse(old), canUseLive: false }));
+      setCanonicalError(true);
+      return null;
+    } finally { if (request === canonicalRequest.current) setCanonicalLoading(false); }
+  }, [acceptSettings, clearCanonicalPending, identity?.profileId, resolveNotification, settings]);
+  const onTextProviderSaved = useCallback(async (useLiveAI: boolean, pollinationsChanged = false) => {
     if (pollinationsChanged) setPollinationsRevision(value => value + 1);
     setDraft(old => ({ ...old, useLiveAI }));
     setBaseline(old => JSON.stringify({ ...JSON.parse(old), useLiveAI }));
     if (savingAll.current) { providerSavedDuringBatch.current = true; return; }
-    const request = ++canonicalRequest.current;
-    const profileId = identity?.profileId;
-    void api<Settings>("/api/settings").then(saved => {
-      if (request !== canonicalRequest.current) return;
-      acceptSettings(saved, profileId); resolveNotification("settings-canonical");
-    }).catch(() => notify("Рассказчик сохранён. Не удалось обновить состояние подключения.", true, "settings-canonical"));
-  }, [acceptSettings, identity?.profileId, notify, resolveNotification]);
-  const onConnectionsSaved = useCallback(() => {
+    await reloadCanonical();
+  }, [reloadCanonical]);
+  const onConnectionsSaved = useCallback(async () => {
     setPollinationsRevision(value => value + 1);
     if (savingAll.current) { providerSavedDuringBatch.current = true; return; }
-    const request = ++canonicalRequest.current;
-    const profileId = identity?.profileId;
-    void api<Settings>("/api/settings").then(saved => {
-      if (request !== canonicalRequest.current) return;
-      setDraft(old => ({ ...old, keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount }));
-      setBaseline(old => JSON.stringify({ ...JSON.parse(old), keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount }));
-      acceptSettings(saved, profileId); resolveNotification("settings-canonical");
-    }).catch(() => notify("Подключение сохранено. Не удалось обновить его состояние.", true, "settings-canonical"));
-  }, [acceptSettings, identity?.profileId, notify, resolveNotification]);
+    await reloadCanonical();
+  }, [reloadCanonical]);
   const narrativeSave = useRef<(() => Promise<boolean>) | null>(null);
   const onNarrativeSaveReady = useCallback((save: (() => Promise<boolean>) | null) => { narrativeSave.current = save; }, []);
   const [testing, setTesting] = useState(false);
@@ -92,7 +111,7 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
   useEffect(() => { api<Usage>("/api/tokens/stats").then(setUsage).catch(() => {}); }, []);
   function change<K extends keyof Settings>(key: K, value: Settings[K]) { draftRevision.current++; setDraft((old) => ({ ...old, [key]: value })); }
   const save = async () => {
-    if (!draft || savingAll.current) return false; setSaving(true); savingAll.current = true;
+    if (!draft || savingAll.current || canonicalPendingRef.current) return false; setSaving(true); savingAll.current = true;
     providerSavedDuringBatch.current = false;
     canonicalRequest.current++;
     const profileId = identity?.profileId;
@@ -101,9 +120,9 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
       if (connectionsSave.current && !await connectionsSave.current()) return false;
       if (narrativeSave.current && !await narrativeSave.current()) return false;
       let saved: Settings | undefined;
-      if (JSON.stringify(draft) !== baseline || keyText.trim()) {
+      if (JSON.stringify(draft) !== baseline) {
         const { useLiveAI: _liveOwnedByNarrator, ...generalDraft } = draft;
-        const result = await api<Settings & { ok?: boolean }>("/api/settings", jsonBody({ ...generalDraft, embeddingModel: "gemini-embedding-2", ...(keyText.trim() ? { keysText: keyText, append: true } : {}) }));
+        const result = await api<Settings & { ok?: boolean }>("/api/settings", jsonBody({ ...generalDraft, embeddingModel: "gemini-embedding-2" }));
         delete result.ok;
         saved = result;
       }
@@ -111,7 +130,12 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
       if (imageProviderSave.current && !await imageProviderSave.current()) return false;
       // Narrator settings share useLiveAI with the main form. Read their final
       // projection once after a narrator write, without reloading campaigns/auth.
-      if (providerSavedDuringBatch.current) saved = await api<Settings>("/api/settings");
+      if (providerSavedDuringBatch.current) {
+        providerSavedDuringBatch.current = false;
+        const canonical = await reloadCanonical();
+        if (!canonical) return false;
+        saved = canonical;
+      }
       // Editable controls can change while the request is in flight. Accept canonical
       // values only for fields that still match the submitted snapshot.
       if (saved) {
@@ -123,11 +147,10 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
         acceptSettings(canonical, profileId);
         resolveNotification("gemini-profile"); resolveNotification("settings-canonical");
       }
-      if (keyText.trim()) { setAdvancedKeyRevision(value => value + 1); setPollinationsRevision(value => value + 1); }
-      setKeyText(current => current === keyText ? "" : current);
+      providerSavedDuringBatch.current = false;
       if (draftRevision.current !== submittedRevision) { notify("Сохранён отправленный вариант. Новые изменения ещё не сохранены.", "warning", "settings-save"); return false; }
       notify("Настройки сохранены.", false, "settings-save"); return true;
-    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить настройки", true, "settings-save"); return false; } finally { savingAll.current = false; setSaving(false); }
+    } catch (e) { notify(e instanceof Error ? e.message : "Не удалось сохранить настройки", true, "settings-save"); return false; } finally { savingAll.current = false; if (providerSavedDuringBatch.current) { providerSavedDuringBatch.current = false; await onConnectionsSaved(); } setSaving(false); }
   };
   const geminiFields = ["routingProfile", "narrationModel", "customActionModel", "compactionModel", "fastTaskModel"] as const;
   const geminiProfileDirty = geminiFields.some(key => draft[key] !== JSON.parse(baseline)[key]);
@@ -142,7 +165,7 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
       if (request !== canonicalRequest.current) return false;
       setDraft(current => ({ ...current, ...Object.fromEntries(geminiFields.map(key => [key, current[key] === draft[key] ? saved[key] : current[key]])) }));
       setBaseline(old => JSON.stringify({ ...JSON.parse(old), ...Object.fromEntries(geminiFields.map(key => [key, saved[key]])) }));
-      acceptSettings(saved, profileId); resolveNotification("gemini-profile");
+      acceptSettings(saved, profileId); clearCanonicalPending(); resolveNotification("gemini-profile");
       return submittedRevision === draftRevision.current;
     } catch (cause) { notify(cause instanceof Error ? cause.message : "Не удалось сохранить профиль Gemini.", true, "gemini-profile"); return false; }
   };
@@ -157,29 +180,32 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
     try { const result = await api<{ model: string; dims: number; latencyMs: number }>("/api/settings/test", jsonBody({})); setConnection({ ok: true, message: `Подключение работает · ${result.latencyMs} мс` }); }
     catch (e) { setConnection({ ok: false, message: e instanceof Error ? e.message : "Подключение не удалось" }); } finally { setTesting(false); }
   };
-  const removeKey = async (index: number) => { canonicalRequest.current++; const profileId = identity?.profileId; try { const result = await api<Settings & { ok?: boolean }>("/api/settings", jsonBody({ removeIndex: [index] })); delete result.ok; const saved = result; canonicalRequest.current++; setDraft(old => ({ ...old, keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, useLiveAI: old.useLiveAI !== JSON.parse(baseline).useLiveAI ? old.useLiveAI : saved.useLiveAI })); setBaseline(old => JSON.stringify({ ...JSON.parse(old), keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, useLiveAI: saved.useLiveAI })); acceptSettings(saved, profileId); setAdvancedKeyRevision(value => value + 1); setPollinationsRevision(value => value + 1); notify("Ключ удалён", false, "gemini-key"); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true, "gemini-key"); } };
+  const removeKey = async (index: number) => { canonicalRequest.current++; const profileId = identity?.profileId; try { const result = await api<Settings & { ok?: boolean }>("/api/settings", jsonBody({ removeIndex: [index] })); delete result.ok; const saved = result; canonicalRequest.current++; setDraft(old => ({ ...old, keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, credentialIssues: saved.credentialIssues, canUseLive: saved.canUseLive, useLiveAI: old.useLiveAI !== JSON.parse(baseline).useLiveAI ? old.useLiveAI : saved.useLiveAI })); setBaseline(old => JSON.stringify({ ...JSON.parse(old), keysCount: saved.keysCount, keysMasked: saved.keysMasked, envKeysCount: saved.envKeysCount, credentialIssues: saved.credentialIssues, canUseLive: saved.canUseLive, useLiveAI: saved.useLiveAI })); acceptSettings(saved, profileId); clearCanonicalPending(); setAdvancedKeyRevision(value => value + 1); setPollinationsRevision(value => value + 1); notify("Ключ удалён", false, "gemini-key"); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true, "gemini-key"); if (canonicalPendingRef.current) await reloadCanonical(); } };
   const saveProfile = async () => { setSaving(true); try { await api("/api/workspace", { method: "PATCH", body: JSON.stringify({ displayName: name }) }); await refresh(); notify("Имя профиля сохранено", false, "profile-name"); } catch (e) { notify(e instanceof Error ? e.message : "Ошибка", true, "profile-name"); } finally { setSaving(false); } };
-  const dirty = JSON.stringify(draft) !== baseline || !!keyText.trim() || name !== workspace.displayName || narrativeDirty || textProviderDirty || imageProviderDirty || connectionsDirty;
+  const dirty = JSON.stringify(draft) !== baseline || name !== workspace.displayName || narrativeDirty || textProviderDirty || imageProviderDirty || connectionsDirty;
   useEffect(() => { if (!dirty && !saving) resolveNotification("settings-connect-guard"); }, [dirty, saving, resolveNotification]);
-  const releaseHistory = useDirtyHistory(dirty, leave => { closeAction.current = leave; setConfirmClose(true); }, onClose);
+  // Keep a single history guard through credential write + canonical refresh.
+  // Releasing/recreating it between those phases can strand a pending history.back().
+  const releaseHistory = useDirtyHistory(dirty || saving, leave => { if (!saving) { closeAction.current = leave; setConfirmClose(true); } }, onClose);
   const requestClose = useCallback(() => { if (saving) return; closeAction.current = () => releaseHistory(onClose); if (dirty) setConfirmClose(true); else releaseHistory(onClose); }, [dirty, saving, onClose, releaseHistory]);
   const openDeveloper = () => { if (saving) return; closeAction.current = () => releaseHistory(onDeveloper); if (dirty) setConfirmClose(true); else releaseHistory(onDeveloper); };
   useEffect(() => { onCloseReady?.(requestClose); return () => onCloseReady?.(null); }, [onCloseReady, requestClose]);
   useEffect(() => { if (!dirty) return; const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); }; window.addEventListener("beforeunload", guard); return () => window.removeEventListener("beforeunload", guard); }, [dirty]);
   useEffect(() => {
-    if (!dirty || onClose) return;
+    if ((!dirty && !saving) || onClose) return;
     const guard = (event: MouseEvent) => {
       const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
       if (!link || link.target === "_blank" || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
       const url = new URL(link.href);
       if (url.origin !== location.origin || (url.pathname === location.pathname && url.search === location.search)) return;
       event.preventDefault(); event.stopPropagation();
+      if (saving) return;
       closeAction.current = () => releaseHistory(() => router.push(url.pathname + url.search + url.hash));
       setConfirmClose(true);
     };
     document.addEventListener("click", guard, true);
     return () => document.removeEventListener("click", guard, true);
-  }, [dirty, onClose, releaseHistory, router]);
+  }, [dirty, saving, onClose, releaseHistory, router]);
   const saveBeforeLeave = async () => {
     if (await save()) {
       if (name !== workspace.displayName) {
@@ -191,11 +217,9 @@ function SettingsForm({ onClose, returnLabel = "Вернуться", onCloseRead
     return false;
   };
   const totalKeys = draft.keysCount + draft.envKeysCount;
-  return <div className="settings-page">{identity?.kind !== "account" && <div className="notice"><ShieldCheck size={18} /><p>Вы играете как гость. Не очищайте данные браузера, чтобы сохранить доступ к историям. Аккаунт позволит продолжить с другого устройства.</p></div>}{onClose && <div className="settings-return"><button className="button secondary" onClick={requestClose} disabled={saving}>{returnLabel}</button></div>}{confirmClose && <UnsavedChangesDialog saving={saving} onSave={saveBeforeLeave} onLeave={() => closeAction.current?.()} onDiscard={() => closeAction.current?.()} onCancel={() => setConfirmClose(false)} />}<div className="page-heading"><div><div className="eyebrow">ДВИЖОК ВАШЕГО ВООБРАЖЕНИЯ</div><h1>Настройки пространства</h1><p>Выберите ИИ и настройте чтение под себя.</p></div><button className="button primary" disabled={saving} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}<span>Сохранить настройки</span></button></div><div className="settings-layout"><div className="settings-main"><AccountSettings unsaved={dirty || saving} /><section className="ai-services" aria-labelledby="ai-services-heading"><div className="ai-services-heading"><div><h2 id="ai-services-heading">ИИ для ваших историй</h2><p>Рассказчик и иллюстрации настраиваются независимо.</p></div><ContextualHelp title="Выбор ИИ"><p>Выберите сервис отдельно для рассказчика и иллюстраций. Один подключённый ключ OpenRouter или Pollinations можно использовать для обеих задач.</p><p>Изменение одной задачи не меняет другую. Новый выбор действует после сохранения. Картинки можно отключить и включить позднее.</p><p>Цена зависит от модели и объёма запроса. Подробности расчёта доступны по значку справки рядом со списком моделей.</p></ContextualHelp></div><div className="ai-task-grid"><TextProviderSettings onDraftChange={markNestedDraftChange} onDirtyChange={setTextProviderDirty} onSaveReady={onTextProviderSaveReady} onSaved={onTextProviderSaved} connectionRevision={pollinationsRevision} expanded={activeTask === "text"} onEdit={() => setActiveTask(value => value === "text" ? null : "text")} geminiConfigured={totalKeys > 0} geminiProfile={draft.routingProfile} geminiModel={draft.narrationModel} onGeminiProfileChange={changeGeminiProfile} geminiProfileDirty={geminiProfileDirty} onSaveGeminiProfile={saveGeminiProfile} onCancelGeminiProfile={cancelGeminiProfile} /><ImageProviderSettings onDraftChange={markNestedDraftChange} onDirtyChange={setImageProviderDirty} onSaveReady={onImageProviderSaveReady} connectionRevision={pollinationsRevision} expanded={activeTask === "image"} onEdit={() => setActiveTask(value => value === "image" ? null : "image")} /></div><ServiceConnections onDraftChange={markNestedDraftChange} onDirtyChange={setConnectionsDirty} onSaveReady={onConnectionsSaveReady} onSaved={onConnectionsSaved} beforeConnect={async () => { if (dirty || saving) { notify("Перед входом сохраните или отмените изменения настроек. Подключение не применяет их автоматически.", "warning", "settings-connect-guard"); return false; } return true; }} advancedKeyRevision={advancedKeyRevision} /></section><details className="settings-advanced"><summary>Дополнительные настройки ИИ</summary><section className="settings-card"><div className="settings-card-heading"><span className="feature-icon violet"><KeyRound size={20} /></span><div><h2>Прямой Gemini</h2><p>Несколько ключей Google для отдельных проектов.</p></div><span className={`pill ${totalKeys ? "teal" : "amber"}`}>{totalKeys ? "Ключ сохранён" : "Не подключено"}</span></div><div className="key-input-row"><label className="field"><span>API-ключ Google AI Studio</span><div className="password-input"><input type={showKey ? "text" : "password"} autoComplete="off" spellCheck={false} maxLength={300} placeholder="Вставьте ваш API-ключ" value={keyText} onChange={(e) => { draftRevision.current++; setKeyText(e.target.value); }} aria-label="API-ключ Gemini" /><button className="icon-button" onClick={() => setShowKey(!showKey)} aria-label={showKey ? "Скрыть ключ" : "Показать ключ"}>{showKey ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></label><button className="button primary" disabled={!keyText.trim() || saving} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={14} /> : <KeyRound size={14} />}Подключить</button></div><div className="key-footnote"><span><LockKeyhole size={12} />Ключ используется только на сервере</span><a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Получить API-ключ <ExternalLink size={11} /></a></div>{draft.keysMasked.map((key, index) => <div className="saved-key" key={`${key}-${index}`}><KeyRound size={13} /><code>{key}</code><span>Ключ {index + 1}</span><button className="icon-button" onClick={() => void removeKey(index)} aria-label={`Удалить ключ ${index + 1}`}><Trash2 size={13} /></button></div>)}{draft.envKeysCount > 0 && <div className="saved-key"><ShieldCheck size={13} /><span>{draft.envKeysCount} ключей из окружения</span><small>Управляются сервером</small></div>}<div className="settings-divider" /><div className="connection-test"><button className="button secondary" disabled={testing || !totalKeys} onClick={() => void test()}>{testing ? <LoaderCircle size={14} className="spin" /> : <Wifi size={14} />}{testing ? "Проверяем…" : "Проверить подключение"}</button><span>Реальный запрос к gemini-embedding-2</span></div>{connection && <div className={`notice ${connection.ok ? "" : "error-notice"}`} role={connection.ok ? "status" : "alert"}>{connection.ok ? <Check size={15} /> : <ShieldCheck size={15} />}<p>{connection.message}</p></div>}</section>
-      <section className="settings-card"><div className="settings-card-heading"><span className="feature-icon amber"><Sparkles size={20} /></span><div><h2>Модели Gemini по задачам</h2><p>Профили и ручной выбор моделей применяются к прямому Gemini. Для других сервисов используется выбранная модель рассказчика.</p></div></div><div className="routing-options">{[{ id: "economy", title: "Лёгкое перо", text: "Flash Lite для ходов. Меньше расход, быстрее история.", icon: Leaf }, { id: "balanced", title: "Золотая середина", text: "Lite для простого. Flash для решений, которые меняют всё.", icon: Zap }, { id: "flagship", title: "Большой роман", text: "Flash для каждого хода. Больше деталей и внимания к нюансам.", icon: Crown }].map((profile) => <button key={profile.id} className={`routing-option ${draft.routingProfile === profile.id ? "selected" : ""}`} onClick={() => change("routingProfile", profile.id)}><profile.icon size={20} /><strong>{profile.title}</strong><p>{profile.text}</p>{profile.id === "balanced" && <span className="recommended">РЕКОМЕНДУЕМ</span>}<span className="radio-dot">{draft.routingProfile === profile.id && <Check size={9} />}</span></button>)}</div><details className="advanced-models"><summary>Ручное назначение моделей <ChevronDown size={13} /></summary><div className="fields">{[{ key: "narrationModel", title: "Предложенные действия" }, { key: "customActionModel", title: "Свободные действия" }, { key: "compactionModel", title: "Обобщение памяти" }, { key: "fastTaskModel", title: "Извлечение фактов" }].map(({ key, title }) => <label className="field" key={key}><span>{title}</span><select value={String(draft[key as keyof Settings])} onChange={(e) => { change(key as keyof Settings, e.target.value); change("routingProfile", "custom"); }}>{MODEL_CATALOG.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>)}</div></details></section>
-      <section className="settings-card"><div className="settings-card-heading"><span className="feature-icon teal"><BrainCircuit size={20} /></span><div><h2>Память, которая держит нить</h2><p>Сохраняем факты и находим нужные воспоминания по смыслу.</p></div></div><SettingToggle title="Поиск воспоминаний по смыслу" description="Находить подходящие воспоминания перед новым ходом." value={draft.embeddingsEnabled} onChange={(value) => change("embeddingsEnabled", value)} /><div className="field-pair embedding-fields"><label className="field"><span>Модель эмбеддингов</span><input value="gemini-embedding-2" readOnly /></label><label className="field"><span>Размерность вектора</span><select value={draft.embeddingDims} onChange={(e) => change("embeddingDims", Number(e.target.value))}><option value={768}>768 · рекомендуем</option><option value={1536}>1536 · больше деталей</option><option value={3072}>3072 · полная размерность</option></select></label></div><div className="setting-explainer"><ShieldCheck size={13} /><span>Поиск изолирован внутри кампании. Векторы разных моделей не смешиваются.</span></div><div className="settings-divider" /><SettingToggle title="Извлечение фактов" description="ИИ выделяет факты из ответа рассказчика. Сервер проверяет цитату-источник." value={draft.semanticExtractionEnabled} onChange={(value) => change("semanticExtractionEnabled", value)} /><p className="settings-footnote">После изменения размерности нажмите «Подготовить поиск» на странице «Память мира». До этого старые векторы не участвуют в поиске.</p></section>
+  return <div className="settings-page">{identity?.kind !== "account" && <div className="notice"><ShieldCheck size={18} /><p>Вы играете как гость. Не очищайте данные браузера, чтобы сохранить доступ к историям. Аккаунт позволит продолжить с другого устройства.</p></div>}{onClose && <div className="settings-return"><button className="button secondary" onClick={requestClose} disabled={saving}>{returnLabel}</button></div>}{confirmClose && <UnsavedChangesDialog saving={saving} onSave={saveBeforeLeave} onLeave={() => closeAction.current?.()} onDiscard={() => closeAction.current?.()} onCancel={() => setConfirmClose(false)} />}<div className="page-heading"><div><div className="eyebrow">ДВИЖОК ВАШЕГО ВООБРАЖЕНИЯ</div><h1>Настройки пространства</h1><p>Выберите ИИ и настройте чтение под себя.</p></div><button className="button primary" disabled={saving} onClick={() => void save()}>{saving ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}<span>Сохранить настройки</span></button></div>{canonicalPending && <div className="notice amber" role={canonicalError ? "alert" : "status"}><div><p>{canonicalError ? "Изменения записаны, но актуальное состояние подключения не получено. Повторите загрузку перед выходом. Ключи повторно отправляться не будут." : "Обновляем состояние подключения…"}</p>{canonicalError && <button type="button" className="button secondary" disabled={canonicalLoading} onClick={() => void reloadCanonical()}>Повторить загрузку настроек</button>}</div></div>}<div className="settings-layout"><div className="settings-main"><fieldset className="ai-services" aria-labelledby="ai-services-heading" disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}><div className="ai-services-heading"><div><h2 id="ai-services-heading">ИИ для ваших историй</h2><p>Рассказчик и иллюстрации настраиваются независимо.</p></div><ContextualHelp title="Выбор ИИ"><p>Выберите сервис отдельно для рассказчика и иллюстраций. Один подключённый ключ OpenRouter или Pollinations можно использовать для обеих задач.</p><p>Изменение одной задачи не меняет другую. Новый выбор действует после сохранения. Картинки можно отключить и включить позднее.</p><p>Цена зависит от модели и объёма запроса. Подробности расчёта доступны по значку справки рядом со списком моделей.</p></ContextualHelp></div><div className="ai-task-grid"><TextProviderSettings onSavingChange={setNarratorSaving} onDraftChange={markNestedDraftChange} onDirtyChange={setTextProviderDirty} onSaveReady={onTextProviderSaveReady} onSaved={onTextProviderSaved} connectionRevision={pollinationsRevision} onBeforeSave={async () => { if (canonicalPendingRef.current) return false; if (savingAll.current || !connectionsSave.current) return true; return await connectionsSave.current() && !canonicalPendingRef.current; }} geminiConfigured={totalKeys > 0 && !draft.credentialIssues?.includes("gemini")} geminiModels={draft} onGeminiModelChange={(key, value) => { change(key, value); change("routingProfile", "custom"); }} geminiProfile={draft.routingProfile} geminiModel={draft.narrationModel} onGeminiProfileChange={changeGeminiProfile} geminiProfileDirty={geminiProfileDirty} onSaveGeminiProfile={saveGeminiProfile} onCancelGeminiProfile={cancelGeminiProfile} /><ImageProviderSettings onDraftChange={markNestedDraftChange} onDirtyChange={setImageProviderDirty} onSaveReady={onImageProviderSaveReady} connectionRevision={pollinationsRevision} expanded={imageExpanded} onEdit={() => setImageExpanded(value => !value)} /></div><ServiceConnections onSavingChange={setConnectionsSaving} onDraftChange={markNestedDraftChange} onDirtyChange={setConnectionsDirty} onSaveReady={onConnectionsSaveReady} onSaved={onConnectionsSaved} beforeConnect={async () => { if (dirty || saving) { notify("Перед входом сохраните или отмените изменения настроек. Подключение не применяет их автоматически.", "warning", "settings-connect-guard"); return false; } return true; }} advancedKeyRevision={advancedKeyRevision} geminiKeys={draft.keysMasked} onRemoveGeminiKey={removeKey} /></fieldset><details className="settings-advanced"><summary>Дополнительные настройки ИИ</summary><section className="settings-card"><div className="settings-card-heading"><span className="feature-icon teal"><BrainCircuit size={20} /></span><div><h2>Память, которая держит нить</h2><p>Сохраняем факты и находим нужные воспоминания по смыслу.</p></div></div><SettingToggle title="Поиск воспоминаний по смыслу" description="Находить подходящие воспоминания перед новым ходом." value={draft.embeddingsEnabled} onChange={(value) => change("embeddingsEnabled", value)} /><div className="field-pair embedding-fields"><label className="field"><span>Модель эмбеддингов</span><input value="gemini-embedding-2" readOnly /></label><label className="field"><span>Размерность вектора</span><select value={draft.embeddingDims} onChange={(e) => change("embeddingDims", Number(e.target.value))}><option value={768}>768 · рекомендуем</option><option value={1536}>1536 · больше деталей</option><option value={3072}>3072 · полная размерность</option></select></label></div><div className="setting-explainer"><ShieldCheck size={13} /><span>Поиск изолирован внутри кампании. Векторы разных моделей не смешиваются.</span></div><div className="settings-divider" /><SettingToggle title="Извлечение фактов" description="ИИ выделяет факты из ответа рассказчика. Сервер проверяет цитату-источник." value={draft.semanticExtractionEnabled} onChange={(value) => change("semanticExtractionEnabled", value)} /><div className="connection-test"><button className="button secondary" disabled={testing || !totalKeys} onClick={() => void test()}>{testing ? <LoaderCircle size={14} className="spin" /> : <Wifi size={14} />}{testing ? "Проверяем…" : "Проверить подключение памяти"}</button><span>Запрос к Gemini расходует квоту</span></div>{connection && <p className="notice" role={connection.ok ? "status" : "alert"}>{connection.message}</p>}<p className="settings-footnote">После изменения размерности нажмите «Подготовить поиск» на странице «Память мира». До этого старые векторы не участвуют в поиске.</p></section>
 </details>
-      <section className="settings-card" id="reading"><div className="settings-card-heading"><span className="feature-icon teal"><BookOpenText size={20} /></span><div><h2>Комфорт чтения</h2><p>Изменения применяются и сохраняются сразу.</p></div></div><div className="reading-groups">{([
+      <AccountSettings unsaved={dirty || saving} /><section className="settings-card" id="reading"><div className="settings-card-heading"><span className="feature-icon teal"><BookOpenText size={20} /></span><div><h2>Комфорт чтения</h2><p>Изменения применяются и сохраняются сразу.</p></div></div><div className="reading-groups">{([
         { key: "textScale", title: "Размер прозы" },
         { key: "measure", title: "Ширина строки" },
         { key: "theme", title: "Палитра" },

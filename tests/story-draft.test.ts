@@ -213,6 +213,22 @@ test("autofill repairs malformed output once inside the shared 30 second deadlin
   assert.equal(result.patch.title, completeGeneratedDraft.title);
 });
 
+test("autofill explains a rejected Gemini key without exposing arbitrary provider text", async () => {
+  for (const diagnostic of ["ALL_MODELS_FAILED:HTTP 400: API_KEY_INVALID", "PRIVATE_PROVIDER_BODY"]) {
+    const service = createStoryDraftAutofillService({
+      loadConfig: async () => ({ keys: ["synthetic"], canUseLive: true }),
+      selectModels: async () => ["gemini-3.5-flash-lite"],
+      generate: async () => { throw new Error(diagnostic); }, log: async () => {},
+    });
+    await assert.rejects(service(blankDraft()), (error: unknown) => {
+      assert.ok(error instanceof StoryDraftError && error.code === "AI_FAILED");
+      if (diagnostic.includes("API_KEY_INVALID")) assert.match(error.message, /ключ.*настройках/);
+      assert.doesNotMatch(error.message, /PRIVATE_/);
+      return true;
+    });
+  }
+});
+
 test("autofill never makes a second repair attempt", async () => {
   let calls = 0;
   const service = createStoryDraftAutofillService({

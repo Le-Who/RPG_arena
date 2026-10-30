@@ -248,7 +248,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
     setItemBindings(old => [...new Map([...retainedItemBindings(next, old), ...bindings].map(item => [item.id, item])).values()].slice(0, 4));
     requestAnimationFrame(() => { composerRef.current?.focus(); composerRef.current?.setSelectionRange(next.length, next.length); });
   };
-  const addItemToAction = (name: string, id: string) => appendPhrase(`Использовать «${name}»: `, [{ id, name }]);
+  const addItemToAction = (name: string, id: string) => appendPhrase(`«${name}»`, [{ id, name }]);
   const loadEarlier = async () => {
     setHistoryRequests(count => count + 1);
     try { const loaded = await history.loadEarlier(); if (mounted.current) { resolveNotification(`history-earlier:${sessionId}`); if (!loaded) notify("Более ранних ходов нет."); } }
@@ -406,7 +406,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
         </div>
 
         <div className="gx-composer-wrap" ref={actionZoneRef}>
-          {turnRequest.pending && !busy && <div className="gx-recovery"><ShieldCheck size={19} /><div><strong>Ваше действие не потерялось</strong><p>«{turnRequest.pending.action}»</p><small>Безопасный повтор проверит результат предыдущей попытки и не создаст второй ход.</small><div className="gx-recovery-actions"><button className="button secondary" onClick={() => void turnRequest.retry()}><RefreshCw size={13} />Повторить безопасно</button><button className="text-button" onClick={turnRequest.dismiss}>Отложить действие</button></div></div></div>}
+          {turnRequest.pending && !busy && <div className={`gx-recovery ${actionError ? "has-error" : ""}`} role={actionError ? "alert" : "status"}><ShieldCheck size={19} /><div><strong>{actionError ? "Ход не завершён" : "Ваше действие не потерялось"}</strong>{actionError && <p className="gx-recovery-error">{actionError}{!live && session.campaignMode === "free" && <> <Link href="/settings">Открыть настройки</Link></>}</p>}<p>«{turnRequest.pending.action}»</p><small>Безопасный повтор проверит результат предыдущей попытки и не создаст второй ход.</small><div className="gx-recovery-actions"><button className="button secondary" onClick={() => void turnRequest.retry()}><RefreshCw size={13} />Повторить безопасно</button><button className="text-button" onClick={turnRequest.dismiss}>Отложить действие</button></div></div></div>}
 
           {!isOwner ? <div className="notice"><BookOpen size={18} /><div><p>Вы читаете общую кампанию. Создайте свою приватную копию, чтобы играть со своим прогрессом и своим API-ключом.</p><CampaignCopyButton sessionId={sessionId} /></div></div> : !active ? <div className="gx-archived"><span className="gx-archived-icon"><BookOpen size={22} /></span><div><strong>Эта история ждёт в архиве</strong><p>Прочитайте предыдущие главы или вернитесь к приключению.</p></div><button className="button primary" onClick={() => void restore()}>Продолжить историю <ArrowRight size={15} /></button></div> : <div className={`gx-composer ${canAct ? "is-ready" : ""}`}>
             <div className="gx-composer-head"><Sparkles size={16} /><h3>Что вы сделаете дальше?</h3></div>
@@ -422,7 +422,7 @@ export function PlayRoom({ sessionId }: { sessionId: string }) {
             </form>
           </div>}
 
-          {actionError && <div className="notice error-notice gx-error" role="alert"><ShieldCheck size={17} /><p>{actionError}{!live && session.campaignMode === "free" && <> <Link href="/settings">Открыть настройки</Link></>}</p></div>}
+          {actionError && !turnRequest.pending && <div className="notice error-notice gx-error" role="alert"><ShieldCheck size={17} /><p>{actionError}{!live && session.campaignMode === "free" && <> <Link href="/settings">Открыть настройки</Link></>}</p></div>}
           {isOwner && compactNeeded && <div className="notice gx-compact"><BrainCircuit size={18} /><p>Приключение стало длиннее. Сохраните последние главы в долгосрочной памяти.</p><button className="text-button" disabled={compacting} onClick={() => void compact()}>{compacting ? "Сохраняем…" : "Обобщить"}</button></div>}
         </div>
       </section>

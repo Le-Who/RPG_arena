@@ -34,6 +34,7 @@ import {
 } from "./gemini";
 import { getAIConfig, logToken, pickModels, type AIConfig } from "./ai-settings";
 import { callTextWithConfig } from "./text-provider";
+import { geminiFailureMessage } from "./gemini-errors";
 import { assembleMemoryDigest, LAYER_INFO, loadRankedNodes, shouldCompact, writeStateEvents, type ModelTier } from "./memory";
 import { retrievedDigest, searchMemory, type RetrievedNode } from "./embeddings";
 import { applyResolution, emptyChanges, parseResolution, type DbOp, type NpcRow, type ResolutionPayload } from "./resolution";
@@ -406,7 +407,10 @@ async function performAdmittedTurn(opts: TurnInput & { requestId: string }, leas
       }
       const msg = e instanceof Error ? e.message : String(e);
       if (campaignMode === "free" || externalNarrator || (narrativeConfig.enabled && emittedPrefix)) {
-        return { ok: false, code: "AI_FAILED", message: "ИИ-мастер сейчас недоступен. Ход не записан — повторите через минуту.", details: msg.slice(0, 200) };
+        const reason = !externalNarrator ? geminiFailureMessage(msg) : null;
+        return { ok: false, code: "AI_FAILED", message: reason
+          ? `${reason} Ход не записан.`
+          : "Рассказчик не смог завершить ход. Ход не записан — можно безопасно повторить попытку.", details: msg.slice(0, 200) };
       }
       emit?.({ type: "narration", text: "" });
       warnings.push(`live fallback: ${msg.slice(0, 100)}`);
