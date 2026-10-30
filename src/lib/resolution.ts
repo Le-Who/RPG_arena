@@ -658,7 +658,11 @@ export function applyResolution(input: ApplyInput): ApplyResult {
     const from = resolveLocation(route.from), to = resolveLocation(route.to);
     if (!from.location || !to.location) { rejected.push(`Маршрут отклонён: ${from.error ?? to.error}`); continue; }
     if (from.location.id === to.location.id) { rejected.push(`Маршрут отклонён: обе ссылки ведут в «${from.location.name}»`); continue; }
-    const key = [from.location.id, to.location.id].sort().join("|");
+    const id1 = from.location.id;
+    const id2 = to.location.id;
+    // ⚡ Bolt: Optimizes edge key generation. Replaces [id1, id2].sort().join("|")
+    // with string comparison to eliminate array allocation and sorting overhead.
+    const key = id1 < id2 ? `${id1}|${id2}` : `${id2}|${id1}`;
     if (connected.has(key)) continue;
     connected.add(key);
     ops.push({ t: "loc.connect", fromId: from.location.id, toId: to.location.id });
