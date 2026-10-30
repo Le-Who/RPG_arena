@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCampaignAccess, withCampaignAccess } from "@/lib/campaign-access";
 import { HttpError, httpError, readJsonObject } from "@/lib/http";
-import { createVisual, listVisuals } from "@/lib/visuals";
+import { createVisual, listVisuals, parseVisualStyleOverride } from "@/lib/visuals";
 import type { VisualKind } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,8 @@ async function handlePOST(req: Request, { params }: { params: Promise<{ id: stri
     if (!["scene", "portrait", "location"].includes(kind)) throw new HttpError(400, "INVALID_INPUT", "Укажите тип иллюстрации: scene, portrait или location.");
     const subject = typeof body.subject === "string" ? body.subject.slice(0, 120) : null;
     const turnNumber = Number.isInteger(body.turnNumber) ? Number(body.turnNumber) : null;
-    const visual = await createVisual(id, { kind, subject, turnNumber });
+    const styleOverride = parseVisualStyleOverride(body.styleOverride);
+    const visual = await createVisual(id, { kind, subject, turnNumber, styleOverride });
     return NextResponse.json({ visual }, { status: 201 });
   } catch (error) { return httpError(error); }
 }

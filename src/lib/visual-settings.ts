@@ -7,6 +7,7 @@ import { HttpError } from "./http";
 import { openSecret, secretContext } from "./secret-vault";
 import { assertPollinationsGenerationModel } from "./visual-models";
 import { resolveOpenRouterImageEndpoint } from "./openrouter-image-catalog";
+import { assertOpenAIImageModel } from "./openai-image-catalog";
 
 export type VisualAccountSource = "application" | "personal";
 export type VisualPreferencesInput = { enabled: boolean; provider: VisualProviderId; accountSource: VisualAccountSource; model: string; endpoint: string | null };
@@ -15,12 +16,13 @@ export function parseVisualPreferences(body: Record<string, unknown>): VisualPre
   const provider = body.provider === undefined ? "pollinations" : body.provider;
   const endpoint = body.endpoint ?? null;
   if (Object.keys(body).some(key => !["enabled", "provider", "accountSource", "model", "endpoint"].includes(key))
-    || typeof enabled !== "boolean" || (provider !== "pollinations" && provider !== "openrouter")
+    || typeof enabled !== "boolean" || (provider !== "pollinations" && provider !== "openrouter" && provider !== "openai")
     || typeof body.accountSource !== "string" || !["application", "personal"].includes(body.accountSource)
     || typeof body.model !== "string" || (body.model.trim() ? !/^[a-z0-9][a-z0-9._:/@+-]{0,199}$/i.test(body.model.trim()) : enabled)
     || (endpoint !== null && (typeof endpoint !== "string" || !/^[a-z0-9][a-z0-9._:/@+-]{0,149}$/i.test(endpoint) || endpoint.includes("://")))
     || (provider === "openrouter" && (body.accountSource !== "personal" || (enabled && !endpoint)))
-    || (provider === "pollinations" && endpoint !== null)) {
+    || (provider === "openai" && body.accountSource !== "personal")
+    || (provider !== "openrouter" && endpoint !== null)) {
     throw new HttpError(400, "INVALID_INPUT", "Выберите сервис, доступный аккаунт и модель иллюстраций.");
   }
   return { enabled, provider, accountSource: body.accountSource as VisualAccountSource, model: body.model.trim(), endpoint };
@@ -29,6 +31,7 @@ export function parseVisualPreferences(body: Record<string, unknown>): VisualPre
 /** Rechecked at save, admission and retry. A manual model ID does not bypass known incompatibility. */
 export async function assertVisualGenerationSelection(provider: string, model: string, endpoint: string | null): Promise<{ outputFormat: VisualOutputFormat | null }> {
   if (provider === "pollinations") { assertPollinationsGenerationModel(model); return { outputFormat: null }; }
+  else if (provider === "openai") { assertOpenAIImageModel(model); return { outputFormat: "png" }; }
   else if (provider === "openrouter") {
     if (!endpoint) throw new HttpError(400, "INVALID_INPUT", "Выберите доступный маршрут модели OpenRouter.");
     const resolved = await resolveOpenRouterImageEndpoint(model, endpoint);
@@ -46,10 +49,10 @@ export async function readVisualConfig(ownerId?: string | null) {
   const [personal] = ownerId ? await db.select().from(aiSettings).where(eq(aiSettings.id, ownerId)).limit(1) : [];
   const provider = PROVIDERS[personal?.visualProvider ?? "pollinations"];
   const accountSource = personal?.visualAccountSource ?? "application";
-  const connected = Boolean(provider.id === "openrouter" ? personal?.openrouterKey : personal?.pollinationsKey);
+  const connected = Boolean(provider.id === "openrouter" ? personal?.openrouterKey : provider.id === "openai" ? personal?.openaiKey : personal?.pollinationsKey);
   const expired = provider.id === "pollinations" && Boolean(personal?.pollinationsKeyExpiresAt && personal.pollinationsKeyExpiresAt.getTime() <= Date.now());
   const applicationAvailable = provider.id === "pollinations" && base.authenticated;
-  const model = provider.id === "openrouter" ? personal?.visualModel || provider.defaultModel
+  const model = provider.id !== "pollinations" ? personal?.visualModel || provider.defaultModel
     : accountSource === "personal" ? personal?.visualModel || personal?.pollinationsImageModel || base.model : saved?.model ?? base.model;
   return { ...base, enabled: base.enabled && (personal?.visualEnabled ?? true), provider, accountSource, model,
     endpoint: provider.id === "openrouter" ? personal?.visualEndpoint ?? null : null,
@@ -61,7 +64,7 @@ function visualPreferencesView(row: Awaited<ReturnType<typeof getRawSettingsRow>
   return { enabled: row.visualEnabled, provider: row.visualProvider, endpoint: row.visualEndpoint,
     accountSource: row.visualAccountSource, model: row.visualModel || (row.visualProvider === "pollinations" ? row.pollinationsImageModel : "") || PROVIDERS[row.visualProvider].defaultModel,
     applicationModel: application.model, applicationConfigured: application.authenticated,
-    pollinationsConfigured: Boolean(row.pollinationsKey), openrouterConfigured: Boolean(row.openrouterKey),
+    pollinationsConfigured: Boolean(row.pollinationsKey), openrouterConfigured: Boolean(row.openrouterKey), openaiConfigured: Boolean(row.openaiKey),
     ...(row.pollinationsKeyExpiresAt ? { expiresAt: row.pollinationsKeyExpiresAt.toISOString() } : {}) };
 }
 
@@ -84,14 +87,18 @@ export async function saveVisualPreferences(ownerId: string, body: Record<string
 
 /** Resolve only the recorded payer. A missing personal key never spends application funds. */
 export async function visualCredential(ownerId: string | null, accountSource: VisualAccountSource, provider: string = "pollinations"): Promise<string> {
-  if (provider !== "pollinations" && provider !== "openrouter") throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Сервис иллюстраций недоступен.");
+  if (provider !== "pollinations" && provider !== "openrouter" && provider !== "openai") throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Сервис иллюстраций недоступен.");
   if (accountSource === "application") {
-    if (provider === "openrouter") throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Для иллюстраций OpenRouter подключите личный аккаунт.");
+    if (provider !== "pollinations") throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", `Для иллюстраций ${provider === "openai" ? "OpenAI" : "OpenRouter"} подключите личный аккаунт.`);
     const key = process.env.POLLINATIONS_API_KEY?.trim();
     if (!key) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", "Аккаунт приложения Pollinations не настроен. Выберите личный аккаунт в настройках.");
     return key;
   }
   const [row] = ownerId ? await db.select().from(aiSettings).where(eq(aiSettings.id, ownerId)).limit(1) : [];
+  if (provider === "openai") {
+    if (!row?.openaiKey) throw new HttpError(503, "OPENAI_CONNECTION_REQUIRED", "Добавьте API-ключ OpenAI в настройках подключений.");
+    return openSecret(row.openaiKey, secretContext(row.id, "visual:openai"));
+  }
   if (provider === "openrouter") {
     if (!row?.openrouterKey) throw new HttpError(503, "OPENROUTER_CONNECTION_REQUIRED", "Подключите личный аккаунт OpenRouter в настройках.");
     return openSecret(row.openrouterKey, secretContext(row.id, "text:openrouter"));

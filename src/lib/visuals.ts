@@ -6,8 +6,9 @@ import { and, desc, eq, gte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { gameSessions, gameTurns, npcs, sceneObjects, sceneVisuals, visualIdentities, visualQuotaReservations, worldLocations, type CharacterState, type VisualKind, type WorldState } from "@/db/schema";
 import { HttpError } from "./http";
+import { OPENAI_VISUAL_ERRORS, visualErrorMessage } from "./visual-errors";
 import { normName } from "./world-life";
-import { PROVIDERS, buildVisualPrompt, clip, fetchFromProvider, seedFor, visualConfig } from "./visual-provider";
+import { PROVIDERS, buildVisualPrompt, clip, fetchFromProvider, normalizeOpenAIImageDimensions, seedFor, visualConfig, visualProviderTimeoutMs } from "./visual-provider";
 import { assertVisualGenerationSelection, readVisualConfig, visualCredential, type VisualAccountSource } from "./visual-settings";
 import type { VisualOutputFormat } from "./visual-provider";
 
@@ -62,28 +63,39 @@ export async function listVisuals(sessionId: string) {
   ]);
   // Old rows may contain provider exception text. Gallery data is user-visible, so expose
   // the same safe Russian message as render failures without rewriting historical records.
-  return { visuals: visuals.map(({ payerOwnerId, ...visual }) => ({ ...visual, generationBlocked: visual.accountSource === "personal" && payerOwnerId !== session?.ownerId, error: visual.error ? visualFailureMessage : null })) as VisualView[], identities, config: { enabled: cfg.enabled, provider: cfg.provider.id, accountSource: cfg.accountSource, availableAccounts: cfg.availableAccounts, model: cfg.model, endpoint: cfg.endpoint, dailyLimit: cfg.dailyLimit, authenticated: cfg.authenticated, capabilities: cfg.provider.capabilities } };
+  return { visuals: visuals.map(({ payerOwnerId, ...visual }) => ({ ...visual, generationBlocked: visual.accountSource === "personal" && payerOwnerId !== session?.ownerId, error: visual.error ? visualErrorMessage(visual.error) : null })) as VisualView[], identities, config: { enabled: cfg.enabled, provider: cfg.provider.id, accountSource: cfg.accountSource, availableAccounts: cfg.availableAccounts, model: cfg.model, endpoint: cfg.endpoint, dailyLimit: cfg.dailyLimit, authenticated: cfg.authenticated, capabilities: cfg.provider.capabilities } };
 }
 
 function heroPassport(c: CharacterState) {
-  return clip([c.appearance, c.archetype].filter(Boolean).join(", "), 500);
+  return clip([c.appearance, c.archetype, ...(Array.isArray(c.traits) ? c.traits.slice(0, 2) : [])].filter(Boolean).join(", "), 500);
 }
 
-export async function createVisual(sessionId: string, input: { kind: VisualKind; subject?: string | null; turnNumber?: number | null }) {
+export function parseVisualStyleOverride(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length > 400) throw new HttpError(400, "INVALID_INPUT", "Стиль иллюстрации должен быть текстом до 400 символов.");
+  return value.trim() || undefined;
+}
+
+export async function createVisual(sessionId: string, input: { kind: VisualKind; subject?: string | null; turnNumber?: number | null; styleOverride?: string }) {
+  const styleOverride = parseVisualStyleOverride(input.styleOverride);
   const [session] = await db.select().from(gameSessions).where(eq(gameSessions.id, sessionId));
   if (!session) throw new HttpError(404, "NOT_FOUND", "Кампания не найдена.");
   const cfg = await readVisualConfig(session.ownerId);
   if (!cfg.enabled) throw new HttpError(503, "VISUALS_DISABLED", "Иллюстрации выключены. Включите их в настройках, если хотите добавить изображение.");
-  if (!cfg.authenticated) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", `Выбранный аккаунт ${cfg.provider.id === "openrouter" ? "OpenRouter" : "Pollinations"} недоступен. Проверьте подключение в настройках иллюстраций.`);
+  if (!cfg.authenticated) throw new HttpError(503, "VISUAL_PROVIDER_UNCONFIGURED", `Выбранный аккаунт ${cfg.provider.id === "openrouter" ? "OpenRouter" : cfg.provider.id === "openai" ? "OpenAI" : "Pollinations"} недоступен. Проверьте подключение в настройках иллюстраций.`);
   const selection = await assertVisualGenerationSelection(cfg.provider.id, cfg.model, cfg.endpoint);
   const world = session.worldState as WorldState;
   const character = session.character as CharacterState;
   const { partOfDay, readLife } = await import("./world-life");
   const life = readLife(world);
-  const [locs, people, objects] = await Promise.all([
+  const turnFilter = input.kind === "scene" && input.turnNumber && input.turnNumber > 0
+    ? and(eq(gameTurns.sessionId, sessionId), eq(gameTurns.role, "narrator"), eq(gameTurns.turnNumber, input.turnNumber))
+    : and(eq(gameTurns.sessionId, sessionId), eq(gameTurns.role, "narrator"));
+  const [locs, people, objects, [turn]] = await Promise.all([
     db.select().from(worldLocations).where(eq(worldLocations.sessionId, sessionId)),
     db.select().from(npcs).where(eq(npcs.sessionId, sessionId)),
     db.select().from(sceneObjects).where(eq(sceneObjects.sessionId, sessionId)),
+    db.select({ turnNumber: gameTurns.turnNumber, content: gameTurns.content }).from(gameTurns).where(turnFilter).orderBy(desc(gameTurns.turnNumber)).limit(1),
   ]);
   const here = locs.find((l) => l.current) ?? locs.find((l) => normName(l.name) === normName(world.currentLocation));
   let subjectKey = "scene", subjectName = world.currentLocation, caption = "", turnNumber = 0, prompt = "", seed = 0, width = 1024, height = 576;
@@ -93,13 +105,14 @@ export async function createVisual(sessionId: string, input: { kind: VisualKind;
     if (subject === "hero") {
       const identity = await ensureIdentity(sessionId, "hero", character.name, heroPassport(character));
       subjectKey = "hero"; subjectName = character.name; seed = identity.seed;
-      prompt = buildVisualPrompt({ kind: "portrait", world, subjectName, passport: identity.passport });
+      prompt = buildVisualPrompt({ kind: "portrait", world, subjectName, passport: identity.passport, styleOverride, sceneNarration: turn?.content });
     } else {
       const npc = people.find((n) => `npc:${n.key}` === subject || n.key === subject);
       if (!npc) throw new HttpError(404, "NOT_FOUND", "Персонаж не найден.");
       const identity = await ensureIdentity(sessionId, `npc:${npc.key}`, npc.name, clip(`${npc.role}. ${npc.description.replace(/\[ход \d+\][^[]*/g, "")}`, 500));
       subjectKey = identity.subjectKey; subjectName = npc.name; seed = identity.seed;
-      prompt = buildVisualPrompt({ kind: "portrait", world, subjectName, passport: identity.passport || npc.role });
+      const inCurrentScene = Boolean(npc.lastLocation && normName(npc.lastLocation) === normName(world.currentLocation) && turn?.content.includes(npc.name));
+      prompt = buildVisualPrompt({ kind: "portrait", world: { ...world, currentLocation: npc.lastLocation }, subjectName, passport: identity.passport || npc.role, styleOverride, sceneNarration: inCurrentScene ? turn?.content : undefined });
     }
     caption = `Портрет: ${subjectName}`; width = 768; height = 960;
   } else if (input.kind === "location") {
@@ -107,11 +120,9 @@ export async function createVisual(sessionId: string, input: { kind: VisualKind;
     if (!loc || !loc.discovered) throw new HttpError(404, "NOT_FOUND", "Место не найдено или ещё не открыто.");
     const identity = await ensureIdentity(sessionId, `location:${loc.id}`, loc.name, loc.description);
     subjectKey = identity.subjectKey; subjectName = loc.name; seed = identity.seed;
-    prompt = buildVisualPrompt({ kind: "location", world, subjectName, passport: identity.passport, locationDescription: identity.passport || loc.description, partOfDay: partOfDay(life.clock.minute) });
+    prompt = buildVisualPrompt({ kind: "location", world: { ...world, currentLocation: loc.name }, subjectName, passport: identity.passport, locationDescription: identity.passport || loc.description, partOfDay: partOfDay(life.clock.minute), styleOverride, sceneNarration: normName(loc.name) === normName(world.currentLocation) ? turn?.content : undefined });
     caption = `Место: ${loc.name}`;
   } else {
-    const turnFilter = input.turnNumber && input.turnNumber > 0 ? and(eq(gameTurns.sessionId, sessionId), eq(gameTurns.role, "narrator"), eq(gameTurns.turnNumber, input.turnNumber)) : and(eq(gameTurns.sessionId, sessionId), eq(gameTurns.role, "narrator"));
-    const [turn] = await db.select({ turnNumber: gameTurns.turnNumber, content: gameTurns.content }).from(gameTurns).where(turnFilter).orderBy(desc(gameTurns.turnNumber)).limit(1);
     if (!turn) throw new HttpError(404, "NOT_FOUND", "Нет сцены для иллюстрации.");
     turnNumber = turn.turnNumber;
     const identities = await db.select().from(visualIdentities).where(eq(visualIdentities.sessionId, sessionId));
@@ -119,10 +130,11 @@ export async function createVisual(sessionId: string, input: { kind: VisualKind;
     const presentPassports = [{ name: character.name, passport: identities.find((i) => i.subjectKey === "hero")?.passport || heroPassport(character) },
       ...present.map((n) => ({ name: n.name, passport: identities.find((i) => i.subjectKey === `npc:${n.key}`)?.passport || n.role }))];
     const objectNames = objects.filter((o) => normName(o.locationName) === normName(world.currentLocation)).map((o) => `${o.name} (${o.state})`);
-    prompt = buildVisualPrompt({ kind: "scene", world, subjectName, passport: "", locationDescription: here?.description, sceneNarration: turn.content, presentPassports, objects: objectNames, partOfDay: partOfDay(life.clock.minute) });
+    prompt = buildVisualPrompt({ kind: "scene", world, subjectName, passport: "", locationDescription: here?.description, sceneNarration: turn.content, presentPassports, objects: objectNames, partOfDay: partOfDay(life.clock.minute), styleOverride });
     seed = seedFor(sessionId, `scene:${turn.turnNumber}:${Date.now()}`);
     subjectKey = "scene"; caption = `Сцена хода ${turn.turnNumber} · ${world.currentLocation}`;
   }
+  if (cfg.provider.id === "openai") ({ width, height } = normalizeOpenAIImageDimensions(width, height));
   const since = new Date(Date.now() - 24 * 3600_000);
   const quotaScope = session.ownerId ? `owner:${session.ownerId}` : `session:${sessionId}`;
   return await db.transaction(async (tx) => {
@@ -143,14 +155,12 @@ export async function createVisual(sessionId: string, input: { kind: VisualKind;
 }
 
 const inflight = new Map<string, Promise<{ image: Buffer; mimeType: string }>>();
-const visualLeaseMs = 105_000; // Provider timeout is 90s; leave time for persistence.
 const visualWaitMs = 95_000;
-const visualErrorCodes = new Set(["PROVIDER_ERROR", "PROVIDER_TIMEOUT", "PROVIDER_NOT_IMAGE", "PROVIDER_BAD_SIZE", "POLLINATIONS_KEY_REQUIRED"]);
+const visualErrorCodes = new Set(["PROVIDER_ERROR", "PROVIDER_TIMEOUT", "PROVIDER_NOT_IMAGE", "PROVIDER_BAD_SIZE", "POLLINATIONS_KEY_REQUIRED", ...Object.keys(OPENAI_VISUAL_ERRORS)]);
 function safeVisualError(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   return visualErrorCodes.has(message) || /^PROVIDER_HTTP_[45]\d{2}$/.test(message) ? message : "PROVIDER_ERROR";
 }
-const visualFailureMessage = "Провайдер не вернул изображение. Попробуйте повторить генерацию.";
 
 /** Ленивая генерация при первом просмотре: результат сохраняется в БД, повторы идут тем же провайдером/seed. */
 export async function renderVisual(sessionId: string, visualId: string, opts: { retry?: boolean; allowGenerate?: boolean; beforeSpend?: () => Promise<void> } = {}): Promise<{ image: Buffer; mimeType: string }> {
@@ -160,8 +170,9 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
   if (opts.allowGenerate === false) throw new HttpError(403, "VISUAL_NOT_READY", "Эта иллюстрация ещё не готова. Только владелец кампании может запустить генерацию.");
   const config = visualConfig();
   if (!config.enabled) throw new HttpError(503, "VISUALS_DISABLED", "Визуализация отключена администратором.");
-  if (row.status === "failed" && !opts.retry) throw new HttpError(502, "VISUAL_FAILED", visualFailureMessage);
+  if (row.status === "failed" && !opts.retry) throw new HttpError(502, "VISUAL_FAILED", visualErrorMessage(row.error));
   const provider = PROVIDERS[row.provider];
+  const visualLeaseMs = visualProviderTimeoutMs(row.provider) + 15_000; // Leave time for persistence after provider IO.
   if (!provider) throw new HttpError(502, "VISUAL_FAILED", `Провайдер ${row.provider} недоступен.`);
   const [session] = await db.select({ ownerId: gameSessions.ownerId }).from(gameSessions).where(eq(gameSessions.id, sessionId));
   if (row.accountSource === "personal" && row.ownerId !== session?.ownerId) throw new HttpError(409, "VISUAL_PAYER_CHANGED", "Владелец этой иллюстрации изменился. Создайте новую иллюстрацию с выбранным аккаунтом.");
@@ -183,7 +194,7 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
           await new Promise(resolve => setTimeout(resolve, 100));
           continue;
         }
-        if (current.status === "failed" && !opts.retry) throw new HttpError(502, "VISUAL_FAILED", visualFailureMessage);
+        if (current.status === "failed" && !opts.retry) throw new HttpError(502, "VISUAL_FAILED", visualErrorMessage(current.error));
         if (current.attempts >= 4) throw new HttpError(502, "VISUAL_FAILED", "Лимит повторов для этого изображения исчерпан.");
         // The HTTP caller owns request identity. Revalidate it after catalogue IO and lease waits,
         // before resolving credentials or claiming an attempt; pure library callers need no request context.
@@ -207,7 +218,7 @@ export async function renderVisual(sessionId: string, visualId: string, opts: { 
       } catch (error) {
         const message = safeVisualError(error);
         await db.update(sceneVisuals).set({ status: "failed", error: message, latencyMs: Date.now() - started, updatedAt: new Date() }).where(fence);
-        throw new HttpError(502, "VISUAL_FAILED", visualFailureMessage);
+        throw new HttpError(502, "VISUAL_FAILED", visualErrorMessage(message));
       }
     })().finally(() => inflight.delete(visualId));
     inflight.set(visualId, job);

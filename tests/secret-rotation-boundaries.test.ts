@@ -14,7 +14,7 @@ const broken = "enc:v1:unavailable:AAAAAAAAAAAAAAAA:AAAAAAAAAAAAAAAAAAAAAA:AA";
 
 type Row = {
   id: string; keys: string[] | null; typesafe_key: string; narrative_guard_provider: string;
-  narrative_guard_key: string; openrouter_key: string; pollinations_key: string;
+  narrative_guard_key: string; openrouter_key: string; pollinations_key: string; openai_key: string;
 };
 
 async function fixture() {
@@ -23,7 +23,7 @@ async function fixture() {
     id text PRIMARY KEY, keys jsonb DEFAULT '[]'::jsonb,
     typesafe_key text NOT NULL DEFAULT '', narrative_guard_provider text NOT NULL DEFAULT 'openrouter',
     narrative_guard_key text NOT NULL DEFAULT '', openrouter_key text NOT NULL DEFAULT '',
-    pollinations_key text NOT NULL DEFAULT '', updated_at timestamp NOT NULL DEFAULT '2000-01-01',
+    pollinations_key text NOT NULL DEFAULT '', openai_key text NOT NULL DEFAULT '', updated_at timestamp NOT NULL DEFAULT '2000-01-01',
     unrelated_setting text NOT NULL DEFAULT 'keep-me'
   )`);
   return pg;
@@ -34,10 +34,10 @@ function sealed(owner: string, purpose: string, value: string, keyring = previou
 }
 
 async function insertProfile(pg: PGlite, id: string) {
-  await pg.query(`INSERT INTO ai_settings(id, keys, typesafe_key, narrative_guard_key, openrouter_key, pollinations_key)
-    VALUES ($1,$2::jsonb,$3,$4,$5,$6)`, [id, JSON.stringify([sealed(id, "gemini", "gemini-synthetic")]),
+  await pg.query(`INSERT INTO ai_settings(id, keys, typesafe_key, narrative_guard_key, openrouter_key, pollinations_key, openai_key)
+    VALUES ($1,$2::jsonb,$3,$4,$5,$6,$7)`, [id, JSON.stringify([sealed(id, "gemini", "gemini-synthetic")]),
     sealed(id, "typesafe-pilot", "typesafe-synthetic"), sealed(id, "narrative:openrouter", "narrative-synthetic"),
-    sealed(id, "text:openrouter", "openrouter-synthetic"), sealed(id, "text:pollinations", "pollinations-synthetic")]);
+    sealed(id, "text:openrouter", "openrouter-synthetic"), sealed(id, "text:pollinations", "pollinations-synthetic"), sealed(id, "visual:openai", "openai-synthetic")]);
 }
 
 async function snapshot(pg: PGlite) {
@@ -51,6 +51,7 @@ function assertUsable(row: Row) {
     [row.narrative_guard_key, "narrative:openrouter", "narrative-synthetic"],
     [row.openrouter_key, "text:openrouter", "openrouter-synthetic"],
     [row.pollinations_key, "text:pollinations", "pollinations-synthetic"],
+    [row.openai_key, "visual:openai", "openai-synthetic"],
   ];
   for (const [value, purpose, plaintext] of entries) {
     assert.equal(openSecret(value, secretContext(row.id, purpose), { keyring: currentOnly }), plaintext);
@@ -70,6 +71,7 @@ const concurrentEdits = [
   { name: "narrative provider alone", sql: "UPDATE ai_settings SET narrative_guard_provider='typesafe' WHERE id='a'" },
   { name: "OpenRouter key", sql: "UPDATE ai_settings SET openrouter_key='concurrent-openrouter' WHERE id='a'" },
   { name: "Pollinations key", sql: "UPDATE ai_settings SET pollinations_key='concurrent-pollinations' WHERE id='a'" },
+  { name: "OpenAI key", sql: "UPDATE ai_settings SET openai_key='concurrent-openai' WHERE id='a'" },
   { name: "profile deletion", sql: "DELETE FROM ai_settings WHERE id='a'" },
 ];
 
@@ -153,14 +155,14 @@ for (const batchSize of [1, 2]) {
       const report = await rotateSecrets({ mode: "apply", keyring: ring, batchSize,
         query: (text, params) => pg.query(text, params),
       });
-      assert.deepEqual(report, { mode: "apply", profiles: 3, credentials: 15, plaintext: 0, needsRotation: 10, updatedProfiles: 2 });
+      assert.deepEqual(report, { mode: "apply", profiles: 3, credentials: 18, plaintext: 0, needsRotation: 12, updatedProfiles: 2 });
       const recovered = await snapshot(pg);
       assert.deepEqual(recovered[0], partial[0], "resuming must not reseal successful earlier credentials");
       recovered.forEach(assertUsable);
       const rerun = await rotateSecrets({ mode: "apply", keyring: currentOnly, batchSize,
         query: (text, params) => pg.query(text, params),
       });
-      assert.deepEqual(rerun, { mode: "apply", profiles: 3, credentials: 15, plaintext: 0, needsRotation: 0, updatedProfiles: 0 });
+      assert.deepEqual(rerun, { mode: "apply", profiles: 3, credentials: 18, plaintext: 0, needsRotation: 0, updatedProfiles: 0 });
       assert.deepEqual(await snapshot(pg), recovered, "idempotent rerun preserves ciphertext and timestamps");
     } finally { await pg.close(); }
   });

@@ -1,8 +1,8 @@
 import { HttpError } from "./http";
 import { openSecret, secretContext } from "./secret-vault";
 
-export type CredentialProvider = "gemini" | "openrouter" | "pollinations";
-type StoredCredentials = { id: string; keys: string[] | null; openrouterKey: string; pollinationsKey: string };
+export type CredentialProvider = "gemini" | "openrouter" | "pollinations" | "openai";
+type StoredCredentials = { id: string; keys: string[] | null; openrouterKey: string; pollinationsKey: string; openaiKey?: string };
 const recoverableErrors = new Set(["SECRET_MIGRATION_REQUIRED", "SECRET_DECRYPTION_FAILED", "SECRET_STORAGE_UNAVAILABLE"]);
 
 export function isCredentialReadError(error: unknown): error is HttpError {
@@ -14,7 +14,7 @@ export function settingsCredentialsView(row: StoredCredentials) {
   const issues = new Set<CredentialProvider>();
   function inspect(value: string, provider: CredentialProvider): string {
     try {
-      const key = openSecret(value, secretContext(row.id, provider === "gemini" ? "gemini" : `text:${provider}`));
+      const key = openSecret(value, secretContext(row.id, provider === "gemini" ? "gemini" : provider === "openai" ? "visual:openai" : `text:${provider}`));
       return key.length <= 8 ? "••••" : `${key.slice(0, 4)}••••${key.slice(-4)}`;
     } catch (error) {
       if (!isCredentialReadError(error)) throw error;
@@ -26,5 +26,6 @@ export function settingsCredentialsView(row: StoredCredentials) {
   const keysMasked = (row.keys ?? []).filter(Boolean).map(key => inspect(key, "gemini"));
   if (row.openrouterKey) inspect(row.openrouterKey, "openrouter");
   if (row.pollinationsKey) inspect(row.pollinationsKey, "pollinations");
+  if (row.openaiKey) inspect(row.openaiKey, "openai");
   return { keysMasked, credentialIssues: [...issues] };
 }

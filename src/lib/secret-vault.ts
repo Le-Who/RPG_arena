@@ -122,6 +122,7 @@ type SecretSettings = {
   narrativeGuardProvider: string;
   openrouterKey?: string;
   pollinationsKey?: string;
+  openaiKey?: string;
 };
 
 export function decodeGeminiSecrets<T extends Pick<SecretSettings, "id" | "keys">>(row: T, options: SecretOpenOptions = {}): T {
@@ -141,25 +142,26 @@ export function decodeSettingsSecrets<T extends SecretSettings>(row: T, options:
   const decoded = decodeNarrativeSecret(decodeTypeSafeSecret(decodeGeminiSecrets(row, options), options), options);
   return {
     ...decoded,
+    ...(row.openaiKey !== undefined ? { openaiKey: openSecret(row.openaiKey, secretContext(row.id, "visual:openai"), options) } : {}),
     ...(row.openrouterKey !== undefined ? { openrouterKey: openSecret(row.openrouterKey, secretContext(row.id, "text:openrouter"), options) } : {}),
     ...(row.pollinationsKey !== undefined ? { pollinationsKey: openSecret(row.pollinationsKey, secretContext(row.id, "text:pollinations"), options) } : {}),
   };
 }
 
-type StoredCredentials = { keys?: unknown; typesafeKey?: unknown; narrativeGuardKey?: unknown; openrouterKey?: unknown; pollinationsKey?: unknown };
+type StoredCredentials = { keys?: unknown; typesafeKey?: unknown; narrativeGuardKey?: unknown; openrouterKey?: unknown; pollinationsKey?: unknown; openaiKey?: unknown };
 
 export function hasStoredSettingsCredentials(row: StoredCredentials): boolean {
   const keys = row.keys;
   const hasKeys = Array.isArray(keys) ? keys.some(value => typeof value !== "string" || Boolean(value)) : keys !== null && keys !== undefined;
   return hasKeys || (typeof row.typesafeKey === "string" ? Boolean(row.typesafeKey) : row.typesafeKey !== null && row.typesafeKey !== undefined)
-    || [row.narrativeGuardKey, row.openrouterKey, row.pollinationsKey].some(value => typeof value === "string" ? Boolean(value) : value !== null && value !== undefined);
+    || [row.narrativeGuardKey, row.openrouterKey, row.pollinationsKey, row.openaiKey].some(value => typeof value === "string" ? Boolean(value) : value !== null && value !== undefined);
 }
 
 export function rebindSettingsSecrets(
-  source: { id: string; keys: unknown; typesafeKey: string; narrativeGuardProvider: string; narrativeGuardKey: string; openrouterKey?: string; pollinationsKey?: string },
+  source: { id: string; keys: unknown; typesafeKey: string; narrativeGuardProvider: string; narrativeGuardKey: string; openrouterKey?: string; pollinationsKey?: string; openaiKey?: string },
   targetOwnerId: string,
   options: SecretOpenOptions = {},
-): { keys: string[]; typesafeKey: string; narrativeGuardKey: string; openrouterKey?: string; pollinationsKey?: string } {
+): { keys: string[]; typesafeKey: string; narrativeGuardKey: string; openrouterKey?: string; pollinationsKey?: string; openaiKey?: string } {
   if (source.keys !== null && (!Array.isArray(source.keys) || !source.keys.every(value => typeof value === "string"))) {
     throw new Error("Malformed legacy credential storage. Import stopped without changes.");
   }
@@ -168,9 +170,10 @@ export function rebindSettingsSecrets(
   }
   const keys = (source.keys ?? []) as string[];
   return {
-    ...Object.fromEntries((["openrouter", "pollinations"] as const).flatMap(provider => {
+    ...Object.fromEntries((["openrouter", "pollinations", "openai"] as const).flatMap(provider => {
       const value = source[`${provider}Key`];
-      return value === undefined ? [] : [[`${provider}Key`, sealSecret(openSecret(value, secretContext(source.id, `text:${provider}`), options), secretContext(targetOwnerId, `text:${provider}`), options.keyring)]];
+      const purpose = provider === "openai" ? "visual:openai" : `text:${provider}`;
+      return value === undefined ? [] : [[`${provider}Key`, sealSecret(openSecret(value, secretContext(source.id, purpose), options), secretContext(targetOwnerId, purpose), options.keyring)]];
     })),
     keys: keys.map(value => sealSecret(
       openSecret(value, secretContext(source.id, "gemini"), options),

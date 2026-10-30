@@ -19,6 +19,7 @@ type RawSettings = {
   narrative_guard_key: string;
   openrouter_key: string;
   pollinations_key: string;
+  openai_key: string;
 };
 
 export async function rotateSecrets(options: {
@@ -36,7 +37,7 @@ export async function rotateSecrets(options: {
 
   while (true) {
     const result = await query(
-      "SELECT id, keys, typesafe_key, narrative_guard_provider, narrative_guard_key, openrouter_key, pollinations_key FROM ai_settings WHERE id > $1 ORDER BY id LIMIT $2",
+      "SELECT id, keys, typesafe_key, narrative_guard_provider, narrative_guard_key, openrouter_key, pollinations_key, openai_key FROM ai_settings WHERE id > $1 ORDER BY id LIMIT $2",
       [cursor, batchSize],
     );
     const rows = result.rows as unknown as RawSettings[];
@@ -54,11 +55,13 @@ export async function rotateSecrets(options: {
         { value: row.openrouter_key, purpose: "text:openrouter", target: "openrouter" },
         { value: row.pollinations_key, purpose: "text:pollinations", target: "pollinations" },
       ];
+      entries.push({ value: row.openai_key, purpose: "visual:openai", target: "openai" });
       const nextKeys = [...rawKeys];
       let nextTypeSafe = row.typesafe_key;
       let nextNarrative = row.narrative_guard_key;
       let nextOpenRouter = row.openrouter_key;
       let nextPollinations = row.pollinations_key;
+      let nextOpenAI = row.openai_key;
       let changed = false;
 
       for (const entry of entries) {
@@ -77,6 +80,7 @@ export async function rotateSecrets(options: {
         else if (entry.target === "typesafe") nextTypeSafe = sealed;
         else if (entry.target === "openrouter") nextOpenRouter = sealed;
         else if (entry.target === "pollinations") nextPollinations = sealed;
+        else if (entry.target === "openai") nextOpenAI = sealed;
         else nextNarrative = sealed;
         changed = true;
       }
@@ -85,13 +89,14 @@ export async function rotateSecrets(options: {
         const nextKeysValue = row.keys === null ? null : JSON.stringify(nextKeys);
         const originalKeysValue = row.keys === null ? null : JSON.stringify(rawKeys);
         const updated = await query(
-          `UPDATE ai_settings SET keys=$1::jsonb, typesafe_key=$2, narrative_guard_key=$3, openrouter_key=$9, pollinations_key=$10, updated_at=now()
+          `UPDATE ai_settings SET keys=$1::jsonb, typesafe_key=$2, narrative_guard_key=$3, openrouter_key=$9, pollinations_key=$10, openai_key=$13, updated_at=now()
            WHERE id=$4 AND keys IS NOT DISTINCT FROM $5::jsonb
              AND typesafe_key IS NOT DISTINCT FROM $6
              AND narrative_guard_provider IS NOT DISTINCT FROM $7
              AND narrative_guard_key IS NOT DISTINCT FROM $8
-             AND openrouter_key IS NOT DISTINCT FROM $11 AND pollinations_key IS NOT DISTINCT FROM $12`,
-          [nextKeysValue, nextTypeSafe, nextNarrative, row.id, originalKeysValue, row.typesafe_key, row.narrative_guard_provider, row.narrative_guard_key, nextOpenRouter, nextPollinations, row.openrouter_key, row.pollinations_key],
+             AND openrouter_key IS NOT DISTINCT FROM $11 AND pollinations_key IS NOT DISTINCT FROM $12
+             AND openai_key IS NOT DISTINCT FROM $14`,
+          [nextKeysValue, nextTypeSafe, nextNarrative, row.id, originalKeysValue, row.typesafe_key, row.narrative_guard_provider, row.narrative_guard_key, nextOpenRouter, nextPollinations, row.openrouter_key, row.pollinations_key, nextOpenAI, row.openai_key],
         );
         if (updated.rowCount !== 1) throw new Error("Secret rotation stopped because settings changed concurrently");
         report.updatedProfiles++;

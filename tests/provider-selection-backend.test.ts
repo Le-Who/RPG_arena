@@ -77,9 +77,9 @@ test("shared connections attach and remove encrypted credentials without changin
     assert.equal(openSecret(row.openrouter_key, secretContext("shared-owner", "text:openrouter")), "synthetic-openrouter");
     assert.equal(openSecret(row.pollinations_key, secretContext("shared-owner", "text:pollinations")), "synthetic-pollinations");
     for (const provider of ["gemini", "openrouter", "pollinations"] as const) await settings.saveProviderConnection("shared-owner", { provider, clearKey: true });
-    assert.deepEqual(await settings.getProviderConnections("shared-owner"), { geminiConfigured: false, openrouterConfigured: false, pollinationsConfigured: false });
+    assert.deepEqual(await settings.getProviderConnections("shared-owner"), { geminiConfigured: false, openrouterConfigured: false, pollinationsConfigured: false, openaiConfigured: false });
     assert.deepEqual((await f.pg.query("SELECT text_provider,text_model,use_live_ai,visual_account_source,pollinations_image_model FROM ai_settings WHERE id='shared-owner'")).rows[0], { text_provider: "pollinations", text_model: "fixture/narrator", use_live_ai: true, visual_account_source: "personal", pollinations_image_model: "fixture/picture" });
-    assert.deepEqual(await settings.getProviderConnections("other-owner"), { geminiConfigured: false, openrouterConfigured: false, pollinationsConfigured: false });
+    assert.deepEqual(await settings.getProviderConnections("other-owner"), { geminiConfigured: false, openrouterConfigured: false, pollinationsConfigured: false, openaiConfigured: false });
     for (const body of [{ provider: "gemini" }, { provider: "openrouter", clearKey: false }, { provider: "pollinations", apiKey: "x", clearKey: true }, { provider: "openrouter", apiKey: "key", model: "bypass" }]) {
       assert.throws(() => settings.parseProviderConnection(body), error => (error as { code?: string }).code === "INVALID_INPUT");
     }
@@ -223,7 +223,7 @@ test("shared connections round trip actual handlers with owner-only flags and no
     const response = await post({ provider: "openrouter", apiKey: "synthetic-shared-handler" });
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "private, no-store");
-    const flags = { geminiConfigured: false, openrouterConfigured: true, pollinationsConfigured: false };
+    const flags = { geminiConfigured: false, openrouterConfigured: true, pollinationsConfigured: false, openaiConfigured: false };
     assert.deepEqual(await response.json(), flags);
     assert.deepEqual(await (await cookieContext(`chronicle_guest=${guest}`, GET)).json(), flags);
     assert.deepEqual(await (await cookieContext(`chronicle_guest=${other}`, GET)).json(), { ...flags, openrouterConfigured: false });

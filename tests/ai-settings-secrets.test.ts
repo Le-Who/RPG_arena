@@ -13,7 +13,7 @@ test("getAIConfig decodes Gemini keys without opening unrelated credentials", as
   const pg = new PGlite();
   await pg.exec(`CREATE TABLE ai_settings(
     id text PRIMARY KEY, keys jsonb DEFAULT '[]'::jsonb, routing_profile text NOT NULL DEFAULT 'balanced',
-    visual_account_source text NOT NULL DEFAULT 'application', pollinations_image_model text NOT NULL DEFAULT '',
+    openai_key text NOT NULL DEFAULT '', visual_account_source text NOT NULL DEFAULT 'application', pollinations_image_model text NOT NULL DEFAULT '',
     visual_enabled boolean NOT NULL DEFAULT true, visual_provider text NOT NULL DEFAULT 'pollinations', visual_model text NOT NULL DEFAULT '', visual_endpoint text,
     narration_model text NOT NULL DEFAULT 'gemini-3.5-flash-lite', custom_action_model text NOT NULL DEFAULT 'gemini-3.8-flash',
     compaction_model text NOT NULL DEFAULT 'gemini-3.8-flash', fast_task_model text NOT NULL DEFAULT 'gemini-3.5-flash-lite',

@@ -23,6 +23,7 @@ async function run() {
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND (table_name, column_name) IN (
+          ('ai_settings', 'openai_key'),
           ('ai_settings', 'primary_model'),
           ('ai_settings', 'fallback_chain'),
           ('memory_nodes', 'access_count'),
@@ -41,6 +42,7 @@ async function run() {
       compatibility.rows.map((row) => `${row.table_name}.${row.column_name}`),
       [
         "ai_settings.fallback_chain",
+        "ai_settings.openai_key",
         "ai_settings.pollinations_image_model",
         "ai_settings.primary_model",
         "ai_settings.typesafe_key",

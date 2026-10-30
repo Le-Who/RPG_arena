@@ -82,6 +82,8 @@ jobs:
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/notification-feedback-browser.ts
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/turn-request-status-browser.ts
           node --import tsx --import ./tests/helpers/test-environment.ts scripts/service-connections-gemini-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/openai-image-settings-browser.ts
+          node --import tsx --import ./tests/helpers/test-environment.ts scripts/visual-style-browser.ts
       - name: Isolated image retry and update guards in production React
         run: |
           npm run verify:visual-gallery-ui
@@ -99,6 +101,8 @@ jobs:
             output/playwright/notification-feedback
             output/playwright/turn-request-status
             output/playwright/service-connections-gemini
+            output/playwright/openai-image-settings
+            output/playwright/visual-style
             output/playwright/visual-gallery
             output/playwright/app-update-guards
   browser-recovery:

@@ -4,7 +4,8 @@ import { HttpError, httpError } from "@/lib/http";
 import { deleteVisual, renderVisual } from "@/lib/visuals";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+// Up to 95s waiting for a prior lease + 150s OpenAI generation + persistence/access checks.
+export const maxDuration = 300;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Отдаёт сохранённое изображение; при первом просмотре генерирует его у провайдера записи. */

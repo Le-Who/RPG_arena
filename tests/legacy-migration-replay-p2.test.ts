@@ -216,7 +216,7 @@ async function assertUpgraded(pg: PGlite) {
     semantic_extraction_enabled: true, typesafe_key: '', typesafe_pilot_enabled: false,
     narrative_guard_enabled: true, narrative_guard_provider: 'openrouter', narrative_guard_key: '',
     keys_shared_project: true, daily_embedding_limit: 5000, text_provider: 'gemini', text_model: '',
-    openrouter_key: '', pollinations_key: '', pollinations_key_expires_at: null,
+    openrouter_key: '', openai_key: '', pollinations_key: '', pollinations_key_expires_at: null,
     visual_account_source: 'application', pollinations_image_model: '',
     visual_enabled: true, visual_provider: 'pollinations', visual_model: '', visual_endpoint: null,
   } }]);

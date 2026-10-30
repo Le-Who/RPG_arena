@@ -3,13 +3,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, ImageOff, LoaderCircle, MapPin, RefreshCw, Save, Star, Trash2, UserRound } from "lucide-react";
 import { api, jsonBody } from "@/lib/api-client";
+import { OPENAI_VISUAL_ERRORS } from "@/lib/visual-errors";
 import { ContextualHelp } from "./contextual-help";
 
 type Visual = { id: string; kind: "scene" | "portrait" | "location"; subjectKey: string; turnNumber: number; caption: string; provider: string; model: string; seed: number; status: string; error: string | null; width: number; height: number };
 type Identity = { id: string; subjectKey: string; subjectName: string; passport: string; seed: number; referenceVisualId: string | null };
 type Gallery = { visuals: (Visual & { accountSource?: "application" | "personal"; generationBlocked?: boolean })[]; identities: Identity[]; config: { enabled: boolean; provider: string; accountSource?: "application" | "personal"; availableAccounts?: { application: boolean; personal: boolean }; model: string; dailyLimit: number; authenticated: boolean } };
 
-const serviceName = (provider: string) => provider === "openrouter" ? "OpenRouter" : provider === "pollinations" ? "Pollinations" : provider;
+const serviceName = (provider: string) => provider === "openrouter" ? "OpenRouter" : provider === "pollinations" ? "Pollinations" : provider === "openai" ? "OpenAI" : provider;
 
 /** VIS-1/VIS-2: ручные иллюстрации. Изображение — не канон и не меняет состояние истории. */
 export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, lastTurn }: {
@@ -21,6 +22,8 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
   const [retryKey, setRetryKey] = useState<Record<string, number>>({});
   const [failed, setFailed] = useState<Record<string, boolean>>({});
   const [portraitSubject, setPortraitSubject] = useState("hero");
+  const [styleDraft, setStyleDraft] = useState({ sessionId, value: "" });
+  const styleOverride = styleDraft.sessionId === sessionId ? styleDraft.value : "";
   const loadRequest = useRef(0);
   const cancelLoad = useCallback(() => { loadRequest.current++; }, []);
   const load = useCallback(async () => {
@@ -31,8 +34,9 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
   }, [sessionId]);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => { window.clearTimeout(timer); cancelLoad(); }; }, [load, cancelLoad]);
   const create = async (kind: Visual["kind"], subject?: string) => {
+    const requestedStyle = styleOverride.trim();
     setBusy(kind); setError("");
-    try { await api(`/api/sessions/${sessionId}/visuals`, jsonBody({ kind, subject, turnNumber: kind === "scene" ? lastTurn : undefined })); await load(); }
+    try { await api(`/api/sessions/${sessionId}/visuals`, jsonBody({ kind, subject, turnNumber: kind === "scene" ? lastTurn : undefined, ...(requestedStyle ? { styleOverride: requestedStyle } : {}) })); await load(); }
     catch (e) { setError(e instanceof Error ? e.message : "Не удалось создать иллюстрацию"); }
     finally { setBusy(""); }
   };
@@ -60,12 +64,17 @@ export function VisualGallery({ sessionId, isOwner, npcs, currentLocationId, las
         <select aria-label="Чей портрет" value={portraitSubject} onChange={(e) => setPortraitSubject(e.target.value)}><option value="hero">Герой</option>{npcs.map((n) => <option key={n.key} value={`npc:${n.key}`}>{n.name}</option>)}</select>
         <button type="button" className="button secondary" disabled={!!busy} onClick={() => void create("portrait", portraitSubject)}>{busy === "portrait" ? <LoaderCircle size={14} className="spin" /> : <UserRound size={14} />}Портрет</button>
       </div>
+      <details><summary>Стиль иллюстраций</summary><div className="lx-identity">
+        <p className="gx-side-hint">По тону и сеттингу истории</p>
+        <label><span>Свой стиль</span><textarea rows={3} maxLength={400} value={styleOverride} onChange={event => setStyleDraft({ sessionId, value: event.target.value })} placeholder="Ироничная акварель, мягкие цвета" /></label>
+        <p className="gx-side-hint">Пустое поле — стиль по истории. Свой стиль действует на новые иллюстрации. Повторное создание сохраняет исходное описание.</p>
+      </div></details>
     </div>}
     {error && <p className="lx-error" role="alert">{error}</p>}
     <div className="lx-visuals">
       {data.visuals.map((v) => <figure key={v.id} className={`lx-visual is-${v.kind}`}>
         {failed[v.id] || (v.status === "failed" && !retryKey[v.id]) || (v.status !== "ready" && (!isOwner || !canRender(v)))
-          ? <div className="lx-visual-fail"><ImageOff size={22} /><small>{!isOwner && v.status !== "ready" ? "Владелец ещё не создал иллюстрацию" : !canRender(v) && v.status !== "ready" ? "Создание иллюстраций пока недоступно" : v.error ?? "Сервис иллюстраций не ответил"}</small>{isOwner && canRender(v) && <button type="button" className="button secondary" onClick={() => retry(v.id)}><RefreshCw size={13} />Повторить создание</button>}</div>
+          ? <div className="lx-visual-fail"><ImageOff size={22} /><small>{!isOwner && v.status !== "ready" ? "Владелец ещё не создал иллюстрацию" : !canRender(v) && v.status !== "ready" ? "Создание иллюстраций пока недоступно" : v.error ? Object.hasOwn(OPENAI_VISUAL_ERRORS, v.error) ? OPENAI_VISUAL_ERRORS[v.error] : v.error : "Сервис иллюстраций не ответил"}</small>{isOwner && canRender(v) && <button type="button" className="button secondary" onClick={() => retry(v.id)}><RefreshCw size={13} />Повторить создание</button>}</div>
           // eslint-disable-next-line @next/next/no-img-element
           : <img src={src(v)} alt={v.caption} loading="lazy" width={v.width} height={v.height} onError={() => setFailed((f) => ({ ...f, [v.id]: true }))} />}
         <figcaption><span>{v.caption}</span><small>{v.accountSource === "personal" ? "Личный аккаунт" : "Аккаунт приложения"} {serviceName(v.provider)} · {v.model}</small>{reference(v) && <small>Эталон внешности</small>}

@@ -78,23 +78,24 @@ export async function attachPollinationsKey(ownerId: string, key: string, expire
   }).where(eq(aiSettings.id, ownerId));
 }
 
-export type ProviderConnectionInput = { provider: TextProvider; apiKey?: string; clearKey?: boolean };
+export type ProviderConnectionInput = { provider: TextProvider | "openai"; apiKey?: string; clearKey?: boolean };
 function invalidConnection(): never { throw new HttpError(400, "INVALID_INPUT", "Некорректные настройки подключения сервиса."); }
 
 /** Connections never select a task or enable live calls. Gemini append uses the settings endpoint. */
 export function parseProviderConnection(body: Record<string, unknown>): ProviderConnectionInput {
   if (Object.keys(body).some(key => !["provider", "apiKey", "clearKey"].includes(key))) invalidConnection();
-  if (typeof body.provider !== "string" || !["gemini", "openrouter", "pollinations"].includes(body.provider)) invalidConnection();
+  if (typeof body.provider !== "string" || !["gemini", "openrouter", "pollinations", "openai"].includes(body.provider)) invalidConnection();
   if (body.clearKey !== undefined && typeof body.clearKey !== "boolean") invalidConnection();
   if (body.apiKey !== undefined && (typeof body.apiKey !== "string" || !body.apiKey.trim() || body.apiKey.length > 4096 || /[\x00-\x20\x7f]/.test(body.apiKey.trim()))) invalidConnection();
   if ((body.apiKey !== undefined) === (body.clearKey === true)) invalidConnection();
-  return { provider: body.provider as TextProvider, ...(body.apiKey !== undefined ? { apiKey: (body.apiKey as string).trim() } : { clearKey: true }) };
+  return { provider: body.provider as ProviderConnectionInput["provider"], ...(body.apiKey !== undefined ? { apiKey: (body.apiKey as string).trim() } : { clearKey: true }) };
 }
 
 function connectionsView(row: Awaited<ReturnType<typeof getRawSettingsRow>>) {
   const { credentialIssues } = settingsCredentialsView(row);
   return {
     geminiConfigured: Boolean(row.keys?.length),
+    openaiConfigured: Boolean(row.openaiKey),
     openrouterConfigured: Boolean(row.openrouterKey),
     pollinationsConfigured: Boolean(row.pollinationsKey),
     ...(credentialIssues.length ? { credentialIssues } : {}),
@@ -110,10 +111,11 @@ export async function getProviderConnections(ownerId: string) {
 export async function saveProviderConnection(ownerId: string, body: Record<string, unknown>) {
   const input = parseProviderConnection(body);
   await getRawSettingsRow(ownerId);
-  const key = input.clearKey ? "" : sealSecret(input.apiKey!, secretContext(ownerId, input.provider === "gemini" ? "gemini" : `text:${input.provider}`));
+  const key = input.clearKey ? "" : sealSecret(input.apiKey!, secretContext(ownerId, input.provider === "gemini" ? "gemini" : input.provider === "openai" ? "visual:openai" : `text:${input.provider}`));
   const patch: Partial<typeof aiSettings.$inferInsert> = { updatedAt: new Date() };
   if (input.provider === "gemini") patch.keys = key ? [key] : [];
   if (input.provider === "openrouter") patch.openrouterKey = key;
+  if (input.provider === "openai") patch.openaiKey = key;
   if (input.provider === "pollinations") { patch.pollinationsKey = key; patch.pollinationsKeyExpiresAt = null; }
   const [saved] = await db.update(aiSettings).set(patch).where(eq(aiSettings.id, ownerId)).returning();
   if (!saved) throw new HttpError(409, "SETTINGS_CHANGED", "Настройки изменились во время сохранения. Повторите попытку.");

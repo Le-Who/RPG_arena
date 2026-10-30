@@ -1,11 +1,12 @@
 // VIS-1: чистые функции провайдера и промпта (без БД) — тестируются изолированно.
 import { createHash } from "node:crypto";
 import type { VisualKind, WorldState } from "@/db/schema";
+import { assertOpenAIImageModel, OPENAI_IMAGE_DEFAULT_MODEL } from "./openai-image-catalog";
 
 // ─────────────────────────────────────────────────────────────
 //  Контракт провайдера
 // ─────────────────────────────────────────────────────────────
-export type VisualProviderId = "pollinations" | "openrouter";
+export type VisualProviderId = "pollinations" | "openrouter" | "openai";
 export type VisualOutputFormat = "png" | "jpeg" | "webp";
 export type VisualRequest = { prompt: string; seed: number; width: number; height: number; model: string; endpoint?: string | null; outputFormat?: VisualOutputFormat | null };
 export type MediaProvider = {
@@ -47,10 +48,37 @@ export const openrouterProvider: MediaProvider = {
   },
 };
 
-export const PROVIDERS: Record<string, MediaProvider> = { pollinations: pollinationsProvider, openrouter: openrouterProvider };
+/** Sizes shared by all supported GPT Image models and stored with the generated visual. */
+export function normalizeOpenAIImageDimensions(width: number, height: number): { width: number; height: number } {
+  if (width === height) return { width: 1024, height: 1024 };
+  return width > height ? { width: 1536, height: 1024 } : { width: 1024, height: 1536 };
+}
+
+export const openaiProvider: MediaProvider = {
+  id: "openai",
+  defaultModel: OPENAI_IMAGE_DEFAULT_MODEL,
+  capabilities: { generate: true, edit: false, referenceInput: false },
+  responseFormat: "base64-json",
+  buildRequest({ prompt, width, height, model }, apiKey) {
+    const key = apiKey?.trim();
+    if (!key) throw new Error("OPENAI_KEY_REQUIRED");
+    assertOpenAIImageModel(model);
+    // All supported GPT Image models accept these sizes. The application's
+    // 1024x576 scene size is below GPT Image 2's minimum pixel count.
+    const dimensions = normalizeOpenAIImageDimensions(width, height);
+    return {
+      url: "https://api.openai.com/v1/images/generations", method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      // GPT Image returns base64 directly; response_format and seed are unsupported.
+      body: JSON.stringify({ model, prompt, size: `${dimensions.width}x${dimensions.height}`, n: 1, output_format: "png" }),
+    };
+  },
+};
+
+export const PROVIDERS: Record<string, MediaProvider> = { pollinations: pollinationsProvider, openrouter: openrouterProvider, openai: openaiProvider };
 
 export function visualConfig() {
-  // The application payer remains Pollinations-only; personal OpenRouter is selected per owner.
+  // The application payer remains Pollinations-only; personal providers are selected per owner.
   const provider = pollinationsProvider;
   return {
     enabled: process.env.CHRONICLE_VISUALS_DISABLED !== "1",
@@ -68,24 +96,38 @@ export function seedFor(sessionId: string, subjectKey: string): number {
   return parseInt(createHash("sha256").update(`${sessionId}:${subjectKey}`).digest("hex").slice(0, 8), 16) % 2_000_000_000;
 }
 
-export function styleFor(tone: string, worldName: string): string {
-  const t = `${tone} ${worldName}`.toLowerCase();
-  if (/киберпанк|неон|cyber/.test(t)) return "cinematic cyberpunk illustration, neon rim light, rain-soaked, detailed";
-  if (/хоррор|ужас|мрач|gothic/.test(t)) return "dark atmospheric illustration, muted palette, volumetric fog, painterly";
-  if (/космос|sci|фантаст|станц|звезд/.test(t)) return "cinematic science fiction concept art, soft volumetric light, detailed";
-  if (/детектив|нуар|поезд|noir/.test(t)) return "moody noir illustration, film grain, dramatic lighting";
-  if (/быт|повседнев|жизн|slice|современ|реализм/.test(t)) return "warm realistic illustration, natural light, everyday atmosphere, gentle colors";
-  return "painterly fantasy illustration, cinematic composition, rich light, detailed";
+export function styleFor(tone: string, _worldName: string): string {
+  // Names are context, not evidence for a genre or costume. Combine explicit
+  // tone cues so a gothic comedy does not lose either part to a first-match rule.
+  const neutral = "Neutral story illustration, natural proportions and context-appropriate lighting";
+  const t = (tone ?? "").toLowerCase(), cues: string[] = [];
+  // Negation makes keyword interpretation ambiguous. Keep the authoritative raw
+  // tone in the prompt and let it guide rendering without an invented directive.
+  if (/(?:^|[\s,;:()—–-])(?:без|не|нет|no|not|without)(?=$|[\s/—–-])/u.test(t)) return neutral;
+  if (/киберпанк|cyberpunk|неонов/.test(t)) cues.push("cyberpunk lighting");
+  if (/готич|готик|gothic/.test(t)) cues.push("dark gothic atmosphere");
+  else if (/хоррор|ужас|мрач|horror/.test(t)) cues.push("dark atmospheric lighting");
+  if (/космос|космич|science.?fiction|sci.?fi|научн.{0,12}фантаст/.test(t)) cues.push("science-fiction design");
+  if (/фэнтези|фентези|fantasy/.test(t)) cues.push("fantasy design");
+  if (/нуар|noir/.test(t)) cues.push("noir contrast");
+  if (/быт|повседнев|slice|современ|реализм|реалист|grounded/.test(t)) cues.push("naturalistic lighting");
+  if (/комед|юмор|ирони|смешн|сатир|фарс|comedy|comedic|humou?r|satir/.test(t)) cues.push("comedic mood and expressive staging");
+  return cues.length ? `Story illustration, ${cues.join(", ")}` : neutral;
 }
 
 export const clip = (s: string, n: number) => s.replace(/\s+/g, " ").trim().slice(0, n);
+export const MAX_VISUAL_PROMPT_LENGTH = 2200;
 
 export type PromptInput = {
   kind: VisualKind;
-  world: Pick<WorldState, "tone" | "worldName" | "era" | "currentLocation">;
+  world: Pick<WorldState, "tone" | "worldName" | "era" | "currentLocation"> & {
+    narrator?: Pick<NonNullable<WorldState["narrator"]>, "realism" | "tension" | "note">;
+  };
   subjectName: string;
   passport: string;
+  styleOverride?: string;
   locationDescription?: string;
+  /** One latest relevant narrator excerpt, for portraits and places as well as scenes. */
   sceneNarration?: string;
   presentPassports?: { name: string; passport: string }[];
   objects?: string[];
@@ -94,22 +136,71 @@ export type PromptInput = {
 
 /** Служебные ID и ключи не добавляются; авторские описания передаются как визуальный контекст. */
 export function buildVisualPrompt(p: PromptInput): string {
-  const style = styleFor(p.world.tone, p.world.worldName);
-  const era = p.world.era ? `era: ${clip(p.world.era, 60)}` : "";
+  // Independent field budgets fit MAX_VISUAL_PROMPT_LENGTH even when every
+  // field is filled. Never truncate the joined prompt: that would drop the
+  // last character's appearance or the final identity instructions.
+  const parts: string[] = [];
+  const add = (label: string, value: string | undefined, budget: number) => {
+    const content = clip(value ?? "", budget);
+    if (content) parts.push(`${label}: ${content}.`);
+  };
+  const override = clip(p.styleOverride ?? "", 400);
+  if (override) {
+    add("Visual style override", override, 400);
+    parts.push("Override controls rendering; preserve world facts and identities.");
+  } else {
+    parts.push(`${styleFor(p.world.tone, p.world.worldName)}.`);
+    parts.push("Match the story tone and current moment.");
+  }
+  add("World", p.world.worldName, 60);
+  add("Era", p.world.era, 60);
+  add("Story tone", p.world.tone, 120);
+  add("Current place", p.world.currentLocation, 60);
   if (p.kind === "portrait") {
-    return clip(`${style}. Character portrait, head and shoulders, consistent character design. ${p.passport ? clip(p.passport, 420) : clip(p.subjectName, 80)}. ${era}. No text, no watermark.`, 900);
+    parts.push("Character portrait, head and shoulders, consistent character design.");
+    add("Character", p.subjectName, 60);
+    add("Appearance", p.passport, 320);
+  } else if (p.kind === "location") {
+    parts.push("Establishing shot of a place, no people in focus.");
+    add("Place", p.subjectName, 60);
+    add("Place details", p.locationDescription || p.passport, 320);
+  } else {
+    parts.push("Story scene illustration.");
+    add("Place details", p.locationDescription, 100);
+    const people = (p.presentPassports ?? []).slice(0, 3).map(person => `${clip(person.name, 32)} — ${clip(person.passport, 110)}`);
+    if (people.length) parts.push(`Characters: ${people.join("; ")}.`);
+    const objects = (p.objects ?? []).slice(0, 3).map(object => clip(object, 24)).filter(Boolean);
+    if (objects.length) parts.push(`Objects: ${objects.join(", ")}.`);
   }
-  if (p.kind === "location") {
-    return clip(`${style}. Establishing shot of a place, no people in focus. ${clip(p.subjectName, 80)}: ${clip(p.locationDescription || p.passport, 360)}. ${p.partOfDay ? `Time of day: ${p.partOfDay}.` : ""} ${era}. No text, no watermark.`, 900);
+  add(p.kind === "portrait" ? "Atmosphere only; retain this character's appearance and pose" : "Current moment", p.sceneNarration, 200);
+  add("Time", p.partOfDay, 24);
+  if (p.world.narrator) {
+    add("Narrator realism", p.world.narrator.realism, 16);
+    add("Narrator tension", p.world.narrator.tension, 8);
+    add("Narrator direction", p.world.narrator.note, 100);
   }
-  const people = (p.presentPassports ?? []).slice(0, 3).map((x) => `${clip(x.name, 40)} — ${clip(x.passport, 140)}`).join("; ");
-  return clip(`${style}. Story scene illustration. Place: ${clip(p.world.currentLocation, 80)}${p.locationDescription ? ` (${clip(p.locationDescription, 160)})` : ""}. ${p.partOfDay ? `Time of day: ${p.partOfDay}.` : ""} Moment: ${clip(p.sceneNarration ?? "", 360)}. ${people ? `Characters: ${people}.` : ""} ${p.objects?.length ? `Notable objects: ${p.objects.slice(0, 4).join(", ")}.` : ""} ${era}. No text, no watermark.`, 900);
+  parts.push("Names identify subjects; do not infer genre, mood or costume from a name. Preserve established appearance. No text, no watermark.");
+  return parts.join(" ");
 }
 
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_BASE64_BYTES = Math.ceil(MAX_BYTES / 3) * 4;
 const MAX_JSON_BYTES = MAX_BASE64_BYTES + 64 * 1024;
+const OPENAI_HTTP_ERRORS: Record<number, string> = {
+  400: "OPENAI_REQUEST_REJECTED",
+  401: "OPENAI_AUTH_FAILED",
+  403: "OPENAI_ACCESS_DENIED",
+  404: "OPENAI_MODEL_UNAVAILABLE",
+  429: "OPENAI_RATE_LIMITED",
+};
+
+function safeOpenAITransportError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : "";
+  // Never propagate untrusted transport/error-body text containing a personal key.
+  const safe = ["PROVIDER_TIMEOUT", "PROVIDER_NOT_IMAGE", "PROVIDER_BAD_SIZE", ...Object.values(OPENAI_HTTP_ERRORS)].includes(message) || /^PROVIDER_HTTP_[45]\d{2}$/.test(message);
+  return new Error(safe ? message : "PROVIDER_ERROR");
+}
 
 /** Sniff raster bytes independently of the provider's MIME claim. SVG is never accepted. */
 function rasterMime(image: Buffer): string | undefined {
@@ -136,9 +227,14 @@ function decodeImageJson(bytes: Buffer): { image: Buffer; mimeType: string } {
   return { image, mimeType };
 }
 
+export function visualProviderTimeoutMs(providerId: string): number {
+  // OpenAI documents up to two minutes for complex image prompts; allow transfer headroom.
+  return providerId === "openai" ? 150_000 : 90_000;
+}
+
 export async function fetchFromProvider(provider: MediaProvider, request: VisualRequest, fetchImpl: typeof fetch = fetch, apiKey?: string): Promise<{ image: Buffer; mimeType: string }> {
   const { url, headers, method, body } = provider.buildRequest(request, apiKey);
-  const signal = AbortSignal.timeout(90_000);
+  const signal = AbortSignal.timeout(visualProviderTimeoutMs(provider.id));
   const bounded = async <T>(operation: () => Promise<T>) => {
     if (signal.aborted) throw new Error("PROVIDER_TIMEOUT");
     let abort!: () => void;
@@ -157,9 +253,9 @@ export async function fetchFromProvider(provider: MediaProvider, request: Visual
   const response = await bounded(() => fetchImpl(url, { headers, ...(method ? { method, body, redirect: "error" as const } : {}), signal, cache: "no-store" }).then(response => {
     if (signal.aborted) void response.body?.cancel().catch(() => {});
     return response;
-  }));
+  })).catch(error => { throw provider.id === "openai" ? safeOpenAITransportError(error) : error; });
   try {
-    if (!response.ok) throw new Error(`PROVIDER_HTTP_${response.status}`);
+    if (!response.ok) throw new Error((provider.id === "openai" && OPENAI_HTTP_ERRORS[response.status]) || `PROVIDER_HTTP_${response.status}`);
     const mimeType = (response.headers.get("content-type") ?? "").split(";")[0].trim();
     const json = provider.responseFormat === "base64-json";
     const limit = json ? MAX_JSON_BYTES : MAX_BYTES;
@@ -194,6 +290,6 @@ export async function fetchFromProvider(provider: MediaProvider, request: Visual
   } catch (error) {
     if (!response.body?.locked) void response.body?.cancel().catch(() => {});
     if (signal.aborted) throw new Error("PROVIDER_TIMEOUT");
-    throw error;
+    throw provider.id === "openai" ? safeOpenAITransportError(error) : error;
   }
 }

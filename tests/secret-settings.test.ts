@@ -99,7 +99,7 @@ async function fixture() {
       narrative_guard_provider text NOT NULL DEFAULT 'openrouter',
       narrative_guard_key text NOT NULL DEFAULT '',
       openrouter_key text NOT NULL DEFAULT '',
-      pollinations_key text NOT NULL DEFAULT '',
+      pollinations_key text NOT NULL DEFAULT '', openai_key text NOT NULL DEFAULT '',
       updated_at timestamp NOT NULL DEFAULT now()
     )
   `);
