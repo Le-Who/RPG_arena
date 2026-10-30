@@ -64,7 +64,8 @@ test("settings mutation returns committed canonical fields without re-reading se
     assert.equal(saved.routingProfile, "economy");
     assert.equal(saved.narrationModel, "gemini-3.5-flash-lite");
     assert.equal(saved.useLiveAI, true);
-    assert.equal(saved.canUseLive, true);
+    assert.equal(saved.canUseLive, false, "legacy plaintext is not a usable live connection");
+    assert.deepEqual(saved.credentialIssues, ["openrouter"]);
     assert.equal(saved.textProvider, "openrouter");
     assert.equal(settingsReads, 1, "use UPDATE RETURNING instead of selecting canonical settings again");
     assert.ok(!JSON.stringify(saved).includes("unrelated-router-secret"));

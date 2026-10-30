@@ -1,23 +1,22 @@
 import type { getRawSettingsRow } from "./ai-settings";
-import { decodeGeminiSecrets, secretStorageAvailable } from "./secret-vault";
+import { secretStorageAvailable } from "./secret-vault";
+import { settingsCredentialsView } from "./settings-credentials-view";
 import { EMBEDDING_MODEL_ALIASES } from "./embeddings";
 import { ROUTING_PROFILES } from "./gemini";
 
-function mask(keys: string[]) {
-  return keys.map((k) => (k.length <= 8 ? "••••" : `${k.slice(0, 4)}••••${k.slice(-4)}`));
-}
-
-export function settingsView(raw: Awaited<ReturnType<typeof getRawSettingsRow>>) {
-  const s = decodeGeminiSecrets(raw);
-  const keys = ((s.keys as string[]) ?? []).filter(Boolean);
+export function settingsView(s: Awaited<ReturnType<typeof getRawSettingsRow>>) {
+  const { keysMasked, credentialIssues } = settingsCredentialsView(s);
   const textProvider = s.textProvider ?? "gemini";
   const pollinationsKeyExpired = Boolean(s.pollinationsKeyExpiresAt && s.pollinationsKeyExpiresAt.getTime() <= Date.now());
-  const canUseLive = s.useLiveAI && (textProvider === "gemini" ? keys.length > 0
+  // Gemini is also loaded by the shared runtime config for embeddings.
+  const canUseLive = s.useLiveAI && !credentialIssues.includes("gemini") && !credentialIssues.some(provider => provider === textProvider)
+    && (textProvider === "gemini" ? keysMasked.length > 0
     : Boolean(s.textModel && (textProvider === "openrouter" ? s.openrouterKey : textProvider === "pollinations" && s.pollinationsKey && !pollinationsKeyExpired)));
   return {
     secretStorageAvailable: secretStorageAvailable(),
-    keysMasked: mask(keys),
-    keysCount: keys.length,
+    keysMasked,
+    keysCount: keysMasked.length,
+    ...(credentialIssues.length ? { credentialIssues } : {}),
     envKeysCount: 0,
     textProvider,
     textModel: s.textModel ?? "",

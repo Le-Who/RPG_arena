@@ -28,13 +28,17 @@ async function handlePOST(req: Request) {
     const body = await readJsonObject(req, 16384);
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Некорректные настройки" }, { status: 400 });
     if (body.embeddingModel && body.embeddingModel !== "gemini-embedding-2") return NextResponse.json({ error: "Поддерживается только gemini-embedding-2" }, { status: 400 });
-    const s = decodeGeminiSecrets(await getRawSettingsRow());
+    const s = await getRawSettingsRow();
     const currentKeys = ((s.keys as string[]) ?? []).filter(Boolean);
 
     let keys = currentKeys;
-    if (typeof body.keysText === "string") {
-      const parsed = body.keysText.split(/[\n,;\s]+/).map((k: string) => k.trim()).filter((k: string) => k.length > 10);
-      keys = body.append === false ? parsed : [...new Set([...currentKeys, ...parsed])];
+    const writesNewKeys = typeof body.keysText === "string" && body.clearKeys !== true;
+    if (writesNewKeys) {
+      const keysText = body.keysText as string;
+      const parsed = keysText.split(/[\n,;\s]+/).map((k: string) => k.trim()).filter((k: string) => k.length > 10);
+      // Only merging needs the old plaintext. Replacement/clear/removal must work
+      // even when an old credential can no longer be opened.
+      keys = body.append === false ? parsed : [...new Set([...((decodeGeminiSecrets(s).keys ?? []).filter(Boolean)), ...parsed])];
     }
     const removeIndex = body.removeIndex;
     if (Array.isArray(removeIndex)) keys = keys.filter((_, i) => !removeIndex.includes(i));
@@ -70,7 +74,7 @@ async function handlePOST(req: Request) {
       .set({
         // This endpoint receives partial drafts. Omitted fields must retain the
         // committed row, including connections saved concurrently in another tab.
-        ...(geminiKeyOperation ? { keys: prepareGeminiKeysWrite(s.id, keys) } : {}),
+        ...(geminiKeyOperation ? { keys: writesNewKeys ? prepareGeminiKeysWrite(s.id, keys) : keys } : {}),
         ...(body.routingProfile !== undefined ? { routingProfile: profile } : {}),
         ...(body.narrationModel !== undefined || body.routingProfile ? { narrationModel } : {}),
         ...(body.customActionModel !== undefined || body.routingProfile ? { customActionModel } : {}),

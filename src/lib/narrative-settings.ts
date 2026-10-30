@@ -1,12 +1,13 @@
 import { HttpError } from "./http";
 import { decodeNarrativeSecret, sealSecret, secretContext, type SecretKeyring } from "./secret-vault";
 import { NARRATIVE_PROVIDERS, type NarrativeProvider } from "./narrative-verifier";
+import { isCredentialReadError } from "./settings-credentials-view";
 
 type CredentialSource = "personal" | "administrator" | "none";
 export type NarrativeGuardConfig = { enabled: boolean; provider: NarrativeProvider; apiKey: string; requestedEnabled?: boolean; credentialSource?: CredentialSource };
 type AdministratorCredential = { provider: NarrativeProvider; apiKey: string };
 type SettingsRow = { narrativeGuardEnabled?: boolean; narrativeGuardProvider?: string; narrativeGuardKey?: string; [key: string]: unknown };
-export type NarrativeSettingsView = { enabled: boolean; active: boolean; provider: NarrativeProvider; configured: boolean; maskedKey: string | null; model: string; credentialSource: CredentialSource; administratorAvailable: boolean };
+export type NarrativeSettingsView = { enabled: boolean; active: boolean; provider: NarrativeProvider; configured: boolean; maskedKey: string | null; model: string; credentialSource: CredentialSource; administratorAvailable: boolean; credentialIssue?: boolean };
 export type NarrativeSettingsUpdate = { enabled?: boolean; provider?: NarrativeProvider; key?: string; clearKey?: boolean };
 
 export function resolveNarrativeGuardConfig(row: SettingsRow, administrator?: AdministratorCredential): NarrativeGuardConfig {
@@ -78,11 +79,25 @@ export async function getNarrativeGuardConfig(ownerId?: string): Promise<Narrati
   return resolveNarrativeGuardConfig(decodeNarrativeSecret(await getRawSettingsRow(ownerId)), administratorCredential());
 }
 
+function storedNarrativeSettingsView(row: SettingsRow & { id: string; narrativeGuardKey: string; narrativeGuardProvider: string }): NarrativeSettingsView {
+  const administrator = administratorCredential();
+  try {
+    return narrativeSettingsView(decodeNarrativeSecret(row), administrator);
+  } catch (error) {
+    if (!isCredentialReadError(error)) throw error;
+    const view = narrativeSettingsView({ ...row, narrativeGuardKey: "" }, administrator);
+    // Preserve the saved credential and expose its replacement/removal controls.
+    // An unreadable personal key must not silently switch payment to the administrator.
+    return { ...view, active: false, configured: true, maskedKey: "••••", credentialSource: "personal",
+      model: NARRATIVE_PROVIDERS[view.provider].model, credentialIssue: true };
+  }
+}
+
 export async function getNarrativeSettingsView(): Promise<NarrativeSettingsView> {
   const { currentProfileId } = await import("./identity");
   const ownerId = await currentProfileId();
   const { getRawSettingsRow } = await import("./ai-settings");
-  return narrativeSettingsView(decodeNarrativeSecret(await getRawSettingsRow(ownerId)), administratorCredential());
+  return storedNarrativeSettingsView(await getRawSettingsRow(ownerId));
 }
 
 export async function updateNarrativeSettings(raw: Record<string, unknown>): Promise<NarrativeSettingsView> {
@@ -99,6 +114,6 @@ export async function updateNarrativeSettings(raw: Record<string, unknown>): Pro
     const [row] = await tx.select().from(aiSettings).where(eq(aiSettings.id, ownerId)).for("update");
     const patch = prepareNarrativeSettingsWrite(ownerId, row, input);
     const [saved] = await tx.update(aiSettings).set({ ...patch, updatedAt: new Date() }).where(eq(aiSettings.id, ownerId)).returning();
-    return narrativeSettingsView(decodeNarrativeSecret(saved), administratorCredential());
+    return storedNarrativeSettingsView(saved);
   });
 }

@@ -14,7 +14,7 @@ function unavailable(): HttpError {
 }
 
 function decryptionFailed(): HttpError {
-  return new HttpError(503, "SECRET_DECRYPTION_FAILED", "Не удалось безопасно прочитать ключ. Проверьте версию ключа шифрования или сохраните API-ключ заново.");
+  return new HttpError(503, "SECRET_DECRYPTION_FAILED", "Не удалось прочитать сохранённый API-ключ. Откройте настройки и сохраните ключ заново. Ваши кампании сохранены.");
 }
 
 function decodeKey(value: unknown): Buffer {
@@ -92,7 +92,7 @@ export function openSecret(value: string, context: string, options: SecretOpenOp
   if (!isSealedSecret(value)) {
     const allowed = options.allowPlaintext ?? process.env.CHRONICLE_ALLOW_LEGACY_PLAINTEXT === "true";
     if (allowed) return value;
-    throw new HttpError(503, "SECRET_MIGRATION_REQUIRED", "Сохранённые ключи требуют защищённой миграции. Обратитесь к администратору.");
+    throw new HttpError(503, "SECRET_MIGRATION_REQUIRED", "Сохранённый API-ключ устарел. Откройте настройки и сохраните ключ заново. Ваши кампании сохранены.");
   }
 
   try {

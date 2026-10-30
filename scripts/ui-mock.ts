@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { PRODUCT_INFO } from "../src/lib/product-info";
+import type { Settings } from "../src/lib/ui-data";
 
 export const mockSessionId = "00000000-0000-4000-8000-000000000001";
 const mockProfileId = "guest:ui-audit-fixture";
@@ -57,7 +58,7 @@ export const mockSnapshot = {
   embeddings: { nodes: 2, ready: 2, pending: 0, processing: 0, failed: 0 },
 };
 
-export const settings = {
+export const settings: Settings = {
   keysMasked: [], keysCount: 0, envKeysCount: 0, useLiveAI: false, routingProfile: "balanced",
   narrationModel: "gemini-3.5-flash-lite", customActionModel: "gemini-3.8-flash", compactionModel: "gemini-3.8-flash",
   fastTaskModel: "gemini-3.5-flash-lite", dailyFlashLimit: 20, dailyLiteLimit: 500, dailyEmbeddingLimit: 5000, keysSharedProject: true, enforceLimits: true,

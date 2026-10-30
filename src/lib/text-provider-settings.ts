@@ -4,6 +4,7 @@ import { aiSettings } from "@/db/schema";
 import { getRawSettingsRow } from "./ai-settings";
 import { HttpError } from "./http";
 import { sealSecret, secretContext } from "./secret-vault";
+import { settingsCredentialsView } from "./settings-credentials-view";
 
 export type TextProvider = "gemini" | "openrouter" | "pollinations";
 export type TextProviderSettingsInput = {
@@ -91,10 +92,12 @@ export function parseProviderConnection(body: Record<string, unknown>): Provider
 }
 
 function connectionsView(row: Awaited<ReturnType<typeof getRawSettingsRow>>) {
+  const { credentialIssues } = settingsCredentialsView(row);
   return {
     geminiConfigured: Boolean(row.keys?.length),
     openrouterConfigured: Boolean(row.openrouterKey),
     pollinationsConfigured: Boolean(row.pollinationsKey),
+    ...(credentialIssues.length ? { credentialIssues } : {}),
     ...(row.pollinationsKeyExpiresAt ? { pollinationsKeyExpiresAt: row.pollinationsKeyExpiresAt.toISOString() } : {}),
   };
 }
