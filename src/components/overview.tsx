@@ -22,7 +22,8 @@ export function Overview() {
     {loadError && <div className="notice error-notice" role="alert"><p>Не удалось загрузить ваши истории. {loadError}</p><button className="text-button" onClick={() => void refresh()}><RefreshCw size={15} />Повторить</button></div>}
 
     <section className={`story-hero hero-slide-${slide}`} aria-label="Вдохновение для новой истории">
-      <Image className="story-hero-art" src={coverFor(world.id)} alt={`Пейзаж мира ${world.worldName}`} fill sizes="(max-width:780px) 100vw, calc(100vw - 300px)" preload />
+      {/* ⚡ Bolt: Use `priority` instead of invalid `preload` for LCP optimization */}
+      <Image className="story-hero-art" src={coverFor(world.id)} alt={`Пейзаж мира ${world.worldName}`} fill sizes="(max-width:780px) 100vw, calc(100vw - 300px)" priority />
       <div className="story-hero-shade" />
       <div className="story-hero-copy"><span className="hero-kicker"><Sparkles size={13} />ВЫ — ГЛАВНЫЙ ГЕРОЙ</span><h2>Не просто игра.<br /><em>Твоя история.</em></h2><p>Мир оживает с каждым решением.<br />Каким будет след, который оставишь ты?</p><div className="story-hero-actions"><button className="button primary" onClick={() => newStory(world.id)}>Начать приключение <ArrowRight size={16} /></button><button className="hero-guide" onClick={showGuide}><span><Play size={12} fill="currentColor" /></span>Как это работает</button></div></div>
       <span className="hero-art-label"><span />АВТОРСКИЙ МИР</span>
