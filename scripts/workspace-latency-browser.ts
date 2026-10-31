@@ -40,7 +40,7 @@ async function main() {
     builder.onResolve({ filter: /^(next\/link|next\/image|next\/navigation|\.\/settings-overlay|\.\/command-palette|\.\/pwa|\.\/app-update)$/ }, args => ({ path: args.path, namespace: "fixture-environment" }));
     builder.onLoad({ filter: /.*/, namespace: "fixture-environment" }, args => ({ loader: "tsx", resolveDir: process.cwd(), contents:
       args.path === "next/link" ? 'import React from "react"; export default function Link(props){return <a {...props}/>;}' :
-      args.path === "next/image" ? 'import React from "react";export default function Image({fill,preload,priority,quality,placeholder,blurDataURL,style,...props}){return <img {...props} style={fill?{position:"absolute",height:"100%",width:"100%",inset:0,...style}:style}/>;}' :
+      args.path === "next/image" ? 'import React from "react";export default function Image({fill,priority,quality,placeholder,blurDataURL,style,...props}){return <img {...props} style={fill?{position:"absolute",height:"100%",width:"100%",inset:0,...style}:style}/>;}' :
       args.path === "next/navigation" ? 'const router={push:url=>history.pushState({},"",url),replace:url=>history.replaceState({},"",url),refresh:()=>{}};export const useRouter=()=>router;export const usePathname=()=>"/";' :
       args.path === "./settings-overlay" ? 'export const SettingsOverlay=()=>null;' :
       args.path === "./command-palette" ? 'export const CommandPalette=()=>null;' :
