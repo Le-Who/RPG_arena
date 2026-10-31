@@ -97,8 +97,8 @@ async function main() {
           await expect.poll(() => result.requests.length).toBeGreaterThan(0);
           if (name.startsWith("initial-")) {
             const copying = name.startsWith("initial-copy-");
-            if (!copying) await keyboardActivate(page, "Новая история");
-            await keyboardActivate(page, copying ? "Продолжить в своей копии" : "Начать историю");
+            if (!copying) await keyboardActivate(page, "Своя история");
+            await keyboardActivate(page, copying ? "Продолжить в своей копии" : "Начать приключение");
             await expect.poll(() => creations.length).toBe(1);
             if (name.endsWith("changed-owner")) current = bootstrap(profileB, "Второе пространство");
             if (name === "initial-create-before-bootstrap") {
@@ -155,7 +155,7 @@ async function main() {
             await expect(page.getByRole("dialog")).toContainText("Здесь нет неправильного пути");
             await page.keyboard.press("Escape");
             await expect(page.getByRole("button", { name: "Как это работает", exact: true }).first()).toBeFocused();
-            await keyboardActivate(page, "Новая история");
+            await keyboardActivate(page, "Своя история");
             await keyboardActivate(page, "Своя история");
             const title = page.getByRole("textbox", { name: "Название истории" });
             await title.focus(); await page.keyboard.type("Чай в осеннем городе");

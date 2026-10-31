@@ -1,3 +1,0 @@
-## 2024-05-18 - [Next.js Image LCP Optimization]
-**Learning:** Next.js `next/image` does not natively support the `preload` attribute; it falls back to lazy-loading, negating the expected performance benefit for Largest Contentful Paint (LCP) elements. Furthermore, manually setting `loading="eager"` on the `Image` component is sub-optimal compared to using `priority={true}`, as the latter injects a `<link rel="preload">` into the document head and prevents lazy-loading concurrently.
-**Action:** Always use the `priority` prop for above-the-fold images in Next.js instead of custom loading logic or invalid props.
